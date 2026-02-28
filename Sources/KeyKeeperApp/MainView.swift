@@ -54,5 +54,18 @@ struct MainView: View {
         .sheet(isPresented: $showingAdd) {
             AddCredentialView(onSave: { viewModel.load() })
         }
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Button(action: { NSApplication.shared.terminate(nil) }) {
+                    Label("Quit KeyKeeper", systemImage: "power")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+        }
     }
 }
