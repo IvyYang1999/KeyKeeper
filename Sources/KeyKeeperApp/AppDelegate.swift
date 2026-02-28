@@ -20,6 +20,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentSize = NSSize(width: 360, height: 480)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: MainView())
+
+        // Auto-show popover on launch so user knows the app is running
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.showPopover()
+        }
+    }
+
+    private func showPopover() {
+        guard let button = statusItem.button else { return }
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
     @objc func togglePopover() {
