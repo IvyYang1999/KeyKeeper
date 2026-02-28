@@ -1,0 +1,10 @@
+.DS_Store
+.build/
+*.xcodeproj
+xcuserdata/
+DerivedData/
+.swiftpm/
+__pycache__/
+*.egg-info/
+dist/
+node_modules/
