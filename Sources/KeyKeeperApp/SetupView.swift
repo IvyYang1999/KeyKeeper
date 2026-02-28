@@ -52,7 +52,7 @@ struct SetupView: View {
             Label("CLI installed at /usr/local/bin/keykeeper", systemImage: "checkmark.circle.fill")
                 .foregroundColor(.green)
                 .font(.callout)
-            Label("Skill installed at ~/.claude/commands/keykeeper.md", systemImage: "checkmark.circle.fill")
+            Label("Skill installed at ~/.claude/skills/keykeeper/SKILL.md", systemImage: "checkmark.circle.fill")
                 .foregroundColor(.green)
                 .font(.callout)
         }
@@ -86,7 +86,7 @@ struct SetupView: View {
                 installed: skillInstalled,
                 title: "2. Claude Code Skill",
                 what: "A markdown file that teaches Claude Code how to use KeyKeeper",
-                where_: "~/.claude/commands/keykeeper.md",
+                where_: "~/.claude/skills/keykeeper/SKILL.md",
                 why: "So Claude Code writes get_key(\"name\") instead of asking you for keys"
             )
         }
@@ -140,7 +140,7 @@ struct SetupView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Install Claude Code Skill:").font(.caption.bold())
-                CopyableCommand("mkdir -p ~/.claude/commands && curl -o ~/.claude/commands/keykeeper.md https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/keykeeper.md")
+                CopyableCommand("mkdir -p ~/.claude/skills/keykeeper && curl -o ~/.claude/skills/keykeeper/SKILL.md https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/keykeeper.md")
             }
 
             Divider()
@@ -151,7 +151,7 @@ struct SetupView: View {
             Text("Paste this into Claude Code:")
                 .font(.caption).foregroundColor(.secondary)
 
-            CopyableCommand("Help me install KeyKeeper CLI and skill. Run: sudo cp /Applications/KeyKeeper.app/Contents/MacOS/keykeeper /usr/local/bin/keykeeper && mkdir -p ~/.claude/commands && curl -o ~/.claude/commands/keykeeper.md https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/keykeeper.md")
+            CopyableCommand("Help me install KeyKeeper CLI and skill. Run: sudo cp /Applications/KeyKeeper.app/Contents/MacOS/keykeeper /usr/local/bin/keykeeper && mkdir -p ~/.claude/skills/keykeeper && curl -o ~/.claude/skills/keykeeper/SKILL.md https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/keykeeper.md")
 
             Divider()
 
@@ -187,7 +187,7 @@ struct SetupView: View {
     func checkStatus() {
         cliInstalled = FileManager.default.fileExists(atPath: "/usr/local/bin/keykeeper")
         let skillPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/commands/keykeeper.md")
+            .appendingPathComponent(".claude/skills/keykeeper/SKILL.md")
         skillInstalled = FileManager.default.fileExists(atPath: skillPath.path)
     }
 
@@ -207,10 +207,10 @@ struct SetupView: View {
 
     func installSkill() {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let dir = home.appendingPathComponent(".claude/commands")
+        let dir = home.appendingPathComponent(".claude/skills/keykeeper")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        let dest = dir.appendingPathComponent("keykeeper.md")
+        let dest = dir.appendingPathComponent("SKILL.md")
 
         if let bundleSkillURL = Bundle.main.url(forResource: "keykeeper", withExtension: "md"),
            let content = try? String(contentsOf: bundleSkillURL, encoding: .utf8) {
