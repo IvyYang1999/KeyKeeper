@@ -4,6 +4,7 @@ import ArgumentParser
 struct KeyKeeperCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "keykeeper",
-        abstract: "Secure API key management for AI coding tools"
+        abstract: "Secure API key management for AI coding tools",
+        subcommands: [ListCommand.self, GetCommand.self, MetaCommand.self]
     )
 }
