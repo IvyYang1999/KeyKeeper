@@ -3,13 +3,11 @@ import SwiftUI
 struct SetupView: View {
     @Binding var setupComplete: Bool
     @State private var cliInstalled = false
-    @State private var skillInstalled = false
-    @State private var isSettingUp = false
-    @State private var errorMessage: String?
     @State private var showManual = false
+    @State private var isInstallingCLI = false
+    @State private var errorMessage: String?
 
-    var allDone: Bool { cliInstalled && skillInstalled }
-
+    // We only check CLI installation. Skill installation is delegated to Claude Code.
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
@@ -29,92 +27,68 @@ struct SetupView: View {
 
                 Divider().padding(.horizontal)
 
-                if allDone {
-                    doneSection
-                } else if showManual {
+                if showManual {
                     manualSection
                 } else {
-                    overviewSection
+                    mainSection
                 }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
         }
         .frame(width: 360, height: 480)
-        .onAppear { checkStatus() }
+        .onAppear { checkCLI() }
     }
 
-    // MARK: - All Done
+    // MARK: - Main Section
 
     @ViewBuilder
-    private var doneSection: some View {
-        VStack(spacing: 12) {
-            Label("CLI installed at /usr/local/bin/keykeeper", systemImage: "checkmark.circle.fill")
-                .foregroundColor(.green)
-                .font(.callout)
-            Label("Skill installed at ~/.claude/skills/keykeeper/SKILL.md", systemImage: "checkmark.circle.fill")
-                .foregroundColor(.green)
-                .font(.callout)
-        }
-        .padding()
+    private var mainSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
 
-        Button("Get Started") {
-            setupComplete = true
-            UserDefaults.standard.set(true, forKey: "setupComplete")
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-    }
-
-    // MARK: - Overview (default)
-
-    @ViewBuilder
-    private var overviewSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("What needs to be installed")
-                .font(.headline)
-
-            SetupItemCard(
-                installed: cliInstalled,
-                title: "1. CLI Tool",
-                what: "The `keykeeper` command-line binary",
-                where_: "/usr/local/bin/keykeeper",
-                why: "So your Python/Node code can read keys from Keychain at runtime"
+            // Step 1: CLI
+            StepCard(
+                step: 1,
+                done: cliInstalled,
+                title: "Install CLI Tool",
+                detail: "Installs the `keykeeper` binary to /usr/local/bin so your code can securely read keys from macOS Keychain at runtime.",
+                actionLabel: cliInstalled ? nil : "Install CLI",
+                isLoading: isInstallingCLI,
+                action: installCLI
             )
 
-            SetupItemCard(
-                installed: skillInstalled,
-                title: "2. Claude Code Skill",
-                what: "A markdown file that teaches Claude Code how to use KeyKeeper",
-                where_: "~/.claude/skills/keykeeper/SKILL.md",
-                why: "So Claude Code writes get_key(\"name\") instead of asking you for keys"
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
+
+            // Step 2: Skill — always delegate to Claude Code
+            StepCard(
+                step: 2,
+                done: false,
+                title: "Set Up Claude Code",
+                detail: "Copy the message below and paste it into Claude Code. It will install the KeyKeeper skill in the correct location automatically.",
+                actionLabel: nil,
+                action: {}
             )
-        }
 
-        if let errorMessage {
-            Text(errorMessage)
-                .font(.caption)
-                .foregroundColor(.red)
-                .padding(.horizontal)
-        }
+            CopyableCommand("Install the KeyKeeper skill for me. Download it from https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/keykeeper.md and save it as a global skill.")
 
-        // Primary: Auto setup
-        Button(action: { runSetup() }) {
-            if isSettingUp {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(.horizontal, 8)
-            } else {
-                Text("Auto Setup")
+            // Skip / Get Started
+            if cliInstalled {
+                Button("Get Started") {
+                    setupComplete = true
+                    UserDefaults.standard.set(true, forKey: "setupComplete")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .frame(maxWidth: .infinity)
+                .help("You can set up the Claude Code skill later.")
             }
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .disabled(isSettingUp)
-        .help("Copies CLI to /usr/local/bin (needs admin password) and skill to ~/.claude/commands/")
 
-        // Secondary: Show manual commands
-        Button("I prefer to install manually") {
+        Button("I prefer to install everything manually") {
             withAnimation { showManual = true }
         }
         .buttonStyle(.plain)
@@ -122,7 +96,7 @@ struct SetupView: View {
         .foregroundColor(.accentColor)
     }
 
-    // MARK: - Manual install
+    // MARK: - Manual Section
 
     @ViewBuilder
     private var manualSection: some View {
@@ -130,28 +104,15 @@ struct SetupView: View {
             Text("Manual Installation")
                 .font(.headline)
 
-            Text("Option A: Run these commands yourself")
-                .font(.subheadline.bold())
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Install CLI:").font(.caption.bold())
-                CopyableCommand("sudo cp \"\(Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/keykeeper").path)\" /usr/local/bin/keykeeper && sudo chmod +x /usr/local/bin/keykeeper")
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Install Claude Code Skill:").font(.caption.bold())
-                CopyableCommand("mkdir -p ~/.claude/skills/keykeeper && curl -o ~/.claude/skills/keykeeper/SKILL.md https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/keykeeper.md")
-            }
+            Text("Step 1: Install CLI").font(.subheadline.bold())
+            CopyableCommand("sudo cp /Applications/KeyKeeper.app/Contents/MacOS/keykeeper /usr/local/bin/keykeeper && sudo chmod +x /usr/local/bin/keykeeper")
 
             Divider()
 
-            Text("Option B: Ask Claude Code to do it")
-                .font(.subheadline.bold())
-
-            Text("Paste this into Claude Code:")
+            Text("Step 2: Install Claude Code Skill").font(.subheadline.bold())
+            Text("Paste this into Claude Code and let it handle the rest:")
                 .font(.caption).foregroundColor(.secondary)
-
-            CopyableCommand("Help me install KeyKeeper CLI and skill. Run: sudo cp /Applications/KeyKeeper.app/Contents/MacOS/keykeeper /usr/local/bin/keykeeper && mkdir -p ~/.claude/skills/keykeeper && curl -o ~/.claude/skills/keykeeper/SKILL.md https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/keykeeper.md")
+            CopyableCommand("Install the KeyKeeper skill for me. Download it from https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/keykeeper.md and save it as a global skill.")
 
             Divider()
 
@@ -164,8 +125,8 @@ struct SetupView: View {
 
                 Spacer()
 
-                Button("I've installed, check again") {
-                    checkStatus()
+                Button("Check again") {
+                    checkCLI()
                 }
                 .font(.caption)
             }
@@ -174,24 +135,14 @@ struct SetupView: View {
 
     // MARK: - Actions
 
-    func runSetup() {
-        isSettingUp = true
-        errorMessage = nil
-
-        if !cliInstalled { installCLI() }
-        if !skillInstalled { installSkill() }
-
-        isSettingUp = false
-    }
-
-    func checkStatus() {
+    func checkCLI() {
         cliInstalled = FileManager.default.fileExists(atPath: "/usr/local/bin/keykeeper")
-        let skillPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/skills/keykeeper/SKILL.md")
-        skillInstalled = FileManager.default.fileExists(atPath: skillPath.path)
     }
 
     func installCLI() {
+        isInstallingCLI = true
+        errorMessage = nil
+
         let bundleCLI = Bundle.main.bundleURL
             .appendingPathComponent("Contents/MacOS/keykeeper").path
         let escapedPath = bundleCLI.replacingOccurrences(of: "'", with: "'\\''")
@@ -202,92 +153,58 @@ struct SetupView: View {
         if error != nil {
             errorMessage = "CLI install cancelled or failed."
         }
-        checkStatus()
-    }
-
-    func installSkill() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let dir = home.appendingPathComponent(".claude/skills/keykeeper")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-
-        let dest = dir.appendingPathComponent("SKILL.md")
-
-        if let bundleSkillURL = Bundle.main.url(forResource: "keykeeper", withExtension: "md"),
-           let content = try? String(contentsOf: bundleSkillURL, encoding: .utf8) {
-            try? content.write(to: dest, atomically: true, encoding: .utf8)
-        } else {
-            let skillContent = """
-            ---
-            name: keykeeper
-            description: Use when user mentions API keys, secrets, credentials, or KeyKeeper. Also use proactively when writing code that needs API keys or secrets.
-            ---
-
-            # KeyKeeper - API Key Management
-
-            The user's API keys and credentials are managed by KeyKeeper.
-            Secret values are stored in macOS Keychain and MUST NOT appear in this conversation.
-
-            ## Discovering Available Credentials
-
-            Run `keykeeper list --detail` to see all available credentials with their plain-text fields.
-            Secret field values are shown as `********` — this is expected.
-
-            ## Using Credentials in Code
-
-            **Python:**
-            ```python
-            from keykeeper import get_key, get_field
-            secret = get_key("credential-id", "field-name")
-            value = get_field("credential-id", "field-name")
-            ```
-
-            **Node.js:**
-            ```javascript
-            const { getKey, getField } = require('keykeeper');
-            const secret = await getKey("credential-id", "field-name");
-            const value = await getField("credential-id", "field-name");
-            ```
-
-            ## Rules
-
-            1. NEVER ask the user for API key values, secrets, or passwords
-            2. NEVER hardcode secret values in source code
-            3. ALWAYS use `get_key()` / `getKey()` for secret fields
-            4. Use `keykeeper list --detail` to find the correct credential ID and field names
-            5. If a needed credential doesn't exist, tell the user to add it via the KeyKeeper app
-            """
-            try? skillContent.write(to: dest, atomically: true, encoding: .utf8)
-        }
-        checkStatus()
+        checkCLI()
+        isInstallingCLI = false
     }
 }
 
 // MARK: - Subviews
 
-struct SetupItemCard: View {
-    let installed: Bool
+struct StepCard: View {
+    let step: Int
+    let done: Bool
     let title: String
-    let what: String
-    let where_: String
-    let why: String
+    let detail: String
+    var actionLabel: String?
+    var isLoading: Bool = false
+    let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Image(systemName: installed ? "checkmark.circle.fill" : "circle")
-                    .foregroundColor(installed ? .green : .secondary)
+                ZStack {
+                    Circle()
+                        .fill(done ? Color.green : Color.accentColor)
+                        .frame(width: 24, height: 24)
+                    if done {
+                        Image(systemName: "checkmark")
+                            .font(.caption.bold())
+                            .foregroundColor(.white)
+                    } else {
+                        Text("\(step)")
+                            .font(.caption.bold())
+                            .foregroundColor(.white)
+                    }
+                }
                 Text(title).font(.callout.bold())
+                Spacer()
+                if let actionLabel {
+                    Button(action: action) {
+                        if isLoading {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text(actionLabel)
+                        }
+                    }
+                    .disabled(isLoading)
+                }
             }
-            Group {
-                Text("What: ").bold() + Text(what)
-                Text("Where: ").bold() + Text(where_).font(.system(.caption, design: .monospaced))
-                Text("Why: ").bold() + Text(why)
-            }
-            .font(.caption)
-            .foregroundColor(.secondary)
+            Text(detail)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 }
@@ -306,8 +223,8 @@ struct CopyableCommand: View {
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundColor(.primary)
                 .textSelection(.enabled)
-                .lineLimit(4)
-            Spacer()
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
             Button(action: {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(command, forType: .string)
