@@ -49,3 +49,30 @@ def get_field(credential_id, field_name):
 
 def get_key(credential_id, field_name):
     return _run("get", credential_id, field_name)
+
+
+def run(credential_ids, command, prefix="", verbose=False):
+    """Run a command with secrets injected as environment variables.
+
+    Args:
+        credential_ids: A credential ID string or list of IDs.
+        command: Command and arguments as a list (e.g. ["python", "script.py"]).
+        prefix: Optional prefix for env var names.
+        verbose: If True, print injected variable names to stderr.
+
+    Returns:
+        subprocess.CompletedProcess
+    """
+    if isinstance(credential_ids, str):
+        credential_ids = [credential_ids]
+    cli = _find_cli()
+    args = [cli, "run"]
+    for cid in credential_ids:
+        args.extend(["-c", cid])
+    if prefix:
+        args.extend(["--prefix", prefix])
+    if verbose:
+        args.append("--verbose")
+    args.append("--")
+    args.extend(command)
+    return subprocess.run(args)

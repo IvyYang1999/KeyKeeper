@@ -45,4 +45,21 @@ async function getKey(credentialId, fieldName) {
   return run('get', credentialId, fieldName);
 }
 
-module.exports = { listCredentials, getField, getKey };
+function runWithSecrets(credentialIds, command, options = {}) {
+  const { prefix = '', verbose = false } = options;
+  if (typeof credentialIds === 'string') credentialIds = [credentialIds];
+
+  const cli = findCli();
+  const args = ['run'];
+  for (const id of credentialIds) {
+    args.push('-c', id);
+  }
+  if (prefix) args.push('--prefix', prefix);
+  if (verbose) args.push('--verbose');
+  args.push('--', ...command);
+
+  const { spawnSync } = require('node:child_process');
+  return spawnSync(cli, args, { stdio: 'inherit' });
+}
+
+module.exports = { listCredentials, getField, getKey, runWithSecrets };
