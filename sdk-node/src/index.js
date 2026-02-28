@@ -10,7 +10,7 @@ function findCli() {
     if (fs.existsSync(p)) return p;
   }
   throw new Error(
-    'keykeeper CLI not found. Install KeyKeeper from https://github.com/user/KeyKeeper'
+    'keykeeper CLI not found. Install KeyKeeper from https://github.com/IvyYang1999/KeyKeeper'
   );
 }
 
