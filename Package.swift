@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "KeyKeeper",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     products: [
         .executable(name: "keykeeper", targets: ["KeyKeeperCLI"]),
         .library(name: "KeyKeeperCore", targets: ["KeyKeeperCore"]),
@@ -22,6 +22,11 @@ let package = Package(
                 "KeyKeeperCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
+        ),
+        .executableTarget(
+            name: "KeyKeeperApp",
+            dependencies: ["KeyKeeperCore"],
+            path: "Sources/KeyKeeperApp"
         ),
         .testTarget(
             name: "KeyKeeperCoreTests",
