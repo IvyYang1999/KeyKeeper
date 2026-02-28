@@ -19,7 +19,7 @@ class CredentialListViewModel: ObservableObject {
     func load() {
         guard let meta = try? store.load() else { return }
         credentials = meta.credentials
-            .sorted { $0.key < $1.key }
+            .sorted { $0.value.updated > $1.value.updated }
             .map { (id: $0.key, credential: $0.value) }
     }
 

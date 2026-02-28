@@ -8,65 +8,43 @@ struct AddCredentialView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Add Credential").font(.headline)
+            VStack(alignment: .leading, spacing: 16) {
+                Text("New Key Group").font(.headline)
 
-                TextField("Label", text: $vm.label)
-                    .onChange(of: vm.label) {
-                        vm.autoGenerateId()
-                    }
-                TextField("ID", text: $vm.credentialId)
-                    .font(.caption)
-                TextField("Notes", text: $vm.notes, axis: .vertical)
-                    .lineLimit(3)
-
-                Divider()
-
-                Text("Links").font(.subheadline.bold())
-                ForEach(vm.links.indices, id: \.self) { i in
-                    TextField("URL", text: $vm.links[i])
+                // 1. Name
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Name").font(.subheadline.bold())
+                    TextField("e.g. Feishu Bot, Stripe, OpenAI", text: $vm.label)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: vm.label) { vm.autoGenerateId() }
                 }
-                Button("+ Add Link") { vm.links.append("") }
-                    .font(.caption)
 
-                Divider()
+                // 2. Description
+                DescriptionEditor(text: $vm.notes)
 
-                Text("Fields").font(.subheadline.bold())
-                ForEach(vm.fields.indices, id: \.self) { i in
-                    HStack {
-                        TextField("Name", text: $vm.fields[i].name)
-                            .frame(width: 100)
-                        if vm.fields[i].isSecret {
-                            SecureField("Value", text: $vm.fields[i].value)
-                        } else {
-                            TextField("Value", text: $vm.fields[i].value)
-                        }
-                        Button(action: {
-                            vm.fields[i].isSecret.toggle()
-                        }) {
-                            Image(systemName: vm.fields[i].isSecret ? "lock.fill" : "lock.open")
-                        }
-                        .help(vm.fields[i].isSecret ? "Secret (stored in Keychain)" : "Plain text")
-                    }
+                // 3. Keys
+                KeyFieldsEditor(fields: $vm.fields)
+
+                // 4. Advanced
+                AdvancedSecuritySection(security: $vm.security)
+
+                // Error
+                if let error = vm.errorMessage {
+                    Text(error).font(.caption).foregroundColor(.red)
                 }
-                Button("+ Add Field") { vm.fields.append(FieldEntry()) }
-                    .font(.caption)
 
-                Divider()
-
-                Picker("Security", selection: $vm.security) {
-                    Text("Standard").tag(SecurityLevel.standard)
-                    Text("Strict (Touch ID)").tag(SecurityLevel.strict)
-                }
-                .pickerStyle(.segmented)
-
+                // Buttons
                 HStack {
                     Button("Cancel") { dismiss() }
                     Spacer()
                     Button("Save") {
-                        try? vm.save()
-                        onSave()
-                        dismiss()
+                        do {
+                            try vm.save()
+                            onSave()
+                            dismiss()
+                        } catch {
+                            vm.errorMessage = "Save failed: \(error.localizedDescription)"
+                        }
                     }
                     .disabled(!vm.isValid)
                     .buttonStyle(.borderedProminent)
@@ -74,6 +52,123 @@ struct AddCredentialView: View {
             }
             .padding()
         }
-        .frame(width: 400, height: 520)
+        .frame(width: 380, height: 480)
+    }
+}
+
+// MARK: - Shared Subviews
+
+struct DescriptionEditor: View {
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Description").font(.subheadline.bold())
+                Text("visible to AI").font(.caption).foregroundColor(.secondary)
+            }
+            TextEditor(text: $text)
+                .font(.callout)
+                .frame(minHeight: 60, maxHeight: 100)
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                )
+                .overlay(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text("Tell AI when to use these keys, and add notes for yourself (renewal links, docs, etc.)")
+                            .font(.callout)
+                            .foregroundColor(.secondary.opacity(0.5))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                    }
+                }
+        }
+    }
+}
+
+struct KeyFieldsEditor: View {
+    @Binding var fields: [FieldEntry]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Keys").font(.subheadline.bold())
+                Text("values stored in Keychain").font(.caption).foregroundColor(.secondary)
+            }
+
+            ForEach(fields.indices, id: \.self) { i in
+                HStack(spacing: 6) {
+                    TextField("Name", text: $fields[i].name)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 100)
+
+                    MaskedValueField(
+                        value: $fields[i].value,
+                        visible: $fields[i].visible
+                    )
+
+                    if fields.count > 1 {
+                        Button(action: { fields.remove(at: i) }) {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundColor(.secondary.opacity(0.5))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            Button(action: { fields.append(FieldEntry()) }) {
+                Label("Add Key", systemImage: "plus.circle")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.accentColor)
+
+            Text("Names are visible to AI. Values are encrypted in Keychain — AI never sees them.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+    }
+}
+
+struct AdvancedSecuritySection: View {
+    @Binding var security: SecurityLevel
+
+    var body: some View {
+        DisclosureGroup("Advanced") {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle(isOn: Binding(
+                    get: { security == .strict },
+                    set: { security = $0 ? .strict : .standard }
+                )) {
+                    Text("Require authentication every time")
+                        .font(.subheadline)
+                }
+
+                if security == .strict {
+                    Text("Each access requires Touch ID or password. This is the safest option.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                } else {
+                    Label {
+                        Text("macOS will remember access after the first authorization. Less secure — only disable this if you understand the risk.")
+                            .font(.caption2)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                            .font(.caption2)
+                    }
+                }
+            }
+            .padding(.top, 4)
+        }
+        .font(.caption)
+        .foregroundColor(.secondary)
     }
 }

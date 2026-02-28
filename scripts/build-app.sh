@@ -82,6 +82,12 @@ fi
 # Step 6: Create PkgInfo
 echo -n "APPL????" > "$APP_BUNDLE/Contents/PkgInfo"
 
+# Step 6.5: Code sign with entitlements (required for Keychain access control / Touch ID)
+ENTITLEMENTS="$PROJECT_DIR/Sources/KeyKeeperApp/KeyKeeperApp.entitlements"
+echo "==> Signing binaries with entitlements..."
+codesign --force --sign - --entitlements "$ENTITLEMENTS" "$APP_BUNDLE/Contents/MacOS/KeyKeeperApp"
+codesign --force --sign - --entitlements "$ENTITLEMENTS" "$APP_BUNDLE/Contents/MacOS/keykeeper"
+
 # Step 7: Create .dmg
 echo "==> Creating .dmg..."
 # Add Applications symlink for drag-to-install

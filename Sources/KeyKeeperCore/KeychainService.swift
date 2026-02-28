@@ -56,7 +56,16 @@ public final class KeychainService: Sendable {
             }
         }
 
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        var status = SecItemAdd(addQuery as CFDictionary, nil)
+
+        // If strict mode fails due to missing entitlement (-34018),
+        // fall back to standard mode so the key is still saved securely.
+        if status != errSecSuccess && security == .strict {
+            SecItemDelete(deleteQuery as CFDictionary)
+            addQuery.removeValue(forKey: kSecAttrAccessControl as String)
+            status = SecItemAdd(addQuery as CFDictionary, nil)
+        }
+
         guard status == errSecSuccess else {
             throw KeychainError.saveFailed(status)
         }

@@ -1,13 +1,25 @@
 import SwiftUI
+import KeyKeeperCore
 
 struct MainView: View {
     @StateObject private var viewModel = CredentialListViewModel()
     @State private var showingAdd = false
     @State private var setupComplete = UserDefaults.standard.bool(forKey: "setupComplete")
+    @State private var selectedCredentialId: String?
 
     var body: some View {
         if setupComplete {
-            credentialListContent
+            if let selectedId = selectedCredentialId,
+               let item = viewModel.credentials.first(where: { $0.id == selectedId }) {
+                CredentialDetailView(
+                    credentialId: item.id,
+                    credential: item.credential,
+                    onBack: { selectedCredentialId = nil },
+                    onUpdate: { viewModel.load() }
+                )
+            } else {
+                credentialListContent
+            }
         } else {
             SetupView(setupComplete: $setupComplete)
         }
@@ -36,17 +48,24 @@ struct MainView: View {
                     .foregroundColor(.secondary)
                 Spacer()
             } else {
-                List {
-                    ForEach(viewModel.filtered, id: \.id) { item in
-                        CredentialRow(id: item.id, credential: item.credential)
-                            .contextMenu {
-                                Button("Delete", role: .destructive) {
-                                    viewModel.delete(id: item.id)
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(viewModel.filtered, id: \.id) { item in
+                            CredentialRow(id: item.id, credential: item.credential)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedCredentialId = item.id
                                 }
-                            }
+                                .contextMenu {
+                                    Button("Delete", role: .destructive) {
+                                        viewModel.delete(id: item.id)
+                                    }
+                                }
+                        }
                     }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
                 }
-                .listStyle(.plain)
             }
         }
         .frame(width: 360, height: 480)
