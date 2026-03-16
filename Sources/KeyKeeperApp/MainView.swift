@@ -137,7 +137,8 @@ struct MainView: View {
                 Spacer()
             }
             .padding(.horizontal)
-            .padding(.bottom, 8)
+            .padding(.vertical, 8)
+            .background(.regularMaterial)
         }
     }
 }
