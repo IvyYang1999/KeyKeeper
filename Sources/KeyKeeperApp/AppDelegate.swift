@@ -94,6 +94,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func showPopover() {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        activatePopover()
     }
 
     @objc func togglePopover() {
@@ -102,6 +103,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             popover.performClose(nil)
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            activatePopover()
         }
+    }
+
+    /// Ensure the popover window accepts keyboard input.
+    /// Without this, TextFields inside the popover won't receive key events
+    /// when using inline views instead of sheets.
+    private func activatePopover() {
+        NSApp.activate(ignoringOtherApps: true)
+        popover.contentViewController?.view.window?.makeKey()
     }
 }
