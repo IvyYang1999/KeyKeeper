@@ -67,11 +67,8 @@ echo "==> 替换 /Applications/${APP_NAME}.app..."
 rm -rf "/Applications/${APP_NAME}.app"
 cp -R "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
 
-# 6. 更新 CLI
-echo "==> 更新 CLI..."
-cp "$BUILD_DIR/keykeeper" /usr/local/bin/keykeeper 2>/dev/null || \
-  osascript -e "do shell script \"cp '$BUILD_DIR/keykeeper' /usr/local/bin/keykeeper\" with administrator privileges" 2>/dev/null || \
-  echo "WARNING: CLI update failed (permission denied), skipping"
+# 6. 更新 CLI (skip silently if no permission)
+cp "$BUILD_DIR/keykeeper" /usr/local/bin/keykeeper 2>/dev/null || true
 
 # 7. 重新启动
 echo "==> 启动 ${APP_NAME}..."
