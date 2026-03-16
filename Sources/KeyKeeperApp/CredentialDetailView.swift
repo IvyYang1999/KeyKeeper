@@ -47,8 +47,17 @@ struct CredentialDetailView: View {
                     Spacer()
                     Button(isEditing ? "Cancel" : "Edit") {
                         if isEditing {
-                            // Revert changes
                             reloadCredential()
+                        } else {
+                            // Load values from Keychain when entering edit mode
+                            for i in fields.indices where fields[i].existingSecret && fields[i].value.isEmpty {
+                                do {
+                                    fields[i].value = try keychain.retrieve(
+                                        credentialId: credentialId, fieldName: fields[i].name)
+                                } catch {
+                                    errorMessage = "Failed to load keys: \(error.localizedDescription)"
+                                }
+                            }
                         }
                         isEditing.toggle()
                     }
@@ -93,19 +102,39 @@ struct CredentialDetailView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Keys").font(.subheadline.bold())
 
-                        ForEach(fields.indices, id: \.self) { i in
+                        ForEach(Array(fields.enumerated()), id: \.offset) { index, field in
                             HStack(spacing: 6) {
-                                Text(fields[i].name)
+                                Text(field.name)
                                     .font(.callout.monospaced())
                                     .frame(width: 100, alignment: .leading)
 
-                                MaskedValueField(
-                                    value: $fields[i].value,
-                                    visible: $fields[i].visible,
-                                    placeholder: "••••••••",
-                                    editable: false,
-                                    onCopy: { copyFieldValue(fields[i].name) }
-                                )
+                                Text(field.visible && !field.value.isEmpty
+                                     ? field.value
+                                     : "••••••••••")
+                                    .font(.callout.monospaced())
+                                    .foregroundColor(field.visible ? .primary : .secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                Button(action: {
+                                    if fields[index].visible {
+                                        fields[index].visible = false
+                                    } else {
+                                        loadFieldValue(at: index)
+                                        fields[index].visible = true
+                                    }
+                                }) {
+                                    Image(systemName: field.visible ? "eye.fill" : "eye.slash.fill")
+                                        .foregroundColor(.secondary)
+                                        .frame(width: 18)
+                                }
+                                .buttonStyle(.plain)
+
+                                Button(action: { copyFieldValue(field.name) }) {
+                                    Image(systemName: "doc.on.doc")
+                                        .foregroundColor(.secondary)
+                                        .frame(width: 18)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -151,20 +180,17 @@ struct CredentialDetailView: View {
             .padding()
         }
         .frame(width: 380, height: 480)
-        .onAppear { loadFieldValues() }
     }
 
-    private func loadFieldValues() {
-        for i in fields.indices {
-            if fields[i].existingSecret {
-                do {
-                    fields[i].value = try keychain.retrieve(
-                        credentialId: credentialId, fieldName: fields[i].name
-                    )
-                } catch {
-                    fields[i].value = ""
-                }
-            }
+    /// Load a single field value from Keychain on demand (when user clicks eye or copy).
+    private func loadFieldValue(at index: Int) {
+        guard fields[index].existingSecret, fields[index].value.isEmpty else { return }
+        do {
+            fields[index].value = try keychain.retrieve(
+                credentialId: credentialId, fieldName: fields[index].name
+            )
+        } catch {
+            errorMessage = "Failed to read key: \(error.localizedDescription)"
         }
     }
 
@@ -177,7 +203,7 @@ struct CredentialDetailView: View {
                 fields = cred.fields.sorted { $0.key < $1.key }.map { name, field in
                     FieldEntry(name: name, value: "", visible: false, existingSecret: field.secret)
                 }
-                loadFieldValues()
+                // Values will be loaded on demand (eye click or edit mode)
             }
         } catch {}
     }
