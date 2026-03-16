@@ -48,7 +48,8 @@ struct RunCommand: ParsableCommand {
     func run() throws {
         let store = MetaStore.default
         let meta = try store.load()
-        let keychain = KeychainService()
+        let grantStore = GrantStore.default
+        let session = SessionResolver.resolve()
 
         // Collect all secret fields from requested credentials
         var injectedEnv: [String: String] = [:]
@@ -57,6 +58,14 @@ struct RunCommand: ParsableCommand {
         for credId in credential {
             guard let cred = meta.credentials[credId] else {
                 throw ValidationError("Credential '\(credId)' not found.")
+            }
+
+            // For strict credentials, check/request grant before accessing Keychain
+            if cred.security == .strict {
+                try Self.ensureGrant(
+                    credentialId: credId, credential: cred,
+                    grantStore: grantStore, session: session
+                )
             }
 
             for (fieldName, field) in cred.fields where field.secret {
@@ -69,7 +78,10 @@ struct RunCommand: ParsableCommand {
                     )
                 }
 
-                let value = try keychain.retrieve(credentialId: credId, fieldName: fieldName)
+                // Read secret via IPC — App owns the Keychain entries, no ACL prompts
+                let value = try IPCClient.requestValue(
+                    credentialId: credId, fieldName: fieldName,
+                    sessionId: session.id)
                 injectedEnv[envName] = value
                 secretValues.append(value)
             }
@@ -136,6 +148,41 @@ struct RunCommand: ParsableCommand {
 
         // Exit with the same code as the child
         throw ExitCode(process.terminationStatus)
+    }
+
+    /// Ensure a valid grant exists for a strict credential.
+    /// If no valid grant, request authorization via IPC to the app.
+    static func ensureGrant(credentialId: String, credential: Credential,
+                            grantStore: GrantStore, session: SessionInfo) throws {
+        // Check for existing valid grant
+        if let grant = try grantStore.findValidGrant(credentialId: credentialId, sessionId: session.id) {
+            // For .once grants, consume it
+            if case .once = grant.duration {
+                try grantStore.consumeGrant(id: grant.id)
+            }
+            return
+        }
+
+        // No valid grant — request authorization from the app
+        let fieldNames = credential.fields.filter(\.value.secret).map(\.key).sorted()
+        let request = AuthRequest(
+            credentialId: credentialId,
+            credentialLabel: credential.label,
+            fieldNames: fieldNames,
+            sessionId: session.id,
+            sessionLabel: session.label,
+            pid: ProcessInfo.processInfo.processIdentifier
+        )
+
+        FileHandle.standardError.write(
+            Data("Requesting authorization for '\(credential.label)' from KeyKeeper app...\n".utf8)
+        )
+
+        let response = try IPCClient.requestAuthorization(request)
+
+        guard response.granted else {
+            throw IPCError.denied(response.error)
+        }
     }
 
     /// Convert a field name to a valid environment variable name.

@@ -25,8 +25,21 @@ struct GetCommand: ParsableCommand {
         }
 
         if field.secret {
-            let keychain = KeychainService()
-            let value = try keychain.retrieve(credentialId: credentialId, fieldName: fieldName)
+            let session = SessionResolver.resolve()
+
+            // For strict credentials, check/request grant first
+            if cred.security == .strict {
+                let grantStore = GrantStore.default
+                try RunCommand.ensureGrant(
+                    credentialId: credentialId, credential: cred,
+                    grantStore: grantStore, session: session
+                )
+            }
+
+            // Read secret via IPC — App owns the Keychain entries, no ACL prompts
+            let value = try IPCClient.requestValue(
+                credentialId: credentialId, fieldName: fieldName,
+                sessionId: session.id)
             print(value, terminator: "")
         } else {
             print(field.value ?? "", terminator: "")

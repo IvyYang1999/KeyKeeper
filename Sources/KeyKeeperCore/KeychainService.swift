@@ -26,12 +26,36 @@ public final class KeychainService: Sendable {
         "keykeeper.\(credentialId).\(fieldName)"
     }
 
+    /// Create a SecAccess that allows ANY application to access the item
+    /// without triggering per-app ACL prompts.
+    private func createPermissiveAccess() -> SecAccess? {
+        var access: SecAccess?
+        guard SecAccessCreate("KeyKeeper" as CFString, nil, &access) == errSecSuccess,
+              let access else { return nil }
+
+        var aclList: CFArray?
+        guard SecAccessCopyACLList(access, &aclList) == errSecSuccess,
+              let acls = aclList as? [SecACL] else { return access }
+
+        for acl in acls {
+            var appList: CFArray?
+            var description: CFString?
+            var promptSelector = SecKeychainPromptSelector()
+            SecACLCopyContents(acl, &appList, &description, &promptSelector)
+
+            // nil applicationList = any application can access
+            SecACLSetContents(acl, nil, description ?? "" as CFString, promptSelector)
+        }
+
+        return access
+    }
+
     public func save(credentialId: String, fieldName: String,
                      value: String, security: SecurityLevel) throws {
         let service = serviceName(credentialId: credentialId, fieldName: fieldName)
         let data = Data(value.utf8)
 
-        // Try to delete existing item first
+        // Delete existing item first
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -46,25 +70,13 @@ public final class KeychainService: Sendable {
             kSecValueData as String: data,
         ]
 
-        if security == .strict {
-            let access = SecAccessControlCreateWithFlags(
-                nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-                .userPresence, nil
-            )
-            if let access = access {
-                addQuery[kSecAttrAccessControl as String] = access
-            }
+        // Use permissive access so any KeyKeeper binary (CLI, App, debug, release)
+        // can read/write without per-app ACL prompts.
+        if let access = createPermissiveAccess() {
+            addQuery[kSecAttrAccess as String] = access
         }
 
-        var status = SecItemAdd(addQuery as CFDictionary, nil)
-
-        // If strict mode fails due to missing entitlement (-34018),
-        // fall back to standard mode so the key is still saved securely.
-        if status != errSecSuccess && security == .strict {
-            SecItemDelete(deleteQuery as CFDictionary)
-            addQuery.removeValue(forKey: kSecAttrAccessControl as String)
-            status = SecItemAdd(addQuery as CFDictionary, nil)
-        }
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
 
         guard status == errSecSuccess else {
             throw KeychainError.saveFailed(status)
@@ -94,6 +106,13 @@ public final class KeychainService: Sendable {
             throw KeychainError.unexpectedData
         }
         return string
+    }
+
+    /// Retrieve and re-save with permissive ACL if the entry has restrictive access.
+    /// Call this once per entry to fix old entries that trigger per-app ACL prompts.
+    public func healAccess(credentialId: String, fieldName: String) {
+        guard let value = try? retrieve(credentialId: credentialId, fieldName: fieldName) else { return }
+        try? save(credentialId: credentialId, fieldName: fieldName, value: value, security: .standard)
     }
 
     public func delete(credentialId: String, fieldName: String) throws {

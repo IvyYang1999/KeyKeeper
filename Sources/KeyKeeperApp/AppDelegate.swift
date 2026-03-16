@@ -1,10 +1,15 @@
 import AppKit
 import SwiftUI
+import Combine
 import KeyKeeperCore
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
+    private var ipcServer: IPCServer!
+    private var authWindowController: AuthorizationWindowController!
+    private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide dock icon
@@ -21,10 +26,74 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: MainView())
 
+        // One-time migration: re-save all Keychain entries so this App binary
+        // becomes the owner (avoids per-app ACL prompts when CLI asks App to read).
+        // The first run WILL trigger keychain prompts for old entries.
+        MigrationService.migrateIfNeeded()
+
+        // Start IPC server for CLI authorization requests
+        ipcServer = IPCServer()
+        authWindowController = AuthorizationWindowController()
+        ipcServer.start()
+
+        // Watch for pending authorization requests
+        ipcServer.$pendingRequest
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] pending in
+                self?.handleAuthRequest(pending)
+            }
+            .store(in: &cancellables)
+
         // Auto-show popover on launch so user knows the app is running
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.showPopover()
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        ipcServer.stop()
+    }
+
+    private func handleAuthRequest(_ pending: IPCServer.PendingAuthRequest) {
+        let request = pending.request
+        let grantStore = GrantStore.default
+
+        authWindowController.show(
+            request: request,
+            onAuthorize: { [weak self] duration in
+                guard let self else { return }
+
+                // Resolve actual duration (fill in session ID for .session)
+                let resolvedDuration: GrantDuration
+                if case .session = duration {
+                    resolvedDuration = .session(request.sessionId ?? UUID().uuidString)
+                } else {
+                    resolvedDuration = duration
+                }
+
+                let grant = Grant(
+                    credentialId: request.credentialId,
+                    sessionId: request.sessionId,
+                    duration: resolvedDuration
+                )
+
+                do {
+                    try grantStore.addGrant(grant)
+                    let response = AuthResponse(granted: true, grantId: grant.id)
+                    self.ipcServer.respond(to: pending, with: response)
+                } catch {
+                    let response = AuthResponse(granted: false, error: error.localizedDescription)
+                    self.ipcServer.respond(to: pending, with: response)
+                }
+            },
+            onDeny: { [weak self] in
+                self?.ipcServer.respond(
+                    to: pending,
+                    with: AuthResponse(granted: false, error: "User denied")
+                )
+            }
+        )
     }
 
     private func showPopover() {

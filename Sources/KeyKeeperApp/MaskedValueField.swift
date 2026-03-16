@@ -9,17 +9,30 @@ struct MaskedValueField: View {
     var editable: Bool = true
     var onCopy: (() -> Void)?
 
+    /// Show TextField when: explicitly visible, OR value is empty and editable (so user can type)
+    private var showTextField: Bool {
+        editable && (visible || value.isEmpty)
+    }
+
     var body: some View {
         HStack(spacing: 6) {
-            if visible && editable {
+            if showTextField {
                 TextField(placeholder, text: $value)
                     .textFieldStyle(.roundedBorder)
                     .textContentType(.none)
                     .font(.callout.monospaced())
+                    .onChange(of: value) {
+                        // Auto-hide after user pastes/types something
+                        if !value.isEmpty && visible {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                visible = false
+                            }
+                        }
+                    }
             } else {
-                Text(displayText)
+                Text(Self.mask(value))
                     .font(.callout.monospaced())
-                    .foregroundColor(value.isEmpty ? .secondary.opacity(0.5) : .primary)
+                    .foregroundColor(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 5)
                     .padding(.horizontal, 6)

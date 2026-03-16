@@ -111,6 +111,11 @@ struct CredentialDetailView: View {
                     }
                 }
 
+                // Grants (view mode, strict only)
+                if !isEditing && credential.security == .strict {
+                    GrantsSection(credentialId: credentialId)
+                }
+
                 // Advanced (edit mode only)
                 if isEditing {
                     AdvancedSecuritySection(security: $security)

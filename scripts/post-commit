@@ -1,0 +1,80 @@
+#!/bin/bash
+# scripts/post-commit — commit → push → build → package → replace .app → restart
+
+set -euo pipefail
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+APP_NAME="KeyKeeper"
+
+echo "====== 自动发布 ======"
+
+# 1. Push
+echo "==> push..."
+cd "$PROJECT_DIR"
+git push 2>&1 || echo "WARNING: push failed, continuing with local build"
+
+# 2. Build release
+echo "==> 编译 (swift build -c release)..."
+swift build -c release
+
+# 3. Package .app (reuse build-app.sh logic, but skip dmg for speed)
+echo "==> 打包 .app..."
+BUILD_DIR="$(swift build -c release --show-bin-path)"
+APP_BUNDLE="$PROJECT_DIR/dist/dmg/${APP_NAME}.app"
+
+rm -rf "$APP_BUNDLE"
+mkdir -p "$APP_BUNDLE/Contents/MacOS"
+mkdir -p "$APP_BUNDLE/Contents/Resources"
+
+cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>KeyKeeperApp</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.keykeeper.app</string>
+    <key>CFBundleName</key>
+    <string>KeyKeeper</string>
+    <key>CFBundleVersion</key>
+    <string>0.2.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.2.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+PLIST
+
+echo -n "APPL????" > "$APP_BUNDLE/Contents/PkgInfo"
+cp "$BUILD_DIR/KeyKeeperApp" "$APP_BUNDLE/Contents/MacOS/KeyKeeperApp"
+cp "$BUILD_DIR/keykeeper" "$APP_BUNDLE/Contents/MacOS/keykeeper"
+[ -f "$PROJECT_DIR/skill/keykeeper.md" ] && cp "$PROJECT_DIR/skill/keykeeper.md" "$APP_BUNDLE/Contents/Resources/keykeeper.md"
+
+# 4. 退出当前运行的应用
+echo "==> 退出 ${APP_NAME}..."
+killall KeyKeeperApp 2>/dev/null || true
+sleep 1
+
+# 5. 替换 /Applications
+echo "==> 替换 /Applications/${APP_NAME}.app..."
+rm -rf "/Applications/${APP_NAME}.app"
+cp -R "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
+
+# 6. 更新 CLI
+echo "==> 更新 CLI..."
+cp "$BUILD_DIR/keykeeper" /usr/local/bin/keykeeper 2>/dev/null || \
+  osascript -e "do shell script \"cp '$BUILD_DIR/keykeeper' /usr/local/bin/keykeeper\" with administrator privileges" 2>/dev/null || \
+  echo "WARNING: CLI update failed (permission denied), skipping"
+
+# 7. 重新启动
+echo "==> 启动 ${APP_NAME}..."
+open "/Applications/${APP_NAME}.app"
+
+echo "==> 完成"

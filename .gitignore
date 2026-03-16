@@ -8,3 +8,7 @@ __pycache__/
 *.egg-info/
 dist/
 node_modules/
+*.d
+*.o
+*.swiftdeps
+*.swiftdeps~
