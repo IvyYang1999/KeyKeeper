@@ -25,6 +25,20 @@ class AddCredentialViewModel: ObservableObject {
         !label.isEmpty && fields.contains { !$0.name.isEmpty && !$0.value.isEmpty }
     }
 
+    var hasDraft: Bool {
+        !label.isEmpty || fields.contains { !$0.name.isEmpty || !$0.value.isEmpty }
+    }
+
+    func reset() {
+        label = ""
+        credentialId = ""
+        notes = ""
+        fields = [FieldEntry()]
+        security = .strict
+        errorMessage = nil
+        previousAutoId = ""
+    }
+
     func autoGenerateId() {
         if credentialId.isEmpty || credentialId == previousAutoId {
             let newId = label

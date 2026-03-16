@@ -3,25 +3,51 @@ import KeyKeeperCore
 
 struct MainView: View {
     @StateObject private var viewModel = CredentialListViewModel()
-    @State private var showingAdd = false
+    @StateObject private var addVM = AddCredentialViewModel()
     @State private var setupComplete = UserDefaults.standard.bool(forKey: "setupComplete")
     @State private var selectedCredentialId: String?
+    @State private var showingAdd = false
+
+    enum Page { case list, add, detail(String) }
+
+    private var currentPage: Page {
+        if showingAdd { return .add }
+        if let id = selectedCredentialId { return .detail(id) }
+        return .list
+    }
 
     var body: some View {
-        if setupComplete {
-            if let selectedId = selectedCredentialId,
-               let item = viewModel.credentials.first(where: { $0.id == selectedId }) {
-                CredentialDetailView(
-                    credentialId: item.id,
-                    credential: item.credential,
-                    onBack: { selectedCredentialId = nil },
-                    onUpdate: { viewModel.load() }
-                )
-            } else {
-                credentialListContent
-            }
-        } else {
+        if !setupComplete {
             SetupView(setupComplete: $setupComplete)
+        } else {
+            switch currentPage {
+            case .list:
+                credentialListContent
+            case .add:
+                AddCredentialView(
+                    vm: addVM,
+                    onSave: {
+                        viewModel.load()
+                        addVM.reset()
+                        showingAdd = false
+                    },
+                    onCancel: {
+                        // Keep draft — just go back to list
+                        showingAdd = false
+                    }
+                )
+            case .detail(let id):
+                if let item = viewModel.credentials.first(where: { $0.id == id }) {
+                    CredentialDetailView(
+                        credentialId: item.id,
+                        credential: item.credential,
+                        onBack: { selectedCredentialId = nil },
+                        onUpdate: { viewModel.load() }
+                    )
+                } else {
+                    credentialListContent
+                }
+            }
         }
     }
 
@@ -44,12 +70,42 @@ struct MainView: View {
 
             if viewModel.filtered.isEmpty {
                 Spacer()
-                Text("No credentials stored")
-                    .foregroundColor(.secondary)
+                if addVM.hasDraft {
+                    VStack(spacing: 8) {
+                        Text("No credentials stored")
+                            .foregroundColor(.secondary)
+                        Button("Continue editing draft") {
+                            showingAdd = true
+                        }
+                        .font(.caption)
+                    }
+                } else {
+                    Text("No credentials stored")
+                        .foregroundColor(.secondary)
+                }
                 Spacer()
             } else {
                 ScrollView {
                     VStack(spacing: 8) {
+                        // Draft hint
+                        if addVM.hasDraft {
+                            Button(action: { showingAdd = true }) {
+                                HStack {
+                                    Image(systemName: "doc.badge.ellipsis")
+                                    Text("Draft: \(addVM.label)")
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Text("Continue")
+                                        .foregroundColor(.accentColor)
+                                }
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(8)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
                         ForEach(viewModel.filtered, id: \.id) { item in
                             CredentialRow(id: item.id, credential: item.credential)
                                 .contentShape(Rectangle())
@@ -70,9 +126,6 @@ struct MainView: View {
         }
         .frame(width: 360, height: 480)
         .onAppear { viewModel.load() }
-        .sheet(isPresented: $showingAdd) {
-            AddCredentialView(onSave: { viewModel.load() })
-        }
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button(action: { NSApplication.shared.terminate(nil) }) {

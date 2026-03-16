@@ -2,13 +2,27 @@ import SwiftUI
 import KeyKeeperCore
 
 struct AddCredentialView: View {
-    @StateObject private var vm = AddCredentialViewModel()
-    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var vm: AddCredentialViewModel
     var onSave: () -> Void
+    var onCancel: () -> Void
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                // Header with back
+                HStack {
+                    Button(action: onCancel) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("Back")
+                        }
+                        .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.accentColor)
+                    Spacer()
+                }
+
                 Text("New Key Group").font(.headline)
 
                 // 1. Name
@@ -35,13 +49,16 @@ struct AddCredentialView: View {
 
                 // Buttons
                 HStack {
-                    Button("Cancel") { dismiss() }
+                    Button("Discard") {
+                        vm.reset()
+                        onCancel()
+                    }
+                    .foregroundColor(.red)
                     Spacer()
                     Button("Save") {
                         do {
                             try vm.save()
                             onSave()
-                            dismiss()
                         } catch {
                             vm.errorMessage = "Save failed: \(error.localizedDescription)"
                         }
