@@ -48,16 +48,6 @@ struct CredentialDetailView: View {
                     Button(isEditing ? "Cancel" : "Edit") {
                         if isEditing {
                             reloadCredential()
-                        } else {
-                            // Load values from Keychain when entering edit mode
-                            for i in fields.indices where fields[i].existingSecret && fields[i].value.isEmpty {
-                                do {
-                                    fields[i].value = try keychain.retrieve(
-                                        credentialId: credentialId, fieldName: fields[i].name)
-                                } catch {
-                                    errorMessage = "Failed to load keys: \(error.localizedDescription)"
-                                }
-                            }
                         }
                         isEditing.toggle()
                     }
