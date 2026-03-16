@@ -26,11 +26,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: MainView())
 
-        // One-time migration: re-save all Keychain entries so this App binary
-        // becomes the owner (avoids per-app ACL prompts when CLI asks App to read).
-        // The first run WILL trigger keychain prompts for old entries.
-        MigrationService.migrateIfNeeded()
-
         // Start IPC server for CLI authorization requests
         ipcServer = IPCServer()
         authWindowController = AuthorizationWindowController()
