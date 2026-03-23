@@ -80,8 +80,8 @@ struct AuthorizationView: View {
                 }
             }
             .padding()
-            .background(Color.primary.opacity(0.05))
-            .cornerRadius(8)
+            .background(DS.Fill.card)
+            .cornerRadius(DS.Radius.md)
 
             // Duration picker
             VStack(alignment: .leading, spacing: 6) {

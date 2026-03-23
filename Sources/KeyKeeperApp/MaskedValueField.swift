@@ -37,9 +37,9 @@ struct MaskedValueField: View {
                     .padding(.vertical, 5)
                     .padding(.horizontal, 6)
                     .background(Color(nsColor: .controlBackgroundColor))
-                    .cornerRadius(5)
+                    .cornerRadius(DS.Radius.sm)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 5)
+                        RoundedRectangle(cornerRadius: DS.Radius.sm)
                             .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
                     )
                     .onTapGesture {

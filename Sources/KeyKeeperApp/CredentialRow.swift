@@ -6,16 +6,14 @@ struct CredentialRow: View {
     let credential: Credential
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Name
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             Text(credential.label)
-                .font(.body.bold())
+                .font(.body.weight(.semibold))
                 .lineLimit(1)
 
-            // Field names
             let fieldNames = credential.fields.keys.sorted().joined(separator: ", ")
             if !fieldNames.isEmpty {
-                HStack(spacing: 4) {
+                HStack(spacing: DS.Spacing.xs) {
                     Image(systemName: "key.fill")
                         .font(.caption2)
                         .foregroundColor(.orange)
@@ -26,22 +24,17 @@ struct CredentialRow: View {
                 }
             }
 
-            // Description (one line)
             if !credential.notes.isEmpty {
                 Text(credential.notes)
                     .font(.caption)
-                    .foregroundColor(.secondary.opacity(0.7))
+                    .foregroundColor(.secondary.opacity(0.6))
                     .lineLimit(1)
             }
 
-            // Date
             Text(credential.updated)
                 .font(.caption2)
-                .foregroundColor(.secondary.opacity(0.5))
+                .foregroundColor(.secondary.opacity(0.4))
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .dsCard(padding: DS.Spacing.md)
     }
 }

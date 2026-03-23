@@ -204,8 +204,8 @@ struct StepCard: View {
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(DS.Spacing.lg)
+        .background(DS.Fill.card, in: RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous))
     }
 }
 
@@ -238,6 +238,6 @@ struct CopyableCommand: View {
             .buttonStyle(.plain)
         }
         .padding(8)
-        .background(Color.black.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+        .background(DS.Fill.codeBlock, in: RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous))
     }
 }

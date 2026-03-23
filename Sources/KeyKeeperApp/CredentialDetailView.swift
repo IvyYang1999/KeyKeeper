@@ -56,8 +56,8 @@ struct CredentialDetailView: View {
 
                 // Name
                 if isEditing {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Name").font(.subheadline.bold())
+                    VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                        SectionLabel(text: "Name")
                         TextField("Name", text: $credential.label)
                             .textFieldStyle(.roundedBorder)
                     }
@@ -70,10 +70,7 @@ struct CredentialDetailView: View {
                     DescriptionEditor(text: $credential.notes)
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text("Description").font(.subheadline.bold())
-                            Text("visible to AI").font(.caption).foregroundColor(.secondary)
-                        }
+                        SectionLabel(text: "Description", hint: "visible to AI")
                         if credential.notes.isEmpty {
                             Text("No description")
                                 .font(.callout).foregroundColor(.secondary)
@@ -90,7 +87,7 @@ struct CredentialDetailView: View {
                     KeyFieldsEditor(fields: $fields)
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Keys").font(.subheadline.bold())
+                        SectionLabel(text: "Keys")
 
                         ForEach(Array(fields.enumerated()), id: \.offset) { index, field in
                             HStack(spacing: 6) {
@@ -164,7 +161,7 @@ struct CredentialDetailView: View {
                         Text("Updated \(credential.updated)")
                     }
                     .font(.caption2)
-                    .foregroundColor(.secondary.opacity(0.5))
+                    .foregroundColor(.secondary.opacity(0.4))
                 }
             }
             .padding()

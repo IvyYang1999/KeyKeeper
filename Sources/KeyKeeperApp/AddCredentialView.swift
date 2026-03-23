@@ -26,8 +26,8 @@ struct AddCredentialView: View {
                 Text("New Key Group").font(.headline)
 
                 // 1. Name
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Name").font(.subheadline.bold())
+                VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                    SectionLabel(text: "Name")
                     TextField("e.g. Feishu Bot, Stripe, OpenAI", text: $vm.label)
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: vm.label) { vm.autoGenerateId() }
@@ -79,20 +79,17 @@ struct DescriptionEditor: View {
     @Binding var text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Description").font(.subheadline.bold())
-                Text("visible to AI").font(.caption).foregroundColor(.secondary)
-            }
+        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+            SectionLabel(text: "Description", hint: "visible to AI")
             TextEditor(text: $text)
                 .font(.callout)
                 .frame(minHeight: 60, maxHeight: 100)
                 .scrollContentBackground(.hidden)
                 .padding(6)
                 .background(Color(nsColor: .controlBackgroundColor))
-                .cornerRadius(6)
+                .cornerRadius(DS.Radius.sm)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: DS.Radius.sm)
                         .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                 )
                 .overlay(alignment: .topLeading) {
@@ -114,10 +111,7 @@ struct KeyFieldsEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Keys").font(.subheadline.bold())
-                Text("values stored in Keychain").font(.caption).foregroundColor(.secondary)
-            }
+            SectionLabel(text: "Keys", hint: "values stored in Keychain")
 
             ForEach(fields.indices, id: \.self) { i in
                 HStack(spacing: 6) {

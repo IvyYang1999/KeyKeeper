@@ -1,0 +1,26 @@
+#!/bin/bash
+# 硬约束：commit 前必须通过测试 + 编译
+# 这不是建议，是 gate —— 不过就不让 commit
+
+set -euo pipefail
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$PROJECT_DIR"
+
+echo "==> 跑测试..."
+swift test 2>&1
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "❌ 测试不通过，commit 被拒绝"
+  echo "   先修好测试再 commit"
+  exit 1
+fi
+
+echo "==> 编译检查..."
+swift build 2>&1
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "❌ 编译有错误，commit 被拒绝"
+  exit 1
+fi
+
+echo "✅ 测试通过 + 编译通过，允许 commit"

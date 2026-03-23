@@ -56,7 +56,7 @@ struct MainView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("KeyKeeper")
-                    .font(.headline)
+                    .font(.title3.weight(.semibold))
                 Spacer()
                 Button(action: { showingAdd = true }) {
                     Image(systemName: "plus")
@@ -86,7 +86,7 @@ struct MainView: View {
                 Spacer()
             } else {
                 ScrollView {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 10) {
                         // Draft hint
                         if addVM.hasDraft {
                             Button(action: { showingAdd = true }) {
@@ -100,8 +100,7 @@ struct MainView: View {
                                 }
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                                .padding(8)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                                .dsCard(padding: DS.Spacing.sm, fill: DS.Fill.cardSecondary)
                             }
                             .buttonStyle(.plain)
                         }
@@ -120,7 +119,7 @@ struct MainView: View {
                         }
                     }
                     .padding(.horizontal)
-                    .padding(.top, 8)
+                    .padding(.top, DS.Spacing.md)
                 }
             }
         }
