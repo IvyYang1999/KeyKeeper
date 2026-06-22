@@ -1,12 +1,40 @@
 import XCTest
+import Security
 @testable import KeyKeeperCore
 
 final class KeychainServiceTests: XCTestCase {
     let service = KeychainService()
     let testCredId = "test-\(UUID().uuidString)"
 
+    override func setUpWithError() throws {
+        try XCTSkipUnless(
+            Self.defaultKeychainAcceptsGenericPasswordItems(),
+            "Default macOS Keychain is unavailable in this test environment."
+        )
+    }
+
     override func tearDown() {
         try? service.delete(credentialId: testCredId, fieldName: "api_key")
+    }
+
+    private static func defaultKeychainAcceptsGenericPasswordItems() -> Bool {
+        let service = "keykeeper.test-canary.\(UUID().uuidString)"
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: "keykeeper",
+            kSecValueData as String: Data("canary".utf8),
+        ]
+
+        let status = SecItemAdd(query as CFDictionary, nil)
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: "keykeeper",
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        return status == errSecSuccess
     }
 
     func testSaveAndRetrieve() throws {

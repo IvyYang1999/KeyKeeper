@@ -59,21 +59,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onAuthorize: { [weak self] duration in
                 guard let self else { return }
 
-                // Resolve actual duration (fill in session ID for .session)
-                let resolvedDuration: GrantDuration
-                if case .session = duration {
-                    resolvedDuration = .session(request.sessionId ?? UUID().uuidString)
-                } else {
-                    resolvedDuration = duration
-                }
-
-                let grant = Grant(
-                    credentialId: request.credentialId,
-                    sessionId: request.sessionId,
-                    duration: resolvedDuration
-                )
-
                 do {
+                    // Resolve actual duration (fill in session ID for .session).
+                    let resolvedDuration = try GrantAuthorizationPolicy.resolveIssuedDuration(
+                        requestedDuration: duration,
+                        requestSessionId: request.sessionId
+                    )
+                    let grant = Grant(
+                        credentialId: request.credentialId,
+                        sessionId: request.sessionId,
+                        duration: resolvedDuration
+                    )
                     try grantStore.addGrant(grant)
                     let response = AuthResponse(granted: true, grantId: grant.id)
                     self.ipcServer.respond(to: pending, with: response)

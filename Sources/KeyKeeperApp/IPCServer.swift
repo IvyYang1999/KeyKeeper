@@ -158,16 +158,20 @@ final class IPCServer: ObservableObject {
             }
 
             // For strict credentials, verify grant
+            var matchedGrant: Grant?
             if cred.security == .strict {
-                guard let sessionId = request.sessionId,
-                      let _ = try? grantStore.findValidGrant(
-                          credentialId: request.credentialId, sessionId: sessionId) else {
+                guard let grant = try? GrantAuthorizationPolicy.validGrantForValueAccess(
+                    credentialId: request.credentialId,
+                    sessionId: request.sessionId,
+                    grantStore: grantStore
+                ) else {
                     let resp = IPCResponse.value(
                         ValueResponse(success: false, error: "No valid grant"))
                     try? IPCMessage.writeMessage(fd: clientFd, message: resp)
                     close(clientFd)
                     return
                 }
+                matchedGrant = grant
             }
 
             // Read from Keychain (App is the owner, no ACL prompt)
@@ -175,7 +179,11 @@ final class IPCServer: ObservableObject {
                 let value = try keychain.retrieve(
                     credentialId: request.credentialId, fieldName: request.fieldName)
                 let resp = IPCResponse.value(ValueResponse(success: true, value: value))
-                try? IPCMessage.writeMessage(fd: clientFd, message: resp)
+                try IPCMessage.writeMessage(fd: clientFd, message: resp)
+                try? GrantAuthorizationPolicy.consumeOnceGrantAfterSuccessfulValueIfNeeded(
+                    matchedGrant,
+                    grantStore: grantStore
+                )
             } catch {
                 let resp = IPCResponse.value(
                     ValueResponse(success: false, error: error.localizedDescription))

@@ -155,11 +155,11 @@ struct RunCommand: ParsableCommand {
     static func ensureGrant(credentialId: String, credential: Credential,
                             grantStore: GrantStore, session: SessionInfo) throws {
         // Check for existing valid grant
-        if let grant = try grantStore.findValidGrant(credentialId: credentialId, sessionId: session.id) {
-            // For .once grants, consume it
-            if case .once = grant.duration {
-                try grantStore.consumeGrant(id: grant.id)
-            }
+        if try GrantAuthorizationPolicy.validGrantForValueAccess(
+            credentialId: credentialId,
+            sessionId: session.id,
+            grantStore: grantStore
+        ) != nil {
             return
         }
 
