@@ -54,15 +54,18 @@ class AddCredentialViewModel: ObservableObject {
 
     func save() throws {
         var meta = try store.load()
-        var credFields: [String: CredentialField] = [:]
+        let existingFields = meta.credentials[credentialId]?.fields ?? [:]
+        let plan = CredentialEditPlan(
+            inputFields: fields.map { .init(name: $0.name, value: $0.value) },
+            existingFields: existingFields,
+            security: security
+        )
 
-        for field in fields where !field.name.isEmpty {
-            // All key values are secrets — stored in Keychain, never in meta.json
+        for write in plan.keychainWrites {
             try keychain.save(
-                credentialId: credentialId, fieldName: field.name,
-                value: field.value, security: security
+                credentialId: credentialId, fieldName: write.fieldName,
+                value: write.value, security: plan.metadata.security
             )
-            credFields[field.name] = CredentialField(secret: true)
         }
 
         let formatter = DateFormatter()
@@ -72,7 +75,7 @@ class AddCredentialViewModel: ObservableObject {
         meta.credentials[credentialId] = Credential(
             label: label, notes: notes,
             links: [],
-            fields: credFields, security: security,
+            fields: plan.metadata.fields, security: plan.metadata.security,
             created: now, updated: now
         )
         try store.save(meta)
