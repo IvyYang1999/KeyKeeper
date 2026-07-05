@@ -5,6 +5,13 @@ struct KeyKeeperCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "keykeeper",
         abstract: "Secure API key management for AI coding tools",
-        subcommands: [ListCommand.self, GetCommand.self, MetaCommand.self, RunCommand.self]
+        subcommands: [
+            ListCommand.self,
+            GetCommand.self,
+            MetaCommand.self,
+            RunCommand.self,
+            GrantsCommand.self,
+            RequestsCommand.self,
+        ]
     )
 }

@@ -7,10 +7,17 @@ struct MainView: View {
     @State private var setupComplete = UserDefaults.standard.bool(forKey: "setupComplete")
     @State private var selectedCredentialId: String?
     @State private var showingAdd = false
+    @State private var enforceServiceGrants = false
+    @State private var serviceModeError: String?
+    @State private var showServiceGrants = false
+    @State private var serviceGrants: [ServiceGrant] = []
 
-    enum Page { case list, add, detail(String) }
+    private let serviceGrantStore = ServiceGrantStore.default
+
+    enum Page { case list, add, detail(String), serviceGrants }
 
     private var currentPage: Page {
+        if showServiceGrants { return .serviceGrants }
         if showingAdd { return .add }
         if let id = selectedCredentialId { return .detail(id) }
         return .list
@@ -47,6 +54,8 @@ struct MainView: View {
                 } else {
                     credentialListContent
                 }
+            case .serviceGrants:
+                serviceGrantsView
             }
         }
     }
@@ -126,18 +135,235 @@ struct MainView: View {
         .frame(width: 360, height: 480)
         .onAppear { viewModel.load() }
         .safeAreaInset(edge: .bottom) {
+            VStack(spacing: DS.Spacing.sm) {
+                VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                    Toggle(isOn: $enforceServiceGrants) {
+                        Text("Require approval for background access")
+                            .font(.caption)
+                    }
+                    .onChange(of: enforceServiceGrants) { _, value in
+                        saveServiceAuthorizationMode(value)
+                    }
+
+                    if enforceServiceGrants {
+                        Text("Non-interactive callers must be approved before reading standard credentials.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if !serviceGrants.isEmpty {
+                        Button {
+                            showServiceGrants = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.shield")
+                                    .font(.caption)
+                                Text("\(serviceGrants.count) active grant\(serviceGrants.count == 1 ? "" : "s")")
+                                    .font(.caption)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2)
+                            }
+                            .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                if let serviceModeError {
+                    Text(serviceModeError)
+                        .font(.caption2)
+                        .foregroundColor(.red)
+                        .lineLimit(2)
+                }
+
+                Divider()
+
+                HStack {
+                    Button(action: { NSApplication.shared.terminate(nil) }) {
+                        Label("Quit KeyKeeper", systemImage: "power")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, DS.Spacing.sm)
+            .background(.regularMaterial)
+        }
+        .onAppear {
+            loadServiceAuthorizationMode()
+            loadServiceGrants()
+        }
+    }
+
+    private func loadServiceAuthorizationMode() {
+        do {
+            enforceServiceGrants = try serviceGrantStore.authorizationMode() == .enforced
+            serviceModeError = nil
+        } catch {
+            serviceModeError = error.localizedDescription
+        }
+    }
+
+    private func saveServiceAuthorizationMode(_ enforced: Bool) {
+        do {
+            try serviceGrantStore.setAuthorizationMode(enforced ? .enforced : .permissive)
+            serviceModeError = nil
+        } catch {
+            serviceModeError = error.localizedDescription
+        }
+    }
+
+    private func loadServiceGrants() {
+        serviceGrants = (try? serviceGrantStore.grants()) ?? []
+    }
+
+    private func revokeServiceGrant(_ grantId: String) {
+        try? serviceGrantStore.revokeGrant(id: grantId)
+        loadServiceGrants()
+    }
+
+    private func credentialLabel(for id: String) -> String {
+        viewModel.credentials.first(where: { $0.id == id })?.credential.label ?? id
+    }
+
+    // MARK: - Service Grants View
+
+    @ViewBuilder
+    private var serviceGrantsView: some View {
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Button(action: { NSApplication.shared.terminate(nil) }) {
-                    Label("Quit KeyKeeper", systemImage: "power")
+                Button {
+                    showServiceGrants = false
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                        Text("Back")
+                    }
+                    .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.accentColor)
+                Spacer()
+            }
+            .padding()
+
+            Text("Service Grants")
+                .font(.title3.weight(.semibold))
+                .padding(.horizontal)
+                .padding(.bottom, DS.Spacing.sm)
+
+            if serviceGrants.isEmpty {
+                Spacer()
+                VStack(spacing: DS.Spacing.sm) {
+                    Image(systemName: "checkmark.shield")
+                        .font(.system(size: 24))
+                        .foregroundColor(.secondary)
+                    Text("No active service grants")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                Spacer()
+            } else {
+                ScrollView {
+                    VStack(spacing: DS.Spacing.md) {
+                        ForEach(groupedServiceGrants) { group in
+                            VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                                Text(credentialLabel(for: group.credentialId))
+                                    .font(.callout.bold())
+
+                                ForEach(group.grants) { grant in
+                                    serviceGrantRow(grant)
+                                    if grant.id != group.grants.last?.id {
+                                        Divider()
+                                    }
+                                }
+                            }
+                            .dsCard()
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, DS.Spacing.sm)
+                }
+            }
+        }
+        .frame(width: 360, height: 480)
+        .onAppear { loadServiceGrants() }
+    }
+
+    private func serviceGrantRow(_ grant: ServiceGrant) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(grant.subjectDisplayName)
+                    .font(.callout)
+
+                HStack(spacing: 4) {
+                    Text(grant.fields.joined(separator: ", "))
+                        .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
+                    Text("\u{00B7}")
+                        .foregroundColor(.secondary)
+                    Text(serviceDurationLabel(grant.duration))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                .buttonStyle(.plain)
-                Spacer()
+
+                Text(serviceGrantTimeLabel(grant))
+                    .font(.caption2)
+                    .foregroundColor(.secondary.opacity(0.6))
             }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            .background(.regularMaterial)
+
+            Spacer()
+
+            Button("Revoke") {
+                revokeServiceGrant(grant.id)
+            }
+            .font(.caption)
+            .foregroundColor(.red)
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var groupedServiceGrants: [ServiceGrantGroup] {
+        Dictionary(grouping: serviceGrants, by: \.credentialId)
+            .map { ServiceGrantGroup(credentialId: $0.key, grants: $0.value.sorted { $0.createdAt > $1.createdAt }) }
+            .sorted { credentialLabel(for: $0.credentialId) < credentialLabel(for: $1.credentialId) }
+    }
+
+    private func serviceDurationLabel(_ duration: ServiceGrantDuration) -> String {
+        switch duration {
+        case .once:
+            return "Once"
+        case .timed(let date):
+            if date > Date() {
+                let formatter = RelativeDateTimeFormatter()
+                formatter.unitsStyle = .abbreviated
+                return "Expires \(formatter.localizedString(for: date, relativeTo: Date()))"
+            } else {
+                return "Expired"
+            }
+        case .always:
+            return "Always"
         }
     }
+
+    private func serviceGrantTimeLabel(_ grant: ServiceGrant) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        if let lastUsed = grant.lastUsedAt {
+            return "Used \(formatter.localizedString(for: lastUsed, relativeTo: Date()))"
+        }
+        return "Created \(formatter.localizedString(for: grant.createdAt, relativeTo: Date()))"
+    }
+}
+
+private struct ServiceGrantGroup: Identifiable {
+    let credentialId: String
+    let grants: [ServiceGrant]
+    var id: String { credentialId }
 }
