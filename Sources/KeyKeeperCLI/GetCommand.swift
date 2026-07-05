@@ -39,7 +39,8 @@ struct GetCommand: ParsableCommand {
             // Read secret via IPC — App owns the Keychain entries, no ACL prompts
             let value = try IPCClient.requestValue(
                 credentialId: credentialId, fieldName: fieldName,
-                sessionId: session.id)
+                sessionId: session.id,
+                requestedFieldNames: [fieldName])
             print(value, terminator: "")
         } else {
             print(field.value ?? "", terminator: "")

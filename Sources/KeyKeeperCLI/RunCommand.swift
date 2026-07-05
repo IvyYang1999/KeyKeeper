@@ -15,11 +15,16 @@ struct RunCommand: ParsableCommand {
         automatically replaced with [REDACTED]. This is an architectural safety \
         net — secrets cannot leak through output even if the code prints them.
 
+        TUI/full-screen programs need a real TTY. Use --tty for those commands; \
+        in that mode KeyKeeper inherits stdin/stdout/stderr directly and cannot \
+        redact child-process output.
+
         Environment variable names are derived from field names: uppercased with \
         non-alphanumeric characters replaced by underscores.
 
         Example:
           keykeeper run -c my-api -- python script.py
+          keykeeper run -c my-api --tty -- vim
           keykeeper run -c stripe -c openai -- node server.js
         """
     )
@@ -32,6 +37,9 @@ struct RunCommand: ParsableCommand {
 
     @Flag(name: .long, help: "Print injected variable names (not values) before running the command.")
     var verbose: Bool = false
+
+    @Flag(name: .long, help: "Run with inherited TTY; disables stdout/stderr redaction for TUI programs.")
+    var tty: Bool = false
 
     @Argument(parsing: .postTerminator, help: "The command and arguments to run.")
     var command: [String]
@@ -68,7 +76,12 @@ struct RunCommand: ParsableCommand {
                 )
             }
 
-            for (fieldName, field) in cred.fields where field.secret {
+            let secretFieldNames = cred.fields
+                .filter(\.value.secret)
+                .map(\.key)
+                .sorted()
+
+            for fieldName in secretFieldNames {
                 let envName = prefix + Self.envVarName(from: fieldName)
 
                 if injectedEnv[envName] != nil {
@@ -80,8 +93,11 @@ struct RunCommand: ParsableCommand {
 
                 // Read secret via IPC — App owns the Keychain entries, no ACL prompts
                 let value = try IPCClient.requestValue(
-                    credentialId: credId, fieldName: fieldName,
-                    sessionId: session.id)
+                    credentialId: credId,
+                    fieldName: fieldName,
+                    sessionId: session.id,
+                    requestedFieldNames: secretFieldNames
+                )
                 injectedEnv[envName] = value
                 secretValues.append(value)
             }
@@ -106,12 +122,27 @@ struct RunCommand: ParsableCommand {
             env[key] = value
         }
 
-        // Launch subprocess with piped output for redaction
+        // Launch subprocess.
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = command
         process.environment = env
 
+        if tty {
+            process.standardInput = FileHandle.standardInput
+            process.standardOutput = FileHandle.standardOutput
+            process.standardError = FileHandle.standardError
+
+            let signalSources = Self.setupSignalForwarding(to: process)
+            try process.run()
+            process.waitUntilExit()
+            for source in signalSources {
+                source.cancel()
+            }
+            throw ExitCode(process.terminationStatus)
+        }
+
+        // Pipe output for redaction in the default safety mode.
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         process.standardOutput = stdoutPipe

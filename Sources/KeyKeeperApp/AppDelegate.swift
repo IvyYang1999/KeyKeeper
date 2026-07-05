@@ -40,6 +40,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        ipcServer.$pendingServiceRequest
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] pending in
+                self?.handleServiceRequest(pending)
+            }
+            .store(in: &cancellables)
+
+        Publishers.CombineLatest(ipcServer.$pendingRequest, ipcServer.$pendingServiceRequest)
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] authRequest, serviceRequest in
+                if authRequest == nil, serviceRequest == nil {
+                    self?.authWindowController.dismiss()
+                }
+            }
+            .store(in: &cancellables)
+
         // Auto-show popover on launch so user knows the app is running
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.showPopover()
@@ -83,6 +101,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     to: pending,
                     with: AuthResponse(granted: false, error: "User denied")
                 )
+            }
+        )
+    }
+
+    private func handleServiceRequest(_ pending: IPCServer.PendingServiceRequest) {
+        let serviceGrantStore = ServiceGrantStore.default
+
+        authWindowController.show(
+            serviceRequest: pending,
+            onAuthorize: { [weak self] duration in
+                guard let self else { return }
+
+                do {
+                    let grant = ServiceGrant(
+                        credentialId: pending.credentialId,
+                        subjectFingerprint: pending.callerIdentity.subjectFingerprint,
+                        subjectDisplayName: pending.callerIdentity.displayName,
+                        fields: pending.fieldNames,
+                        duration: duration
+                    )
+                    try serviceGrantStore.addGrant(grant)
+                    self.ipcServer.fulfillServiceRequest(pending, serviceGrant: grant)
+                } catch {
+                    self.ipcServer.denyServiceRequest(pending, message: error.localizedDescription)
+                }
+            },
+            onDeny: { [weak self] in
+                self?.ipcServer.denyServiceRequest(pending)
             }
         )
     }

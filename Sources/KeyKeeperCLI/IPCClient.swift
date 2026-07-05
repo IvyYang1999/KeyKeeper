@@ -4,7 +4,7 @@ import KeyKeeperCore
 enum IPCClient {
     /// Request authorization from the KeyKeeper app via Unix socket.
     static func requestAuthorization(_ request: AuthRequest) throws -> AuthResponse {
-        let fd = try connectWithRetry()
+        let fd = try connectWithRetry(launchIfNeeded: true)
         defer { close(fd) }
 
         // Set read timeout
@@ -24,34 +24,61 @@ enum IPCClient {
 
     /// Request a secret value from the KeyKeeper app (App reads Keychain on our behalf).
     static func requestValue(credentialId: String, fieldName: String,
-                             sessionId: String?) throws -> String {
-        let fd = try connectWithRetry()
+                             sessionId: String?,
+                             requestedFieldNames: [String]? = nil) throws -> String {
+        let fd = try connectWithRetry(launchIfNeeded: true)
         defer { close(fd) }
 
-        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout), tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
 
         let request = ValueRequest(
-            credentialId: credentialId, fieldName: fieldName, sessionId: sessionId)
+            credentialId: credentialId,
+            fieldName: fieldName,
+            sessionId: sessionId,
+            requestedFieldNames: requestedFieldNames
+        )
         try IPCMessage.writeMessage(fd: fd, message: IPCRequest.value(request))
 
         guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self),
               case .value(let valueResponse) = response else {
-            throw IPCError.readFailed
+            throw IPCError.appNotResponding
         }
 
         guard valueResponse.success, let value = valueResponse.value else {
-            throw IPCError.denied(valueResponse.error)
+            switch valueResponse.errorCode {
+            case .noAuthorization, .authorizationDenied, .pendingExpired:
+                throw IPCError.noAuthorization(valueResponse.error)
+            case .keychainBlocked, .keychainError:
+                throw IPCError.keychainBlocked(valueResponse.error)
+            case .invalidRequest, .notFound, .none:
+                throw IPCError.denied(valueResponse.error)
+            }
         }
         return value
     }
 
+    static func requestPendingServiceRequests() throws -> [PendingServiceRequestSummary] {
+        let fd = try connectWithRetry(launchIfNeeded: false)
+        defer { close(fd) }
+
+        var timeout = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+
+        try IPCMessage.writeMessage(fd: fd, message: IPCRequest.serviceRequests(ServiceRequestsListRequest()))
+        guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self),
+              case .serviceRequests(let listResponse) = response else {
+            throw IPCError.appNotResponding
+        }
+        return listResponse.requests
+    }
+
     // MARK: - Connection
 
-    private static func connectWithRetry() throws -> Int32 {
+    private static func connectWithRetry(launchIfNeeded: Bool) throws -> Int32 {
         let socketPath = IPCConstants.socketPath
         var fd = connectToSocket(path: socketPath)
-        if fd < 0 {
+        if fd < 0, launchIfNeeded {
             tryLaunchApp()
             for delay in [0.5, 1.0, 2.0] {
                 Thread.sleep(forTimeInterval: delay)

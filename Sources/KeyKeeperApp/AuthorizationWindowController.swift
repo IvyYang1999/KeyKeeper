@@ -7,17 +7,54 @@ import KeyKeeperCore
 final class AuthorizationWindowController {
     private var window: NSWindow?
     private var windowDelegate: WindowCloseDelegate?
+    private var isProgrammaticClose = false
 
     func show(request: AuthRequest,
               onAuthorize: @escaping (GrantDuration) -> Void,
               onDeny: @escaping () -> Void) {
+        show(
+            prompt: .strict(request),
+            onAuthorizeGrant: onAuthorize,
+            onAuthorizeService: nil,
+            onDeny: onDeny
+        )
+    }
+
+    func show(serviceRequest: IPCServer.PendingServiceRequest,
+              onAuthorize: @escaping (ServiceGrantDuration) -> Void,
+              onDeny: @escaping () -> Void) {
+        show(
+            prompt: .service(serviceRequest),
+            onAuthorizeGrant: nil,
+            onAuthorizeService: onAuthorize,
+            onDeny: onDeny
+        )
+    }
+
+    func dismiss() {
+        guard let window else { return }
+        isProgrammaticClose = true
+        window.close()
+        isProgrammaticClose = false
+        self.window = nil
+        windowDelegate = nil
+    }
+
+    private func show(prompt: AuthorizationPrompt,
+                      onAuthorizeGrant: ((GrantDuration) -> Void)?,
+                      onAuthorizeService: ((ServiceGrantDuration) -> Void)?,
+                      onDeny: @escaping () -> Void) {
         // Close existing window if any
         dismiss()
 
         let view = AuthorizationView(
-            request: request,
-            onAuthorize: { [weak self] duration in
-                onAuthorize(duration)
+            prompt: prompt,
+            onAuthorizeGrant: { [weak self] duration in
+                onAuthorizeGrant?(duration)
+                self?.dismiss()
+            },
+            onAuthorizeService: { [weak self] duration in
+                onAuthorizeService?(duration)
                 self?.dismiss()
             },
             onDeny: { [weak self] in
@@ -37,9 +74,11 @@ final class AuthorizationWindowController {
 
         // Keep a strong reference to the delegate
         let delegate = WindowCloseDelegate(onClose: { [weak self] in
+            guard let self else { return }
+            guard !self.isProgrammaticClose else { return }
             onDeny()
-            self?.window = nil
-            self?.windowDelegate = nil
+            self.window = nil
+            self.windowDelegate = nil
         })
         windowDelegate = delegate
         win.delegate = delegate
@@ -47,12 +86,6 @@ final class AuthorizationWindowController {
         window = win
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-    }
-
-    func dismiss() {
-        window?.close()
-        window = nil
-        windowDelegate = nil
     }
 }
 
