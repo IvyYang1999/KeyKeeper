@@ -67,6 +67,10 @@ echo "==> 替换 /Applications/${APP_NAME}.app..."
 rm -rf "/Applications/${APP_NAME}.app"
 cp -R "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
 
+# ad-hoc 签名 + 清 quarantine（防 LaunchServices kLSNoExecutableErr，2026-07-05/06 两次翻车）
+xattr -cr "/Applications/${APP_NAME}.app" 2>/dev/null || true
+codesign --force --deep -s - "/Applications/${APP_NAME}.app"
+
 # 6. 更新 CLI (skip silently if no permission)
 cp "$BUILD_DIR/keykeeper" /usr/local/bin/keykeeper 2>/dev/null || true
 
