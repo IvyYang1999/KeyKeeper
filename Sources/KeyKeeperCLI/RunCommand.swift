@@ -248,6 +248,135 @@ struct RunCommand: ParsableCommand {
 
 // MARK: - Output Redaction
 
+/// Stateful byte matcher used by each output stream.
+///
+/// `process(_:)` deliberately retains the longest possible pattern prefix;
+/// `finish()` resolves that retained suffix at EOF.
+struct OutputRedactionMatcher {
+    private static let standardReplacement = Array("[REDACTED]".utf8)
+
+    private let patterns: [[UInt8]]
+    private let maxPatternLength: Int
+    private let replacement: [UInt8]
+    private var carryover: [UInt8] = []
+
+    init(secrets: [String]) {
+        let encodedValues = secrets
+            .map { Array($0.utf8) }
+            .filter { !$0.isEmpty }
+            .sorted { $0.count > $1.count }
+        self.patterns = encodedValues
+        self.maxPatternLength = encodedValues.first?.count ?? 0
+        self.replacement = Self.safeReplacement(for: encodedValues)
+    }
+
+    var pendingByteCount: Int { carryover.count }
+
+    mutating func process(_ data: Data) -> Data {
+        guard !patterns.isEmpty else { return data }
+
+        carryover.append(contentsOf: data)
+        return Data(redactAvailableBytes(flushAll: false))
+    }
+
+    mutating func finish() -> Data {
+        guard !patterns.isEmpty else { return Data() }
+        return Data(redactAvailableBytes(flushAll: true))
+    }
+
+    private mutating func redactAvailableBytes(flushAll: Bool) -> [UInt8] {
+        // Until EOF, retain enough raw bytes for the longest pattern to begin in
+        // this read and finish in the next one.
+        let overlapSize = maxPatternLength - 1
+        let processingLimit = flushAll
+            ? carryover.count
+            : max(0, carryover.count - overlapSize)
+        var output: [UInt8] = []
+        var index = 0
+
+        while index < processingLimit {
+            let unread = carryover[index...]
+            if let match = patterns.first(where: { unread.starts(with: $0) }) {
+                output.append(contentsOf: replacement)
+                index += match.count
+            } else {
+                output.append(carryover[index])
+                index += 1
+            }
+        }
+
+        carryover = Array(carryover[index...])
+        return output
+    }
+
+    private static func safeReplacement(for patterns: [[UInt8]]) -> [UInt8] {
+        if isBoundarySafe(standardReplacement, for: patterns) {
+            return standardReplacement
+        }
+
+        if !patterns.contains(where: { contains($0, in: standardReplacement) }) {
+            // A private-use scalar keeps the visible marker while separating it
+            // from preserved bytes. Try the full range so a delimiter already used
+            // by one credential does not weaken another credential's boundary.
+            for value in 0xE000...0xF8FF {
+                guard let scalar = UnicodeScalar(value) else { continue }
+                let delimiter = Array(String(scalar).utf8)
+                let candidate = delimiter + standardReplacement + delimiter
+                if isBoundarySafe(candidate, for: patterns) {
+                    return candidate
+                }
+            }
+        }
+
+        let alternative = Array("[FILTERED]".utf8)
+        if isBoundarySafe(alternative, for: patterns) {
+            return alternative
+        }
+
+        // Credential values are valid UTF-8, so 0xFF cannot occur in a pattern.
+        // This fallback favors non-disclosure over textual rendering in the
+        // pathological case where every private-use delimiter is unsafe.
+        let binaryDelimiter: UInt8 = 0xFF
+        let wrapped = [binaryDelimiter] + standardReplacement + [binaryDelimiter]
+        if isBoundarySafe(wrapped, for: patterns) {
+            return wrapped
+        }
+        return [binaryDelimiter]
+    }
+
+    private static func isBoundarySafe(
+        _ candidate: [UInt8],
+        for patterns: [[UInt8]]
+    ) -> Bool {
+        guard !candidate.isEmpty else { return false }
+
+        for pattern in patterns {
+            if contains(pattern, in: candidate) {
+                return false
+            }
+
+            guard pattern.count > 1 else { continue }
+            for splitIndex in 1..<pattern.count {
+                if candidate.starts(with: pattern[splitIndex...])
+                    || candidate.suffix(splitIndex).elementsEqual(pattern[..<splitIndex]) {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    private static func contains(_ pattern: [UInt8], in bytes: [UInt8]) -> Bool {
+        guard !pattern.isEmpty, bytes.count >= pattern.count else { return false }
+        for index in 0...(bytes.count - pattern.count) {
+            if bytes[index...].starts(with: pattern) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
 /// Reads subprocess output, replaces secret values with [REDACTED], and writes to real output.
 /// Uses a sliding-window buffer to handle secrets that span chunk boundaries.
 final class OutputRedactor: @unchecked Sendable {
@@ -256,14 +385,12 @@ final class OutputRedactor: @unchecked Sendable {
     private let secrets: [String]
     private let stdoutHandle: FileHandle
     private let stderrHandle: FileHandle
-    private let maxSecretLen: Int
     private let group = DispatchGroup()
 
     init(secrets: [String], stdout: FileHandle, stderr: FileHandle) {
         self.secrets = secrets
         self.stdoutHandle = stdout
         self.stderrHandle = stderr
-        self.maxSecretLen = secrets.map(\.count).max() ?? 0
     }
 
     func startReading(pipe: Pipe, target: Target) {
@@ -274,69 +401,27 @@ final class OutputRedactor: @unchecked Sendable {
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             defer { group.leave() }
 
-            guard !secrets.isEmpty else {
-                // No secrets to redact — pass through directly
-                Self.passThrough(from: readHandle, to: handle)
-                return
-            }
-
-            // Sliding window: we hold back up to (maxSecretLen - 1) bytes
-            // to handle secrets that span chunk boundaries.
-            let overlapSize = maxSecretLen - 1
-            var carryover = ""
+            var matcher = OutputRedactionMatcher(secrets: secrets)
 
             while true {
                 let data = readHandle.availableData
                 if data.isEmpty { break }  // EOF
 
-                guard let chunk = String(data: data, encoding: .utf8) else {
-                    // Binary data — write as-is (can't redact binary)
-                    handle.write(data)
-                    continue
+                let output = matcher.process(data)
+                if !output.isEmpty {
+                    handle.write(output)
                 }
-
-                let combined = carryover + chunk
-
-                if combined.count <= overlapSize {
-                    // Not enough data yet, buffer it
-                    carryover = combined
-                    continue
-                }
-
-                // Redact the combined buffer, but hold back the tail
-                let safeEnd = combined.index(combined.endIndex, offsetBy: -overlapSize)
-                let toProcess = String(combined[combined.startIndex..<safeEnd])
-                carryover = String(combined[safeEnd..<combined.endIndex])
-
-                let redacted = self.redact(toProcess)
-                handle.write(Data(redacted.utf8))
             }
 
-            // Flush remaining buffer
-            if !carryover.isEmpty {
-                let redacted = self.redact(carryover)
-                handle.write(Data(redacted.utf8))
+            // EOF: run the remaining bytes through the same matcher before writing.
+            let output = matcher.finish()
+            if !output.isEmpty {
+                handle.write(output)
             }
         }
     }
 
     func waitUntilDone() {
         group.wait()
-    }
-
-    private func redact(_ text: String) -> String {
-        var result = text
-        for secret in secrets {
-            result = result.replacingOccurrences(of: secret, with: "[REDACTED]")
-        }
-        return result
-    }
-
-    private static func passThrough(from source: FileHandle, to dest: FileHandle) {
-        while true {
-            let data = source.availableData
-            if data.isEmpty { break }
-            dest.write(data)
-        }
     }
 }
