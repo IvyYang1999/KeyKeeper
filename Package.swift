@@ -32,5 +32,9 @@ let package = Package(
             name: "KeyKeeperCoreTests",
             dependencies: ["KeyKeeperCore"]
         ),
+        .testTarget(
+            name: "KeyKeeperCLITests",
+            dependencies: ["KeyKeeperCLI"]
+        ),
     ]
 )
