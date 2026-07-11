@@ -71,8 +71,16 @@ cp -R "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
 xattr -cr "/Applications/${APP_NAME}.app" 2>/dev/null || true
 codesign --force --deep -s - "/Applications/${APP_NAME}.app"
 
-# 6. 更新 CLI (skip silently if no permission)
-cp "$BUILD_DIR/keykeeper" /usr/local/bin/keykeeper 2>/dev/null || true
+# 6. 更新 CLI，并确认实际部署版本
+EXPECTED_CLI_VERSION="$("$BUILD_DIR/keykeeper" --version)"
+if ! cp "$BUILD_DIR/keykeeper" /usr/local/bin/keykeeper; then
+    echo "ERROR: /usr/local/bin CLI 未更新（需手动 sudo cp），当前 PATH 上是旧版" >&2
+fi
+if ! "$PROJECT_DIR/scripts/verify-cli-deploy.sh" \
+    "$BUILD_DIR/keykeeper" \
+    "$EXPECTED_CLI_VERSION"; then
+    echo "WARNING: App 已更新，但 CLI 部署版本不一致；请手动更新 /usr/local/bin/keykeeper" >&2
+fi
 
 # 7. 重新启动
 echo "==> 启动 ${APP_NAME}..."

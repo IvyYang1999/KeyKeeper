@@ -21,7 +21,8 @@ let package = Package(
             dependencies: [
                 "KeyKeeperCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-            ]
+            ],
+            plugins: ["GenerateVersionPlugin"]
         ),
         .executableTarget(
             name: "KeyKeeperApp",
@@ -35,6 +36,15 @@ let package = Package(
         .testTarget(
             name: "KeyKeeperCLITests",
             dependencies: ["KeyKeeperCLI"]
+        ),
+        .executableTarget(
+            name: "VersionGenerator",
+            path: "Tools/VersionGenerator"
+        ),
+        .plugin(
+            name: "GenerateVersionPlugin",
+            capability: .buildTool(),
+            dependencies: ["VersionGenerator"]
         ),
     ]
 )
