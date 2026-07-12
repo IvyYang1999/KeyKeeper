@@ -63,38 +63,57 @@ final class AgeVaultStoreTests: XCTestCase {
         }
     }
 
-    func testIdentityCipherUsesRandomSaltAndNonce() throws {
-        let plaintext = Data("private identity placeholder".utf8)
+    func testInitVaultRejectsEmptyPassphraseWithoutCreatingContainer() throws {
+        let store = makeStore()
 
-        let first = try IdentityCipher.seal(plaintext, passphrase: "phrase placeholder")
-        let second = try IdentityCipher.seal(plaintext, passphrase: "phrase placeholder")
-
-        XCTAssertNotEqual(first, second)
-        XCTAssertEqual(
-            try IdentityCipher.open(first, passphrase: "phrase placeholder"),
-            plaintext
-        )
-        XCTAssertEqual(
-            try IdentityCipher.open(second, passphrase: "phrase placeholder"),
-            plaintext
-        )
+        XCTAssertThrowsError(try store.initVault(passphrase: "")) { error in
+            guard case AgeVaultError.emptyPassphrase = error else {
+                return XCTFail("Expected AgeVaultError.emptyPassphrase")
+            }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("identity.age").path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("vault.age").path
+        ))
     }
 
-    func testIdentityCipherRejectsWrongPassphraseAndTampering() throws {
-        let sealed = try IdentityCipher.seal(
-            Data("private identity placeholder".utf8),
-            passphrase: "accepted phrase placeholder"
-        )
+    func testUnlockRejectsEmptyPassphrase() throws {
+        let store = makeStore()
+        _ = try store.initVault(passphrase: "unlock phrase placeholder")
 
-        XCTAssertThrowsError(
-            try IdentityCipher.open(sealed, passphrase: "rejected phrase placeholder")
-        )
+        XCTAssertThrowsError(try makeStore().unlock(passphrase: "")) { error in
+            guard case AgeVaultError.emptyPassphrase = error else {
+                return XCTFail("Expected AgeVaultError.emptyPassphrase")
+            }
+        }
+    }
 
-        var tampered = sealed
-        tampered[tampered.index(before: tampered.endIndex)] ^= 0x01
-        XCTAssertThrowsError(
-            try IdentityCipher.open(tampered, passphrase: "accepted phrase placeholder")
-        )
+    func testUnlockRejectsOversizedIdentityContainer() throws {
+        let store = makeStore()
+        _ = try store.initVault(passphrase: "size phrase placeholder")
+        try Data(repeating: 0xA5, count: AgeVaultStore.maximumEncryptedContainerByteCount + 1)
+            .write(to: directory.appendingPathComponent("identity.age"))
+
+        XCTAssertThrowsError(try makeStore().unlock(passphrase: "size phrase placeholder")) { error in
+            guard case AgeVaultError.containerTooLarge = error else {
+                return XCTFail("Expected AgeVaultError.containerTooLarge")
+            }
+        }
+    }
+
+    func testReadRejectsOversizedVaultContainer() throws {
+        let store = makeStore()
+        let emergency = try store.initVault(passphrase: "vault size phrase placeholder")
+        try Data(repeating: 0x5A, count: AgeVaultStore.maximumEncryptedContainerByteCount + 1)
+            .write(to: directory.appendingPathComponent("vault.age"))
+
+        XCTAssertThrowsError(try makeStore().unlock(emergencyIdentity: emergency)) { error in
+            guard case AgeVaultError.containerTooLarge = error else {
+                return XCTFail("Expected AgeVaultError.containerTooLarge")
+            }
+        }
     }
 
     func testDeleteThenRetrieveThrowsNotFound() throws {

@@ -15,6 +15,7 @@ enum IdentityCipher {
     /// work-factor guidance. A random 128-bit salt prevents precomputation, while
     /// AES-256-GCM provides authenticated encryption with a fresh 96-bit nonce.
     static func seal(_ plaintext: Data, passphrase: String) throws -> Data {
+        guard !passphrase.isEmpty else { throw IdentityCipherError.emptyPassphrase }
         let salt = try randomData(count: saltByteCount)
         let nonceData = try randomData(count: nonceByteCount)
         let header = magic + encode(iterationCount) + salt + nonceData
@@ -25,6 +26,7 @@ enum IdentityCipher {
     }
 
     static func open(_ container: Data, passphrase: String) throws -> Data {
+        guard !passphrase.isEmpty else { throw IdentityCipherError.emptyPassphrase }
         let headerByteCount = magic.count + MemoryLayout<UInt32>.size
             + saltByteCount + nonceByteCount
         guard container.count >= headerByteCount + tagByteCount else {
@@ -77,6 +79,8 @@ enum IdentityCipher {
             }
         }
         guard result == kCCSuccess else { throw IdentityCipherError.keyDerivationFailed }
+        // TODO(P2): Minimize and explicitly zero passphrase/derived-key buffers once
+        // Swift/CryptoKit provide a reliable non-copying lifecycle for these values.
         return SymmetricKey(data: derived)
     }
 
@@ -104,7 +108,8 @@ enum IdentityCipher {
     }
 }
 
-private enum IdentityCipherError: Error {
+enum IdentityCipherError: Error {
+    case emptyPassphrase
     case invalidContainer
     case randomGenerationFailed
     case keyDerivationFailed
