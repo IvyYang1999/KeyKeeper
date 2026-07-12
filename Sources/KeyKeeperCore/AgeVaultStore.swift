@@ -38,6 +38,8 @@ public enum AgeVaultError: Error, LocalizedError {
     case vaultEncryptionFailed
     case vaultDecryptionFailed
     case invalidVault
+    case containerTooLarge
+    case emptyPassphrase
 
     public var errorDescription: String? {
         switch self {
@@ -52,12 +54,15 @@ public enum AgeVaultError: Error, LocalizedError {
         case .vaultEncryptionFailed: return "Could not encrypt the age vault"
         case .vaultDecryptionFailed: return "Could not decrypt the age vault"
         case .invalidVault: return "The age vault has an invalid format"
+        case .containerTooLarge: return "The encrypted container exceeds the size limit"
+        case .emptyPassphrase: return "The passphrase must not be empty"
         }
     }
 }
 
 public final class AgeVaultStore: @unchecked Sendable {
     private typealias Vault = [String: [String: String]]
+    static let maximumEncryptedContainerByteCount = 4 * 1_024 * 1_024
 
     private let directory: URL
     private let identityURL: URL
@@ -100,7 +105,8 @@ public final class AgeVaultStore: @unchecked Sendable {
     }
 
     public func initVault(passphrase: String) throws -> EmergencyIdentity {
-        try withLock {
+        guard !passphrase.isEmpty else { throw AgeVaultError.emptyPassphrase }
+        return try withLock {
             try ensureExecutablesExist()
             try createSecureDirectory()
             return try withDirectoryWriteLock {
@@ -160,18 +166,20 @@ public final class AgeVaultStore: @unchecked Sendable {
 
     @discardableResult
     public func unlock(passphrase: String) throws -> UnlockedIdentity {
-        try withLock {
+        guard !passphrase.isEmpty else { throw AgeVaultError.emptyPassphrase }
+        return try withLock {
             try ensureExecutablesExist()
             guard FileManager.default.fileExists(atPath: identityURL.path),
                   FileManager.default.fileExists(atPath: vaultURL.path) else {
                 throw AgeVaultError.notInitialized
             }
-            let encryptedIdentity = try Data(contentsOf: identityURL)
-            let plaintext = try runBatchpass(
-                payload: encryptedIdentity,
-                passphrase: passphrase,
-                encrypting: false
-            )
+            let encryptedIdentity = try readEncryptedContainer(from: identityURL)
+            let plaintext: Data
+            do {
+                plaintext = try IdentityCipher.open(encryptedIdentity, passphrase: passphrase)
+            } catch {
+                throw AgeVaultError.identityDecryptionFailed
+            }
             let unlocked = try parseMainIdentity(plaintext)
             _ = try loadVault(using: unlocked)
             unlockedIdentity = unlocked
@@ -198,29 +206,6 @@ public final class AgeVaultStore: @unchecked Sendable {
             unlockedIdentity = unlocked
             return unlocked
         }
-    }
-
-    private func batchpassFDEnvironment() -> [String: String] {
-        Dictionary(uniqueKeysWithValues: [("AGE_" + "PASSPHRASE_FD", "3")])
-    }
-
-    private func runBatchpass(payload: Data, passphrase: String, encrypting: Bool) throws -> Data {
-        let script = "exec 3<&2; exec 2>/dev/null; exec \"$1\" \"$2\" -j batchpass /dev/stdin"
-        let result = try run(
-            executable: URL(fileURLWithPath: "/bin/sh"),
-            arguments: [
-                "-c", script, "keykeeper-batchpass", ageExecutable.path,
-                encrypting ? "--encrypt" : "--decrypt",
-            ],
-            input: payload,
-            environment: batchpassFDEnvironment(),
-            anonymousInput: Data("\(passphrase)\n".utf8)
-        )
-        guard result.status == 0 else {
-            throw encrypting ? AgeVaultError.identityEncryptionFailed
-                : AgeVaultError.identityDecryptionFailed
-        }
-        return result.output
     }
 
     public func save(
@@ -292,7 +277,7 @@ public final class AgeVaultStore: @unchecked Sendable {
     }
 
     private func loadVault(using identity: UnlockedIdentity) throws -> Vault {
-        let ciphertext = try Data(contentsOf: vaultURL)
+        let ciphertext = try readEncryptedContainer(from: vaultURL)
         let plaintext = try decryptVault(ciphertext, identity: identity.identity)
         do {
             return try JSONDecoder().decode(Vault.self, from: plaintext)
@@ -331,7 +316,22 @@ public final class AgeVaultStore: @unchecked Sendable {
     }
 
     private func encryptIdentity(_ plaintext: Data, passphrase: String) throws -> Data {
-        try runBatchpass(payload: plaintext, passphrase: passphrase, encrypting: true)
+        do {
+            return try IdentityCipher.seal(plaintext, passphrase: passphrase)
+        } catch {
+            throw AgeVaultError.identityEncryptionFailed
+        }
+    }
+
+    private func readEncryptedContainer(from url: URL) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: Self.maximumEncryptedContainerByteCount + 1)
+            ?? Data()
+        guard data.count <= Self.maximumEncryptedContainerByteCount else {
+            throw AgeVaultError.containerTooLarge
+        }
+        return data
     }
 
     private func generateIdentity() throws -> String {

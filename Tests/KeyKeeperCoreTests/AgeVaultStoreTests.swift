@@ -63,6 +63,59 @@ final class AgeVaultStoreTests: XCTestCase {
         }
     }
 
+    func testInitVaultRejectsEmptyPassphraseWithoutCreatingContainer() throws {
+        let store = makeStore()
+
+        XCTAssertThrowsError(try store.initVault(passphrase: "")) { error in
+            guard case AgeVaultError.emptyPassphrase = error else {
+                return XCTFail("Expected AgeVaultError.emptyPassphrase")
+            }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("identity.age").path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("vault.age").path
+        ))
+    }
+
+    func testUnlockRejectsEmptyPassphrase() throws {
+        let store = makeStore()
+        _ = try store.initVault(passphrase: "unlock phrase placeholder")
+
+        XCTAssertThrowsError(try makeStore().unlock(passphrase: "")) { error in
+            guard case AgeVaultError.emptyPassphrase = error else {
+                return XCTFail("Expected AgeVaultError.emptyPassphrase")
+            }
+        }
+    }
+
+    func testUnlockRejectsOversizedIdentityContainer() throws {
+        let store = makeStore()
+        _ = try store.initVault(passphrase: "size phrase placeholder")
+        try Data(repeating: 0xA5, count: AgeVaultStore.maximumEncryptedContainerByteCount + 1)
+            .write(to: directory.appendingPathComponent("identity.age"))
+
+        XCTAssertThrowsError(try makeStore().unlock(passphrase: "size phrase placeholder")) { error in
+            guard case AgeVaultError.containerTooLarge = error else {
+                return XCTFail("Expected AgeVaultError.containerTooLarge")
+            }
+        }
+    }
+
+    func testReadRejectsOversizedVaultContainer() throws {
+        let store = makeStore()
+        let emergency = try store.initVault(passphrase: "vault size phrase placeholder")
+        try Data(repeating: 0x5A, count: AgeVaultStore.maximumEncryptedContainerByteCount + 1)
+            .write(to: directory.appendingPathComponent("vault.age"))
+
+        XCTAssertThrowsError(try makeStore().unlock(emergencyIdentity: emergency)) { error in
+            guard case AgeVaultError.containerTooLarge = error else {
+                return XCTFail("Expected AgeVaultError.containerTooLarge")
+            }
+        }
+    }
+
     func testDeleteThenRetrieveThrowsNotFound() throws {
         let store = makeStore()
         _ = try store.initVault(passphrase: "delete phrase placeholder")
@@ -147,6 +200,16 @@ final class AgeVaultStoreTests: XCTestCase {
             XCTAssertNil(identityBytes.range(of: forbidden))
             XCTAssertNil(vaultBytes.range(of: forbidden))
         }
+    }
+
+    func testIdentityFileUsesSelfContainedAuthenticatedContainer() throws {
+        let store = makeStore()
+        _ = try store.initVault(passphrase: "container phrase placeholder")
+
+        let identityBytes = try Data(contentsOf: directory.appendingPathComponent("identity.age"))
+
+        XCTAssertTrue(identityBytes.starts(with: Data("KEYKID01".utf8)))
+        XCTAssertFalse(identityBytes.starts(with: Data("age-encryption.org/".utf8)))
     }
 
     func testPrivateInputsNeverCreateNamedFIFOs() throws {
