@@ -167,11 +167,12 @@ public final class AgeVaultStore: @unchecked Sendable {
                 throw AgeVaultError.notInitialized
             }
             let encryptedIdentity = try Data(contentsOf: identityURL)
-            let plaintext = try runBatchpass(
-                payload: encryptedIdentity,
-                passphrase: passphrase,
-                encrypting: false
-            )
+            let plaintext: Data
+            do {
+                plaintext = try IdentityCipher.open(encryptedIdentity, passphrase: passphrase)
+            } catch {
+                throw AgeVaultError.identityDecryptionFailed
+            }
             let unlocked = try parseMainIdentity(plaintext)
             _ = try loadVault(using: unlocked)
             unlockedIdentity = unlocked
@@ -198,29 +199,6 @@ public final class AgeVaultStore: @unchecked Sendable {
             unlockedIdentity = unlocked
             return unlocked
         }
-    }
-
-    private func batchpassFDEnvironment() -> [String: String] {
-        Dictionary(uniqueKeysWithValues: [("AGE_" + "PASSPHRASE_FD", "3")])
-    }
-
-    private func runBatchpass(payload: Data, passphrase: String, encrypting: Bool) throws -> Data {
-        let script = "exec 3<&2; exec 2>/dev/null; exec \"$1\" \"$2\" -j batchpass /dev/stdin"
-        let result = try run(
-            executable: URL(fileURLWithPath: "/bin/sh"),
-            arguments: [
-                "-c", script, "keykeeper-batchpass", ageExecutable.path,
-                encrypting ? "--encrypt" : "--decrypt",
-            ],
-            input: payload,
-            environment: batchpassFDEnvironment(),
-            anonymousInput: Data("\(passphrase)\n".utf8)
-        )
-        guard result.status == 0 else {
-            throw encrypting ? AgeVaultError.identityEncryptionFailed
-                : AgeVaultError.identityDecryptionFailed
-        }
-        return result.output
     }
 
     public func save(
@@ -331,7 +309,11 @@ public final class AgeVaultStore: @unchecked Sendable {
     }
 
     private func encryptIdentity(_ plaintext: Data, passphrase: String) throws -> Data {
-        try runBatchpass(payload: plaintext, passphrase: passphrase, encrypting: true)
+        do {
+            return try IdentityCipher.seal(plaintext, passphrase: passphrase)
+        } catch {
+            throw AgeVaultError.identityEncryptionFailed
+        }
     }
 
     private func generateIdentity() throws -> String {

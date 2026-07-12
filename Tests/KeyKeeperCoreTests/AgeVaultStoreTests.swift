@@ -63,6 +63,40 @@ final class AgeVaultStoreTests: XCTestCase {
         }
     }
 
+    func testIdentityCipherUsesRandomSaltAndNonce() throws {
+        let plaintext = Data("private identity placeholder".utf8)
+
+        let first = try IdentityCipher.seal(plaintext, passphrase: "phrase placeholder")
+        let second = try IdentityCipher.seal(plaintext, passphrase: "phrase placeholder")
+
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(
+            try IdentityCipher.open(first, passphrase: "phrase placeholder"),
+            plaintext
+        )
+        XCTAssertEqual(
+            try IdentityCipher.open(second, passphrase: "phrase placeholder"),
+            plaintext
+        )
+    }
+
+    func testIdentityCipherRejectsWrongPassphraseAndTampering() throws {
+        let sealed = try IdentityCipher.seal(
+            Data("private identity placeholder".utf8),
+            passphrase: "accepted phrase placeholder"
+        )
+
+        XCTAssertThrowsError(
+            try IdentityCipher.open(sealed, passphrase: "rejected phrase placeholder")
+        )
+
+        var tampered = sealed
+        tampered[tampered.index(before: tampered.endIndex)] ^= 0x01
+        XCTAssertThrowsError(
+            try IdentityCipher.open(tampered, passphrase: "accepted phrase placeholder")
+        )
+    }
+
     func testDeleteThenRetrieveThrowsNotFound() throws {
         let store = makeStore()
         _ = try store.initVault(passphrase: "delete phrase placeholder")
@@ -147,6 +181,16 @@ final class AgeVaultStoreTests: XCTestCase {
             XCTAssertNil(identityBytes.range(of: forbidden))
             XCTAssertNil(vaultBytes.range(of: forbidden))
         }
+    }
+
+    func testIdentityFileUsesSelfContainedAuthenticatedContainer() throws {
+        let store = makeStore()
+        _ = try store.initVault(passphrase: "container phrase placeholder")
+
+        let identityBytes = try Data(contentsOf: directory.appendingPathComponent("identity.age"))
+
+        XCTAssertTrue(identityBytes.starts(with: Data("KEYKID01".utf8)))
+        XCTAssertFalse(identityBytes.starts(with: Data("age-encryption.org/".utf8)))
     }
 
     func testPrivateInputsNeverCreateNamedFIFOs() throws {

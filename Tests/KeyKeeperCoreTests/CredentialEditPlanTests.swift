@@ -54,7 +54,7 @@ final class CredentialEditPlanTests: XCTestCase {
         XCTContext.runActivity(named: "【曾经的 bug】新增凭据有值正常写入") { _ in
             let plan = CredentialEditPlan(
                 inputFields: [
-                    .init(name: "api_key", value: "sk-new"),
+                    .init(name: "api_key", value: "opaque-new-value"),
                     .init(name: "unused", value: "")
                 ],
                 existingFields: [:],
@@ -62,7 +62,7 @@ final class CredentialEditPlanTests: XCTestCase {
             )
 
             XCTAssertEqual(plan.keychainWrites, [
-                .init(fieldName: "api_key", value: "sk-new")
+                .init(fieldName: "api_key", value: "opaque-new-value")
             ])
             XCTAssertEqual(Set(plan.metadata.fields.keys), ["api_key"])
             XCTAssertTrue(plan.metadata.fields["api_key"]?.secret ?? false)
