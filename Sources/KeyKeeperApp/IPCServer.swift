@@ -7,8 +7,15 @@ final class IPCServer: ObservableObject {
     @Published var pendingRequest: PendingAuthRequest?
     @Published var pendingServiceRequest: PendingServiceRequest?
 
-    private var listenFd: Int32 = -1
+    enum StartResult {
+        case started(IPCSocketAcquisitionDisposition)
+        case anotherInstanceRunning
+        case failed(Error)
+    }
+
+    private var listener: IPCSocketListener?
     private var listenSource: DispatchSourceRead?
+    private var listenCancellationSemaphore: DispatchSemaphore?
     private let queue = DispatchQueue(label: "keykeeper.ipc", qos: .userInitiated)
 
     struct PendingAuthRequest {
@@ -44,66 +51,55 @@ final class IPCServer: ObservableObject {
         }
     }
 
-    func start() {
+    @discardableResult
+    func start() -> StartResult {
         let path = IPCConstants.socketPath
 
-        // Remove stale socket
-        unlink(path)
-
-        // Create socket
-        listenFd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard listenFd >= 0 else { return }
-
-        // Bind
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        let pathBytes = Array(path.utf8.prefix(103)) + [0]
-        withUnsafeMutablePointer(to: &addr.sun_path) { sunPathPtr in
-            pathBytes.withUnsafeBufferPointer { srcBuf in
-                let dest = UnsafeMutableRawPointer(sunPathPtr)
-                dest.copyMemory(from: srcBuf.baseAddress!, byteCount: pathBytes.count)
-            }
+        let acquisition: IPCSocketAcquisition
+        do {
+            acquisition = try IPCSocketGuard.acquire(path: path)
+        } catch {
+            return .failed(error)
         }
 
-        let bindResult = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-                bind(listenFd, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard bindResult == 0 else {
-            close(listenFd)
-            listenFd = -1
-            return
+        guard case .acquired(let listener, let disposition) = acquisition else {
+            return .anotherInstanceRunning
         }
 
-        // Set permissions so only current user can connect
-        chmod(path, 0o600)
-
-        // Listen
-        guard Darwin.listen(listenFd, 5) == 0 else {
-            close(listenFd)
-            listenFd = -1
-            return
-        }
-
-        // Accept connections via GCD
-        let source = DispatchSource.makeReadSource(fileDescriptor: listenFd, queue: queue)
+        self.listener = listener
+        let fileDescriptor = listener.fileDescriptor
+        let cancellationSemaphore = DispatchSemaphore(value: 0)
+        let source = DispatchSource.makeReadSource(fileDescriptor: fileDescriptor, queue: queue)
         source.setEventHandler { [weak self] in
-            self?.acceptConnection()
+            self?.acceptConnection(fileDescriptor: fileDescriptor)
         }
-        source.setCancelHandler { [weak self] in
-            if let fd = self?.listenFd, fd >= 0 {
-                close(fd)
-            }
+        source.setCancelHandler {
+            listener.close()
+            cancellationSemaphore.signal()
         }
         source.resume()
         listenSource = source
+        listenCancellationSemaphore = cancellationSemaphore
+        return .started(disposition)
     }
 
     func stop() {
-        listenSource?.cancel()
+        guard let listener else { return }
+
+        let source = listenSource
+        let cancellationSemaphore = listenCancellationSemaphore
         listenSource = nil
-        unlink(IPCConstants.socketPath)
+        listenCancellationSemaphore = nil
+        self.listener = nil
+
+        if let source {
+            source.cancel()
+            if cancellationSemaphore?.wait(timeout: .now() + 2) == .timedOut {
+                listener.close()
+            }
+        } else {
+            listener.close()
+        }
     }
 
     /// Send response back to the CLI client.
@@ -123,7 +119,8 @@ final class IPCServer: ObservableObject {
                 request: pending.request,
                 clientFd: pending.clientFd,
                 matchedStrictGrant: nil,
-                matchedServiceGrant: serviceGrant
+                matchedServiceGrant: serviceGrant,
+                credentialSecurity: .standard
             )
         }
     }
@@ -150,16 +147,19 @@ final class IPCServer: ObservableObject {
 
     // MARK: - Private
 
-    private func acceptConnection() {
+    private func acceptConnection(fileDescriptor: Int32) {
         var clientAddr = sockaddr_un()
         var clientLen = socklen_t(MemoryLayout<sockaddr_un>.size)
         let clientFd = withUnsafeMutablePointer(to: &clientAddr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-                accept(listenFd, sockPtr, &clientLen)
+                accept(fileDescriptor, sockPtr, &clientLen)
             }
         }
         guard clientFd >= 0 else { return }
 
+        // A liveness probe connects and immediately closes. Never let a response to that
+        // disconnected client raise SIGPIPE and terminate the healthy server being probed.
+        _ = fcntl(clientFd, F_SETNOSIGPIPE, 1)
         setReadTimeout(fd: clientFd, seconds: IPCConstants.serverReadTimeout)
         let peerPID = peerPID(for: clientFd) ?? 0
         let callerIdentity = CallerIdentityResolver.resolve(peerPID: peerPID)
@@ -276,7 +276,8 @@ final class IPCServer: ObservableObject {
                     request: request,
                     clientFd: clientFd,
                     matchedStrictGrant: matchedStrictGrant,
-                    matchedServiceGrant: serviceGrant
+                    matchedServiceGrant: serviceGrant,
+                    credentialSecurity: cred.security
                 )
 
             case .promptRequired:
@@ -354,10 +355,12 @@ final class IPCServer: ObservableObject {
     private nonisolated static func readValueAndRespond(request: ValueRequest,
                                                         clientFd: Int32,
                                                         matchedStrictGrant: Grant?,
-                                                        matchedServiceGrant: ServiceGrant?) {
+                                                        matchedServiceGrant: ServiceGrant?,
+                                                        credentialSecurity: SecurityLevel) {
         let response = retrieveKeychainValue(
             credentialId: request.credentialId,
-            fieldName: request.fieldName
+            fieldName: request.fieldName,
+            security: credentialSecurity
         )
 
         if response.success {
@@ -376,9 +379,14 @@ final class IPCServer: ObservableObject {
         Self.writeAndClose(IPCResponse.value(response), clientFd: clientFd)
     }
 
-    private nonisolated static func retrieveKeychainValue(credentialId: String, fieldName: String) -> ValueResponse {
+    private nonisolated static func retrieveKeychainValue(
+        credentialId: String,
+        fieldName: String,
+        security: SecurityLevel
+    ) -> ValueResponse {
         let semaphore = DispatchSemaphore(value: 0)
         let result = KeychainReadResult()
+        let timeout = KeychainReadTimeoutPolicy.timeout(for: security)
 
         DispatchQueue.global(qos: .userInitiated).async {
             do {
@@ -394,12 +402,12 @@ final class IPCServer: ObservableObject {
         }
 
         let timeoutResult = semaphore.wait(
-            timeout: .now() + IPCConstants.keychainTimeout
+            timeout: .now() + timeout
         )
         if timeoutResult == .timedOut {
             return ValueResponse(
                 success: false,
-                error: "Keychain did not respond within \(Int(IPCConstants.keychainTimeout)) seconds",
+                error: "Keychain did not respond within \(Int(timeout)) seconds",
                 errorCode: .keychainBlocked
             )
         }

@@ -17,6 +17,19 @@ public enum IPCConstants {
     public static let keychainTimeout: TimeInterval = 10
 }
 
+public enum KeychainReadTimeoutPolicy {
+    public static func timeout(for security: SecurityLevel) -> TimeInterval {
+        switch security {
+        case .strict:
+            // A legacy Keychain item can require an interactive macOS authorization prompt.
+            // Give the user the same window as KeyKeeper's own authorization flow.
+            return IPCConstants.authTimeout
+        case .standard:
+            return IPCConstants.keychainTimeout
+        }
+    }
+}
+
 // MARK: - Request / Response Envelopes
 
 public enum IPCRequest: Codable, Sendable {

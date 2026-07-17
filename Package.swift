@@ -37,6 +37,10 @@ let package = Package(
             name: "KeyKeeperCLITests",
             dependencies: ["KeyKeeperCLI"]
         ),
+        .testTarget(
+            name: "KeyKeeperAppTests",
+            dependencies: ["KeyKeeperApp"]
+        ),
         .executableTarget(
             name: "VersionGenerator",
             path: "Tools/VersionGenerator"

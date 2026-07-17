@@ -57,12 +57,18 @@ cp "$BUILD_DIR/KeyKeeperApp" "$APP_BUNDLE/Contents/MacOS/KeyKeeperApp"
 cp "$BUILD_DIR/keykeeper" "$APP_BUNDLE/Contents/MacOS/keykeeper"
 [ -f "$PROJECT_DIR/skill/keykeeper.md" ] && cp "$PROJECT_DIR/skill/keykeeper.md" "$APP_BUNDLE/Contents/Resources/keykeeper.md"
 
-# 4. 退出当前运行的应用
+# 4. 更新 CLI，并在改动当前 App 前确认部署版本
+echo "==> 更新 CLI..."
+"$PROJECT_DIR/scripts/install-cli.sh" \
+    "$BUILD_DIR/keykeeper" \
+    "/opt/homebrew/bin/keykeeper"
+
+# 5. 退出当前运行的应用
 echo "==> 退出 ${APP_NAME}..."
 killall KeyKeeperApp 2>/dev/null || true
 sleep 1
 
-# 5. 替换 /Applications
+# 6. 替换 /Applications
 echo "==> 替换 /Applications/${APP_NAME}.app..."
 rm -rf "/Applications/${APP_NAME}.app"
 cp -R "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
@@ -70,17 +76,6 @@ cp -R "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
 # ad-hoc 签名 + 清 quarantine（防 LaunchServices kLSNoExecutableErr，2026-07-05/06 两次翻车）
 xattr -cr "/Applications/${APP_NAME}.app" 2>/dev/null || true
 codesign --force --deep -s - "/Applications/${APP_NAME}.app"
-
-# 6. 更新 CLI，并确认实际部署版本
-EXPECTED_CLI_VERSION="$("$BUILD_DIR/keykeeper" --version)"
-if ! cp "$BUILD_DIR/keykeeper" /usr/local/bin/keykeeper; then
-    echo "ERROR: /usr/local/bin CLI 未更新（需手动 sudo cp），当前 PATH 上是旧版" >&2
-fi
-if ! "$PROJECT_DIR/scripts/verify-cli-deploy.sh" \
-    "$BUILD_DIR/keykeeper" \
-    "$EXPECTED_CLI_VERSION"; then
-    echo "WARNING: App 已更新，但 CLI 部署版本不一致；请手动更新 /usr/local/bin/keykeeper" >&2
-fi
 
 # 7. 重新启动
 echo "==> 启动 ${APP_NAME}..."

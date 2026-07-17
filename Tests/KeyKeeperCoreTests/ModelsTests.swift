@@ -2,6 +2,17 @@ import XCTest
 @testable import KeyKeeperCore
 
 final class ModelsTests: XCTestCase {
+    func test曾经的BugStrict凭据读取等待完整交互授权窗口() {
+        XCTAssertEqual(
+            KeychainReadTimeoutPolicy.timeout(for: .strict),
+            IPCConstants.authTimeout
+        )
+        XCTAssertEqual(
+            KeychainReadTimeoutPolicy.timeout(for: .standard),
+            IPCConstants.keychainTimeout
+        )
+    }
+
     func testCredentialFieldPlain() {
         let field = CredentialField(value: "cli_abc123", secret: false)
         XCTAssertEqual(field.value, "cli_abc123")
