@@ -2,7 +2,7 @@
 # scripts/post-commit — commit → push → build → package → replace .app → restart
 
 set -euo pipefail
-PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_DIR="$(git rev-parse --show-toplevel)"
 APP_NAME="KeyKeeper"
 
 echo "====== 自动发布 ======"

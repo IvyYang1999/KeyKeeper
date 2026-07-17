@@ -151,6 +151,20 @@ final class VersionCommandTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertNotEqual(try fixture.inode(of: target), originalInode)
     }
+
+    func test曾经的BugPostCommit必须从Git解析仓库根目录() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let script = try String(
+            contentsOf: packageRoot.appendingPathComponent("scripts/post-commit"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(script.contains("git rev-parse --show-toplevel"))
+        XCTAssertFalse(script.contains("dirname \"$0\""))
+    }
 }
 
 private struct DeployVerifierFixture {
