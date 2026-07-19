@@ -10,10 +10,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var ipcServer: IPCServer!
     private var authWindowController: AuthorizationWindowController!
     private var cancellables = Set<AnyCancellable>()
+    private var terminationSignalSources: [DispatchSourceSignal] = []
+    private var isTerminating = false
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        installTerminationSignalHandlers()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide dock icon
         NSApp.setActivationPolicy(.accessory)
+
+        // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
+        ipcServer = IPCServer()
+        switch ipcServer.start() {
+        case .started(let disposition):
+            if disposition == .replacedStaleSocket {
+                writeToStandardError("KeyKeeper replaced a stale IPC socket")
+            }
+        case .anotherInstanceRunning:
+            writeToStandardError("another KeyKeeper instance is running")
+            terminateGracefully()
+            return
+        case .failed(let error):
+            writeToStandardError("KeyKeeper IPC startup failed: \(error.localizedDescription)")
+            terminateGracefully()
+            return
+        }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
@@ -26,10 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior = .semitransient
         popover.contentViewController = NSHostingController(rootView: MainView())
 
-        // Start IPC server for CLI authorization requests
-        ipcServer = IPCServer()
         authWindowController = AuthorizationWindowController()
-        ipcServer.start()
 
         // Watch for pending authorization requests
         ipcServer.$pendingRequest
@@ -65,7 +85,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        ipcServer.stop()
+        isTerminating = true
+        ipcServer?.stop()
+        terminationSignalSources.forEach { $0.cancel() }
+        terminationSignalSources.removeAll()
     }
 
     private func handleAuthRequest(_ pending: IPCServer.PendingAuthRequest) {
@@ -155,5 +178,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func activatePopover() {
         NSApp.activate(ignoringOtherApps: true)
         popover.contentViewController?.view.window?.makeKey()
+    }
+
+    private func installTerminationSignalHandlers() {
+        for signalNumber in [SIGTERM, SIGINT] {
+            signal(signalNumber, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
+            source.setEventHandler { [weak self] in
+                self?.terminateGracefully()
+            }
+            source.resume()
+            terminationSignalSources.append(source)
+        }
+    }
+
+    private func terminateGracefully() {
+        guard !isTerminating else { return }
+        isTerminating = true
+        ipcServer?.stop()
+        NSApp.terminate(nil)
+    }
+
+    private func writeToStandardError(_ message: String) {
+        FileHandle.standardError.write(Data("\(message)\n".utf8))
     }
 }

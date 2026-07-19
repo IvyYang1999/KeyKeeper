@@ -97,6 +97,74 @@ final class VersionCommandTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertEqual(result.stderr, "")
     }
+
+    func test曾经的BugCLI安装失败必须返回非零() throws {
+        let fixture = try DeployVerifierFixture()
+        defer { fixture.remove() }
+
+        try fixture.writeExecutable(named: "built", version: "keykeeper abc123")
+        let missingParentTarget = fixture.directory
+            .appendingPathComponent("missing")
+            .appendingPathComponent("keykeeper")
+
+        let result = try fixture.runInstaller(
+            built: fixture.directory.appendingPathComponent("built"),
+            target: missingParentTarget
+        )
+
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("ERROR"), result.stderr)
+    }
+
+    func testCLI安装成功后验证版本一致() throws {
+        let fixture = try DeployVerifierFixture()
+        defer { fixture.remove() }
+
+        try fixture.writeExecutable(named: "built", version: "keykeeper abc123")
+        let target = fixture.directory.appendingPathComponent("installed")
+
+        let result = try fixture.runInstaller(
+            built: fixture.directory.appendingPathComponent("built"),
+            target: target
+        )
+
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(result.stderr, "")
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: target.path))
+    }
+
+    func test曾经的BugCLI安装必须原子替换而非改写运行中Inode() throws {
+        let fixture = try DeployVerifierFixture()
+        defer { fixture.remove() }
+
+        try fixture.writeExecutable(named: "built", version: "keykeeper abc123")
+        try fixture.writeExecutable(named: "installed", version: "keykeeper stale000")
+        let target = fixture.directory.appendingPathComponent("installed")
+        let originalInode = try fixture.inode(of: target)
+
+        let result = try fixture.runInstaller(
+            built: fixture.directory.appendingPathComponent("built"),
+            target: target
+        )
+
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertNotEqual(try fixture.inode(of: target), originalInode)
+    }
+
+    func test曾经的BugPostCommit必须从Git解析仓库根目录() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let script = try String(
+            contentsOf: packageRoot.appendingPathComponent("scripts/post-commit"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(script.contains("git rev-parse --show-toplevel"))
+        XCTAssertFalse(script.contains("dirname \"$0\""))
+    }
 }
 
 private struct DeployVerifierFixture {
@@ -150,5 +218,34 @@ private struct DeployVerifierFixture {
             String(decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
             String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         )
+    }
+
+    func runInstaller(built: URL, target: URL) throws -> (status: Int32, stdout: String, stderr: String) {
+        let standardOutput = Pipe()
+        let standardError = Pipe()
+        let process = Process()
+        process.executableURL = packageRoot
+            .appendingPathComponent("scripts")
+            .appendingPathComponent("install-cli.sh")
+        process.arguments = [built.path, target.path]
+        process.standardOutput = standardOutput
+        process.standardError = standardError
+
+        try process.run()
+        process.waitUntilExit()
+
+        return (
+            process.terminationStatus,
+            String(decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
+            String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        )
+    }
+
+    func inode(of url: URL) throws -> UInt64 {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard let inode = attributes[.systemFileNumber] as? NSNumber else {
+            throw NSError(domain: "DeployVerifierFixture", code: 1)
+        }
+        return inode.uint64Value
     }
 }
