@@ -113,6 +113,40 @@ final class IPCSocketGuardTests: XCTestCase {
         XCTAssertTrue(canConnect(to: socketPath))
     }
 
+    func testImmediatelyDisconnectedClientIsRejectedBeforeRequestHandling() throws {
+        let acquisition = try IPCSocketGuard.acquire(path: socketPath)
+        guard case .acquired(let listener, _) = acquisition else {
+            return XCTFail("expected socket acquisition")
+        }
+        defer { listener.close() }
+
+        let clientFileDescriptor = try connect(to: socketPath)
+        close(clientFileDescriptor)
+        let acceptedFileDescriptor = try acceptClient(from: listener.fileDescriptor)
+
+        XCTAssertFalse(IPCServer.prepareAcceptedClient(acceptedFileDescriptor))
+        let descriptorCheck = fcntl(acceptedFileDescriptor, F_GETFD)
+        let descriptorError = errno
+        XCTAssertEqual(descriptorCheck, -1)
+        XCTAssertEqual(descriptorError, EBADF)
+    }
+
+    func testConnectedClientPassesAcceptedDescriptorPreflight() throws {
+        let acquisition = try IPCSocketGuard.acquire(path: socketPath)
+        guard case .acquired(let listener, _) = acquisition else {
+            return XCTFail("expected socket acquisition")
+        }
+        defer { listener.close() }
+
+        let clientFileDescriptor = try connect(to: socketPath)
+        defer { close(clientFileDescriptor) }
+        let acceptedFileDescriptor = try acceptClient(from: listener.fileDescriptor)
+        defer { close(acceptedFileDescriptor) }
+
+        XCTAssertTrue(IPCServer.prepareAcceptedClient(acceptedFileDescriptor))
+        XCTAssertNotEqual(fcntl(acceptedFileDescriptor, F_GETFD), -1)
+    }
+
     private func makeBoundSocket(at path: String, listening: Bool) throws -> Int32 {
         let fileDescriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fileDescriptor >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
@@ -158,6 +192,47 @@ final class IPCSocketGuardTests: XCTestCase {
                 )
             }
         } == 0
+    }
+
+    private func connect(to path: String) throws -> Int32 {
+        let fileDescriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fileDescriptor >= 0 else {
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+
+        do {
+            var address = try socketAddress(for: path)
+            let result = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                    Darwin.connect(
+                        fileDescriptor,
+                        socketPointer,
+                        socklen_t(MemoryLayout<sockaddr_un>.size)
+                    )
+                }
+            }
+            guard result == 0 else {
+                throw POSIXError(.init(rawValue: errno) ?? .EIO)
+            }
+            return fileDescriptor
+        } catch {
+            close(fileDescriptor)
+            throw error
+        }
+    }
+
+    private func acceptClient(from listenerFileDescriptor: Int32) throws -> Int32 {
+        var clientAddress = sockaddr_un()
+        var clientAddressLength = socklen_t(MemoryLayout<sockaddr_un>.size)
+        let acceptedFileDescriptor = withUnsafeMutablePointer(to: &clientAddress) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                accept(listenerFileDescriptor, socketPointer, &clientAddressLength)
+            }
+        }
+        guard acceptedFileDescriptor >= 0 else {
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+        return acceptedFileDescriptor
     }
 
     private func socketAddress(for path: String) throws -> sockaddr_un {

@@ -159,7 +159,7 @@ final class IPCServer: ObservableObject {
 
         // A liveness probe connects and immediately closes. Never let a response to that
         // disconnected client raise SIGPIPE and terminate the healthy server being probed.
-        _ = fcntl(clientFd, F_SETNOSIGPIPE, 1)
+        guard Self.prepareAcceptedClient(clientFd) else { return }
         setReadTimeout(fd: clientFd, seconds: IPCConstants.serverReadTimeout)
         let peerPID = peerPID(for: clientFd) ?? 0
         let callerIdentity = CallerIdentityResolver.resolve(peerPID: peerPID)
@@ -183,6 +183,14 @@ final class IPCServer: ObservableObject {
         case .serviceRequests:
             handleServiceRequestsList(clientFd: clientFd)
         }
+    }
+
+    nonisolated static func prepareAcceptedClient(_ clientFd: Int32) -> Bool {
+        guard fcntl(clientFd, F_SETNOSIGPIPE, 1) != -1 else {
+            close(clientFd)
+            return false
+        }
+        return true
     }
 
     private func handleAuthRequest(_ request: AuthRequest,
