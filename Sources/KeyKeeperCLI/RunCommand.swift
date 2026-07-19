@@ -1,4 +1,5 @@
 import ArgumentParser
+import Darwin
 import Foundation
 import KeyKeeperCore
 
@@ -122,31 +123,42 @@ struct RunCommand: ParsableCommand {
             env[key] = value
         }
 
-        // Launch subprocess.
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = command
-        process.environment = env
+        // Signals are installed before spawning so none can be lost in the launch window.
+        let signalForwarder = BusinessProcessSignalForwarder()
+        defer { signalForwarder.cancel() }
 
         if tty {
-            process.standardInput = FileHandle.standardInput
-            process.standardOutput = FileHandle.standardOutput
-            process.standardError = FileHandle.standardError
+            let child = try BusinessProcessLauncher.launch(
+                command: command,
+                environment: env,
+                standardOutput: nil,
+                standardError: nil,
+                startSuspended: true
+            )
+            try child.waitUntilSuspended()
+            signalForwarder.attach(to: child)
+            defer { child.terminateForParentExit() }
 
-            let signalSources = Self.setupSignalForwarding(to: process)
-            try process.run()
-            process.waitUntilExit()
-            for source in signalSources {
-                source.cancel()
-            }
-            throw ExitCode(process.terminationStatus)
+            let terminalControl = try TerminalForegroundControl(
+                processGroupIdentifier: child.processGroupIdentifier
+            )
+            defer { terminalControl?.restore() }
+            child.resume()
+
+            throw ExitCode(try child.wait())
         }
 
         // Pipe output for redaction in the default safety mode.
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        for handle in [
+            stdoutPipe.fileHandleForReading,
+            stdoutPipe.fileHandleForWriting,
+            stderrPipe.fileHandleForReading,
+            stderrPipe.fileHandleForWriting,
+        ] {
+            _ = fcntl(handle.fileDescriptor, F_SETFD, FD_CLOEXEC)
+        }
 
         // Sort secrets longest-first so longer matches take priority
         let sortedSecrets = secretValues
@@ -163,22 +175,32 @@ struct RunCommand: ParsableCommand {
         redactor.startReading(pipe: stdoutPipe, target: .stdout)
         redactor.startReading(pipe: stderrPipe, target: .stderr)
 
-        // Forward signals to child process
-        let signalSources = Self.setupSignalForwarding(to: process)
+        let child: BusinessProcessHandle
+        do {
+            child = try BusinessProcessLauncher.launch(
+                command: command,
+                environment: env,
+                standardOutput: stdoutPipe.fileHandleForWriting,
+                standardError: stderrPipe.fileHandleForWriting
+            )
+        } catch {
+            try? stdoutPipe.fileHandleForWriting.close()
+            try? stderrPipe.fileHandleForWriting.close()
+            redactor.waitUntilDone()
+            throw error
+        }
+        try? stdoutPipe.fileHandleForWriting.close()
+        try? stderrPipe.fileHandleForWriting.close()
+        signalForwarder.attach(to: child)
+        defer { child.terminateForParentExit() }
 
-        try process.run()
-        process.waitUntilExit()
+        let terminationStatus = try child.wait()
 
         // Wait for all output to be flushed
         redactor.waitUntilDone()
 
-        // Clean up signal handlers
-        for source in signalSources {
-            source.cancel()
-        }
-
         // Exit with the same code as the child
-        throw ExitCode(process.terminationStatus)
+        throw ExitCode(terminationStatus)
     }
 
     /// Ensure a valid grant exists for a strict credential.
@@ -228,21 +250,330 @@ struct RunCommand: ParsableCommand {
             .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
     }
 
-    /// Set up signal forwarding so SIGINT/SIGTERM are passed to the child process.
-    private static func setupSignalForwarding(to process: Process) -> [DispatchSourceSignal] {
-        var sources: [DispatchSourceSignal] = []
-        for sig in [SIGINT, SIGTERM, SIGHUP] {
-            signal(sig, SIG_IGN)
-            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
-            source.setEventHandler {
-                if process.isRunning {
-                    kill(process.processIdentifier, sig)
-                }
+}
+
+// MARK: - Business Process Lifecycle
+
+/// A launched user command and the write end of its parent-liveness pipe.
+/// There is intentionally no timeout here: user commands may legitimately run for hours.
+final class BusinessProcessHandle: @unchecked Sendable {
+    let processIdentifier: pid_t
+    let processGroupIdentifier: pid_t
+
+    private let lock = NSLock()
+    private var parentLivenessHandle: FileHandle?
+    private var terminationStatus: Int32?
+
+    init(processIdentifier: pid_t, parentLivenessHandle: FileHandle) {
+        self.processIdentifier = processIdentifier
+        processGroupIdentifier = processIdentifier
+        self.parentLivenessHandle = parentLivenessHandle
+    }
+
+    func forward(signal signalNumber: Int32) {
+        _ = kill(-processGroupIdentifier, signalNumber)
+    }
+
+    func resume() {
+        _ = kill(-processGroupIdentifier, SIGCONT)
+    }
+
+    func waitUntilSuspended() throws {
+        var rawStatus: Int32 = 0
+        while waitpid(processIdentifier, &rawStatus, WUNTRACED) == -1 {
+            if errno == EINTR { continue }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .ECHILD)
+        }
+        guard rawStatus & 0xFF == 0x7F else {
+            let status = Self.decodeWaitStatus(rawStatus)
+            lock.lock()
+            terminationStatus = status
+            lock.unlock()
+            closeParentLivenessChannel()
+            throw POSIXError(.ECHILD)
+        }
+    }
+
+    /// Closing this descriptor models every parent exit, including SIGKILL and crashes.
+    /// The guard process inherited the read end and kills the business process group on EOF.
+    func closeParentLivenessChannel() {
+        lock.lock()
+        let handle = parentLivenessHandle
+        parentLivenessHandle = nil
+        lock.unlock()
+        try? handle?.close()
+    }
+
+    func wait() throws -> Int32 {
+        lock.lock()
+        if let terminationStatus {
+            lock.unlock()
+            return terminationStatus
+        }
+        lock.unlock()
+
+        var rawStatus: Int32 = 0
+        while waitpid(processIdentifier, &rawStatus, 0) == -1 {
+            if errno == EINTR { continue }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .ECHILD)
+        }
+
+        let status = Self.decodeWaitStatus(rawStatus)
+        lock.lock()
+        terminationStatus = status
+        lock.unlock()
+        closeParentLivenessChannel()
+        return status
+    }
+
+    /// Used only while the parent is unwinding before the command has been reaped.
+    /// A hard group kill is deliberate here: this is parent-death cleanup, not a runtime timeout.
+    func terminateForParentExit() {
+        lock.lock()
+        let isRunning = terminationStatus == nil
+        lock.unlock()
+        guard isRunning else { return }
+
+        closeParentLivenessChannel()
+        _ = kill(-processGroupIdentifier, SIGKILL)
+    }
+
+    deinit {
+        terminateForParentExit()
+    }
+
+    private static func decodeWaitStatus(_ status: Int32) -> Int32 {
+        let terminatingSignal = status & 0x7F
+        if terminatingSignal == 0 {
+            return (status >> 8) & 0xFF
+        }
+        return terminatingSignal
+    }
+}
+
+enum BusinessProcessLauncher {
+    private static let shellPath = "/bin/sh"
+    private static let parentLivenessDescriptor: Int32 = 3
+
+    static func launch(
+        command: [String],
+        environment: [String: String],
+        standardOutput: FileHandle?,
+        standardError: FileHandle?,
+        startSuspended: Bool = false
+    ) throws -> BusinessProcessHandle {
+        let parentLivenessPipe = Pipe()
+        let readDescriptor = parentLivenessPipe.fileHandleForReading.fileDescriptor
+        let writeDescriptor = parentLivenessPipe.fileHandleForWriting.fileDescriptor
+        _ = fcntl(writeDescriptor, F_SETFD, FD_CLOEXEC)
+
+        var fileActions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        try check(posix_spawn_file_actions_init(&fileActions))
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+        try check(posix_spawnattr_init(&attributes))
+        defer { posix_spawnattr_destroy(&attributes) }
+
+        try check(posix_spawn_file_actions_adddup2(
+            &fileActions,
+            readDescriptor,
+            parentLivenessDescriptor
+        ))
+        if readDescriptor != parentLivenessDescriptor {
+            try check(posix_spawn_file_actions_addclose(&fileActions, readDescriptor))
+        }
+        try check(posix_spawn_file_actions_addclose(&fileActions, writeDescriptor))
+        if let standardOutput {
+            try check(posix_spawn_file_actions_adddup2(
+                &fileActions,
+                standardOutput.fileDescriptor,
+                STDOUT_FILENO
+            ))
+        }
+        if let standardError {
+            try check(posix_spawn_file_actions_adddup2(
+                &fileActions,
+                standardError.fileDescriptor,
+                STDERR_FILENO
+            ))
+        }
+
+        var defaultSignals = sigset_t()
+        sigemptyset(&defaultSignals)
+        for signalNumber in [SIGINT, SIGTERM, SIGHUP] {
+            sigaddset(&defaultSignals, signalNumber)
+        }
+        try check(posix_spawnattr_setsigdefault(&attributes, &defaultSignals))
+        try check(posix_spawnattr_setpgroup(&attributes, 0))
+        let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF)
+        try check(posix_spawnattr_setflags(&attributes, flags))
+
+        let arguments = [
+            shellPath,
+            "-c",
+            parentGuardScript(startSuspended: startSuspended),
+            "keykeeper-parent-guard",
+            "/usr/bin/env",
+        ] + command
+        let environmentEntries = environment.keys.sorted().map { key in
+            "\(key)=\(environment[key]!)"
+        }
+
+        var processIdentifier: pid_t = 0
+        let spawnResult = try withCStringArray(arguments) { argumentPointers in
+            try withCStringArray(environmentEntries) { environmentPointers in
+                posix_spawn(
+                    &processIdentifier,
+                    shellPath,
+                    &fileActions,
+                    &attributes,
+                    argumentPointers,
+                    environmentPointers
+                )
+            }
+        }
+        try? parentLivenessPipe.fileHandleForReading.close()
+
+        guard spawnResult == 0 else {
+            try? parentLivenessPipe.fileHandleForWriting.close()
+            try check(spawnResult)
+            throw POSIXError(.EIO)
+        }
+
+        return BusinessProcessHandle(
+            processIdentifier: processIdentifier,
+            parentLivenessHandle: parentLivenessPipe.fileHandleForWriting
+        )
+    }
+
+    private static func check(_ result: Int32) throws {
+        guard result == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: result) ?? .EIO)
+        }
+    }
+
+    private static func parentGuardScript(startSuspended: Bool) -> String {
+        let suspendBeforeExec = startSuspended ? "kill -STOP \"$$\"" : ":"
+        return """
+        (
+          trap '' HUP INT TERM
+          IFS= read -r _ <&3
+          /bin/kill -KILL -- -$$ 2>/dev/null
+        ) &
+        \(suspendBeforeExec)
+        exec 3<&-
+        exec "$@"
+        """
+    }
+
+    private static func withCStringArray<T>(
+        _ strings: [String],
+        body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) throws -> T
+    ) throws -> T {
+        let allocated = try strings.map { string -> UnsafeMutablePointer<CChar> in
+            guard let pointer = strdup(string) else { throw POSIXError(.ENOMEM) }
+            return pointer
+        }
+        defer { allocated.forEach { free($0) } }
+
+        var pointers = allocated.map(Optional.some)
+        pointers.append(nil)
+        return try pointers.withUnsafeMutableBufferPointer { buffer in
+            try body(buffer.baseAddress!)
+        }
+    }
+}
+
+private final class BusinessProcessSignalForwarder: @unchecked Sendable {
+    private static let forwardedSignals = [SIGINT, SIGTERM, SIGHUP]
+
+    private let lock = NSLock()
+    private let queue = DispatchQueue(label: "com.keykeeper.business-process-signals")
+    private var child: BusinessProcessHandle?
+    private var pendingSignals: [Int32] = []
+    private var sources: [DispatchSourceSignal] = []
+
+    init() {
+        for signalNumber in Self.forwardedSignals {
+            Darwin.signal(signalNumber, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: queue)
+            source.setEventHandler { [weak self] in
+                self?.receive(signal: signalNumber)
             }
             source.resume()
             sources.append(source)
         }
-        return sources
+    }
+
+    func attach(to child: BusinessProcessHandle) {
+        lock.lock()
+        self.child = child
+        let pendingSignals = self.pendingSignals
+        self.pendingSignals.removeAll()
+        lock.unlock()
+
+        for signalNumber in pendingSignals {
+            child.forward(signal: signalNumber)
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        child = nil
+        pendingSignals.removeAll()
+        let sources = self.sources
+        self.sources.removeAll()
+        lock.unlock()
+
+        sources.forEach { $0.cancel() }
+        for signalNumber in Self.forwardedSignals {
+            Darwin.signal(signalNumber, SIG_DFL)
+        }
+    }
+
+    private func receive(signal signalNumber: Int32) {
+        lock.lock()
+        guard let child else {
+            pendingSignals.append(signalNumber)
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+        child.forward(signal: signalNumber)
+    }
+}
+
+private final class TerminalForegroundControl {
+    private let originalProcessGroup: pid_t
+    private var needsRestore: Bool
+
+    init?(processGroupIdentifier: pid_t) throws {
+        guard isatty(STDIN_FILENO) == 1 else { return nil }
+        let originalProcessGroup = tcgetpgrp(STDIN_FILENO)
+        guard originalProcessGroup >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        self.originalProcessGroup = originalProcessGroup
+        needsRestore = true
+        try Self.setForegroundProcessGroup(processGroupIdentifier)
+    }
+
+    func restore() {
+        guard needsRestore else { return }
+        needsRestore = false
+        try? Self.setForegroundProcessGroup(originalProcessGroup)
+    }
+
+    deinit {
+        restore()
+    }
+
+    private static func setForegroundProcessGroup(_ processGroupIdentifier: pid_t) throws {
+        let previousHandler = Darwin.signal(SIGTTOU, SIG_IGN)
+        defer { Darwin.signal(SIGTTOU, previousHandler) }
+        guard tcsetpgrp(STDIN_FILENO, processGroupIdentifier) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
     }
 }
 

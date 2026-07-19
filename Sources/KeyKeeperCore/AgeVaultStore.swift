@@ -40,6 +40,7 @@ public enum AgeVaultError: Error, LocalizedError {
     case invalidVault
     case containerTooLarge
     case emptyPassphrase
+    case helperProcessTimedOut
 
     public var errorDescription: String? {
         switch self {
@@ -56,6 +57,7 @@ public enum AgeVaultError: Error, LocalizedError {
         case .invalidVault: return "The age vault has an invalid format"
         case .containerTooLarge: return "The encrypted container exceeds the size limit"
         case .emptyPassphrase: return "The passphrase must not be empty"
+        case .helperProcessTimedOut: return "The age helper process timed out"
         }
     }
 }
@@ -63,6 +65,8 @@ public enum AgeVaultError: Error, LocalizedError {
 public final class AgeVaultStore: @unchecked Sendable {
     private typealias Vault = [String: [String: String]]
     static let maximumEncryptedContainerByteCount = 4 * 1_024 * 1_024
+    static let helperProcessTimeout: TimeInterval = 10
+    private static let helperTerminationGrace: TimeInterval = 1
 
     private let directory: URL
     private let identityURL: URL
@@ -70,6 +74,7 @@ public final class AgeVaultStore: @unchecked Sendable {
     private let writeLockURL: URL
     private let ageExecutable: URL
     private let keygenExecutable: URL
+    private let configuredHelperProcessTimeout: TimeInterval
     private let atomicWriteInterceptor: @Sendable (URL) throws -> Void
     private let lock = NSLock()
     private var unlockedIdentity: UnlockedIdentity?
@@ -93,6 +98,7 @@ public final class AgeVaultStore: @unchecked Sendable {
         directory: URL,
         ageExecutable: URL,
         keygenExecutable: URL,
+        helperProcessTimeout: TimeInterval = AgeVaultStore.helperProcessTimeout,
         atomicWriteInterceptor: @escaping @Sendable (URL) throws -> Void = { _ in }
     ) {
         self.directory = directory
@@ -101,6 +107,7 @@ public final class AgeVaultStore: @unchecked Sendable {
         writeLockURL = directory.appendingPathComponent(".age-vault.lock")
         self.ageExecutable = ageExecutable
         self.keygenExecutable = keygenExecutable
+        configuredHelperProcessTimeout = helperProcessTimeout
         self.atomicWriteInterceptor = atomicWriteInterceptor
     }
 
@@ -534,10 +541,21 @@ public final class AgeVaultStore: @unchecked Sendable {
             }
         }
 
+        let terminationSemaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in terminationSemaphore.signal() }
+
         do {
             try process.run()
         } catch {
             throw AgeVaultError.ageExecutableUnavailable
+        }
+
+        let outputReader = ProcessPipeReader()
+        outputReader.start(reading: standardOutput.fileHandleForReading)
+        let errorReader = standardError.map { pipe -> ProcessPipeReader in
+            let reader = ProcessPipeReader()
+            reader.start(reading: pipe.fileHandleForReading)
+            return reader
         }
 
         if let anonymousInput, let anonymousPipe {
@@ -556,11 +574,25 @@ public final class AgeVaultStore: @unchecked Sendable {
             try? standardInput.fileHandleForWriting.close()
         }
 
-        let output = try standardOutput.fileHandleForReading.readToEnd() ?? Data()
-        if let standardError {
-            _ = try standardError.fileHandleForReading.readToEnd()
+        let waitResult = terminationSemaphore.wait(
+            timeout: .now() + max(0, configuredHelperProcessTimeout)
+        )
+        if waitResult == .timedOut {
+            process.terminate()
+            if terminationSemaphore.wait(
+                timeout: .now() + Self.helperTerminationGrace
+            ) == .timedOut {
+                _ = kill(process.processIdentifier, SIGKILL)
+            }
+            process.waitUntilExit()
+            _ = try? outputReader.waitForData()
+            _ = try? errorReader?.waitForData()
+            throw AgeVaultError.helperProcessTimedOut
         }
+
         process.waitUntilExit()
+        let output = try outputReader.waitForData()
+        _ = try errorReader?.waitForData()
         return ProcessResult(status: process.terminationStatus, output: output)
     }
 
@@ -571,4 +603,29 @@ public final class AgeVaultStore: @unchecked Sendable {
     }
 
     // TODO(P2): Add a monotonic authenticated vault version to detect rollback to an older ciphertext.
+}
+
+private final class ProcessPipeReader: @unchecked Sendable {
+    private let group = DispatchGroup()
+    private let lock = NSLock()
+    private var result: Result<Data, Error>?
+
+    func start(reading handle: FileHandle) {
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            let readResult = Result { try handle.readToEnd() ?? Data() }
+            lock.lock()
+            result = readResult
+            lock.unlock()
+            group.leave()
+        }
+    }
+
+    func waitForData() throws -> Data {
+        group.wait()
+        lock.lock()
+        let result = self.result
+        lock.unlock()
+        return try result?.get() ?? Data()
+    }
 }
