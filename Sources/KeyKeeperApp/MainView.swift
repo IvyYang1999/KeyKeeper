@@ -2,8 +2,8 @@ import SwiftUI
 import KeyKeeperCore
 
 struct MainView: View {
-    @StateObject private var viewModel = CredentialListViewModel()
-    @StateObject private var addVM = AddCredentialViewModel()
+    @StateObject private var viewModel: CredentialListViewModel
+    @StateObject private var addVM: AddCredentialViewModel
     @State private var setupComplete = UserDefaults.standard.bool(forKey: "setupComplete")
     @State private var selectedCredentialId: String?
     @State private var showingAdd = false
@@ -13,6 +13,13 @@ struct MainView: View {
     @State private var serviceGrants: [ServiceGrant] = []
 
     private let serviceGrantStore = ServiceGrantStore.default
+    private let session: any CredentialSessionManaging
+
+    init(session: any CredentialSessionManaging) {
+        self.session = session
+        _viewModel = StateObject(wrappedValue: CredentialListViewModel(session: session))
+        _addVM = StateObject(wrappedValue: AddCredentialViewModel(session: session))
+    }
 
     enum Page { case list, add, detail(String), serviceGrants }
 
@@ -48,6 +55,7 @@ struct MainView: View {
                     CredentialDetailView(
                         credentialId: item.id,
                         credential: item.credential,
+                        session: session,
                         onBack: { selectedCredentialId = nil },
                         onUpdate: { viewModel.load() }
                     )
@@ -170,8 +178,8 @@ struct MainView: View {
                     }
                 }
 
-                if let serviceModeError {
-                    Text(serviceModeError)
+                if let error = viewModel.errorMessage ?? serviceModeError {
+                    Text(error)
                         .font(.caption2)
                         .foregroundColor(.red)
                         .lineLimit(2)

@@ -56,11 +56,8 @@ struct AddCredentialView: View {
                     .foregroundColor(.red)
                     Spacer()
                     Button("Save") {
-                        do {
-                            try vm.save()
+                        if vm.save() {
                             onSave()
-                        } catch {
-                            vm.errorMessage = "Save failed: \(error.localizedDescription)"
                         }
                     }
                     .disabled(!vm.isValid)
@@ -111,7 +108,7 @@ struct KeyFieldsEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(text: "Keys", hint: "values stored in Keychain")
+            SectionLabel(text: "Keys", hint: "values stored in encrypted vault")
 
             ForEach(fields.indices, id: \.self) { i in
                 HStack(spacing: 6) {
@@ -141,7 +138,7 @@ struct KeyFieldsEditor: View {
             .buttonStyle(.plain)
             .foregroundColor(.accentColor)
 
-            Text("Names are visible to AI. Values are encrypted in Keychain — AI never sees them.")
+            Text("Names are visible to AI. Values are encrypted in the vault — AI never sees them.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
@@ -163,7 +160,7 @@ struct AdvancedSecuritySection: View {
                 }
 
                 if security == .strict {
-                    Text("Each access requires Touch ID or password. This is the safest option.")
+                    Text("Each access requires explicit approval after the vault is unlocked. This is the safest option.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 } else {

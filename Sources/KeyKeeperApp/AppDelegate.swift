@@ -49,7 +49,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover = NSPopover()
         popover.contentSize = NSSize(width: 360, height: 480)
         popover.behavior = .semitransient
-        popover.contentViewController = NSHostingController(rootView: MainView())
+        popover.contentViewController = NSHostingController(
+            rootView: MainView(session: sessionManager)
+        )
 
         authWindowController = AuthorizationWindowController()
 

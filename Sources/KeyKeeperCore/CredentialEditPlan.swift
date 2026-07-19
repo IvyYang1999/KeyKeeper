@@ -11,7 +11,7 @@ public struct CredentialEditPlan: Sendable {
         }
     }
 
-    public struct KeychainWrite: Equatable, Sendable {
+    public struct ValueWrite: Equatable, Sendable {
         public var fieldName: String
         public var value: String
 
@@ -31,7 +31,8 @@ public struct CredentialEditPlan: Sendable {
         }
     }
 
-    public var keychainWrites: [KeychainWrite]
+    public var valueWrites: [ValueWrite]
+    public var valueDeletions: [String]
     public var metadata: Metadata
 
     public init(
@@ -39,19 +40,23 @@ public struct CredentialEditPlan: Sendable {
         existingFields: [String: CredentialField],
         security: SecurityLevel
     ) {
-        var keychainWrites: [KeychainWrite] = []
+        var valueWrites: [ValueWrite] = []
         var metadataFields: [String: CredentialField] = [:]
 
         for field in inputFields where !field.name.isEmpty {
             if !field.value.isEmpty {
-                keychainWrites.append(.init(fieldName: field.name, value: field.value))
+                valueWrites.append(.init(fieldName: field.name, value: field.value))
                 metadataFields[field.name] = CredentialField(secret: true)
             } else if metadataFields[field.name] == nil, let existingField = existingFields[field.name] {
                 metadataFields[field.name] = existingField
             }
         }
 
-        self.keychainWrites = keychainWrites
+        self.valueWrites = valueWrites
+        self.valueDeletions = existingFields
+            .filter { $0.value.secret && metadataFields[$0.key] == nil }
+            .map(\.key)
+            .sorted()
         self.metadata = Metadata(fields: metadataFields, security: security)
     }
 }

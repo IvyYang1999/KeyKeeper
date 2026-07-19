@@ -21,6 +21,19 @@ public enum SessionManagerError: Error, LocalizedError, Sendable {
     }
 }
 
+/// Secret CRUD surface shared by GUI data models and the process-wide session owner.
+public protocol CredentialSessionManaging: AnyObject {
+    func status() -> SessionStatus
+    func retrieve(credentialId: String, fieldName: String) throws -> String
+    func save(
+        credentialId: String,
+        fieldName: String,
+        value: String,
+        security: SecurityLevel
+    ) throws
+    func delete(credentialId: String, fieldName: String) throws
+}
+
 /// Owns the only reference to an unlocked `AgeVaultStore` for a process-local session.
 public final class SessionManager: @unchecked Sendable {
     private let directory: URL
@@ -145,3 +158,5 @@ public final class SessionManager: @unchecked Sendable {
         return try operation()
     }
 }
+
+extension SessionManager: CredentialSessionManaging {}
