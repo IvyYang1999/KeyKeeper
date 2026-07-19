@@ -22,7 +22,7 @@ enum IPCClient {
         return authResponse
     }
 
-    /// Request a secret value from the KeyKeeper app (App reads Keychain on our behalf).
+    /// Request a secret value from the KeyKeeper app's unlocked age session.
     static func requestValue(credentialId: String, fieldName: String,
                              sessionId: String?,
                              requestedFieldNames: [String]? = nil) throws -> String {
@@ -45,7 +45,20 @@ enum IPCClient {
             throw IPCError.appNotResponding
         }
 
+        return try decodeValueResponse(valueResponse)
+    }
+
+    static func decodeValueResponse(_ valueResponse: ValueResponse) throws -> String {
         guard valueResponse.success, let value = valueResponse.value else {
+            switch valueResponse.storageErrorCode {
+            case .vaultLocked:
+                throw IPCError.vaultLocked
+            case .readFailed:
+                throw IPCError.vaultReadFailed(valueResponse.error)
+            case .none:
+                break
+            }
+
             switch valueResponse.errorCode {
             case .noAuthorization, .authorizationDenied, .pendingExpired:
                 throw IPCError.noAuthorization(valueResponse.error)

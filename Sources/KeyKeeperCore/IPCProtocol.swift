@@ -211,20 +211,32 @@ public enum ValueErrorCode: String, Codable, Sendable, Equatable {
     case keychainError
 }
 
+/// Optional storage-specific detail for value responses.
+///
+/// `errorCode` remains populated with a legacy value so older CLI versions can
+/// continue decoding responses from a newer app.
+public enum ValueStorageErrorCode: String, Codable, Sendable, Equatable {
+    case vaultLocked
+    case readFailed
+}
+
 public struct ValueResponse: Codable, Sendable {
     public var success: Bool
     public var value: String?
     public var error: String?
     public var errorCode: ValueErrorCode?
+    public var storageErrorCode: ValueStorageErrorCode?
 
     public init(success: Bool,
                 value: String? = nil,
                 error: String? = nil,
-                errorCode: ValueErrorCode? = nil) {
+                errorCode: ValueErrorCode? = nil,
+                storageErrorCode: ValueStorageErrorCode? = nil) {
         self.success = success
         self.value = value
         self.error = error
         self.errorCode = errorCode
+        self.storageErrorCode = storageErrorCode
     }
 }
 
@@ -360,6 +372,8 @@ public enum IPCError: Error, LocalizedError {
     case appNotResponding
     case noAuthorization(String?)
     case keychainBlocked(String?)
+    case vaultLocked
+    case vaultReadFailed(String?)
     case appVersionTooOld
 
     public var errorDescription: String? {
@@ -373,6 +387,8 @@ public enum IPCError: Error, LocalizedError {
         case .appNotResponding: return "KeyKeeper app did not respond to the value request"
         case .noAuthorization(let msg): return "No authorization for this caller\(msg.map { ": \($0)" } ?? "")"
         case .keychainBlocked(let msg): return "Keychain read failed or timed out\(msg.map { ": \($0)" } ?? "")"
+        case .vaultLocked: return "The age vault is locked. Run 'keykeeper unlock' first."
+        case .vaultReadFailed(let msg): return "Failed to read from the age vault\(msg.map { ": \($0)" } ?? "")"
         case .appVersionTooOld: return "The installed KeyKeeper app is too old for this command; update the app first"
         }
     }

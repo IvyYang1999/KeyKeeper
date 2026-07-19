@@ -79,6 +79,64 @@ final class IPCSessionControlTests: XCTestCase {
         )
     }
 
+    func testValueResponseStorageErrorExtensionKeepsLegacyErrorCodeDecodable() throws {
+        let response = IPCResponse.value(ValueResponse(
+            success: false,
+            error: "Credential vault is locked",
+            errorCode: .keychainError,
+            storageErrorCode: .vaultLocked
+        ))
+        let encoded = try JSONEncoder().encode(response)
+        let legacy = try JSONDecoder().decode(LegacyIPCEnvelope.self, from: encoded)
+
+        XCTAssertEqual(legacy.type, "value")
+        XCTAssertFalse(legacy.data.success)
+        XCTAssertEqual(legacy.data.errorCode, .keychainError)
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        let data = try XCTUnwrap(object["data"] as? [String: Any])
+        XCTAssertEqual(data["storageErrorCode"] as? String, "vaultLocked")
+    }
+
+    func testValueResponseWithoutStorageErrorKeepsLegacyJSONShape() throws {
+        try assertJSONObject(
+            IPCResponse.value(ValueResponse(
+                success: false,
+                error: "not found",
+                errorCode: .notFound
+            )),
+            equals: [
+                "type": "value",
+                "data": [
+                    "success": false,
+                    "error": "not found",
+                    "errorCode": "notFound",
+                ],
+            ]
+        )
+    }
+
+    func testValueStorageErrorExtensionKeepsLegacyCLIValueResponseDecodable() throws {
+        let response = ValueResponse(
+            success: false,
+            error: "Vault is locked",
+            errorCode: .keychainError,
+            storageErrorCode: .vaultLocked
+        )
+
+        let encoded = try JSONEncoder().encode(response)
+        let legacy = try JSONDecoder().decode(LegacyValueResponse.self, from: encoded)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+
+        XCTAssertFalse(legacy.success)
+        XCTAssertEqual(legacy.errorCode, .keychainError)
+        XCTAssertEqual(object["storageErrorCode"] as? String, "vaultLocked")
+    }
+
     func testLegacyMessagesStillRoundTrip() throws {
         let requests: [IPCRequest] = [
             .auth(AuthRequest(
@@ -189,4 +247,33 @@ final class IPCSessionControlTests: XCTestCase {
         )
         XCTAssertEqual(actual, expected as NSDictionary, file: file, line: line)
     }
+}
+
+private struct LegacyIPCEnvelope: Decodable {
+    let type: String
+    let data: LegacyEnvelopeValueResponse
+}
+
+private struct LegacyEnvelopeValueResponse: Decodable {
+    let success: Bool
+    let value: String?
+    let error: String?
+    let errorCode: ValueErrorCode?
+}
+
+private enum LegacyValueErrorCode: String, Decodable {
+    case invalidRequest
+    case notFound
+    case noAuthorization
+    case authorizationDenied
+    case pendingExpired
+    case keychainBlocked
+    case keychainError
+}
+
+private struct LegacyValueResponse: Decodable {
+    let success: Bool
+    let value: String?
+    let error: String?
+    let errorCode: LegacyValueErrorCode?
 }

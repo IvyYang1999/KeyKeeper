@@ -1,7 +1,7 @@
 import subprocess
 import unittest
 from unittest.mock import patch, MagicMock
-from keykeeper import list_credentials, get_field, get_key, KeyKeeperError
+from keykeeper import list_credentials, get_field, get_key, run, KeyKeeperError
 
 
 def _mock_cli_found():
@@ -38,6 +38,11 @@ class TestGetField(unittest.TestCase):
         with _mock_cli_found():
             result = get_field("feishu", "app_id")
         self.assertEqual(result, "cli_abc123")
+        mock_run.assert_called_once_with(
+            ["/usr/local/bin/keykeeper", "get", "feishu", "app_id"],
+            capture_output=True,
+            text=True,
+        )
 
     @patch("keykeeper.subprocess.run")
     def test_get_field_not_found(self, mock_run):
@@ -56,6 +61,32 @@ class TestGetKey(unittest.TestCase):
         with _mock_cli_found():
             result = get_key("stripe", "api_key")
         self.assertEqual(result, "sk_live_xxx")
+
+
+class TestRun(unittest.TestCase):
+    @patch("keykeeper.subprocess.run")
+    def test_multiple_credentials_and_prefix_keep_cli_shape(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+
+        with _mock_cli_found():
+            result = run(
+                ["first", "second"],
+                ["python", "script.py"],
+                prefix="KEYKEEPER_",
+                verbose=True,
+            )
+
+        self.assertEqual(result.returncode, 0)
+        mock_run.assert_called_once_with([
+            "/usr/local/bin/keykeeper",
+            "run",
+            "-c", "first",
+            "-c", "second",
+            "--prefix", "KEYKEEPER_",
+            "--verbose",
+            "--",
+            "python", "script.py",
+        ])
 
 
 if __name__ == "__main__":

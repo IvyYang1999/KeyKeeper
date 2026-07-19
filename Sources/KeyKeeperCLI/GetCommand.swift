@@ -36,7 +36,7 @@ struct GetCommand: ParsableCommand {
                 )
             }
 
-            // Read secret via IPC — App owns the Keychain entries, no ACL prompts
+            // Read secret via IPC — App owns the unlocked age session
             let value = try IPCClient.requestValue(
                 credentialId: credentialId, fieldName: fieldName,
                 sessionId: session.id,
