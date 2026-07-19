@@ -14,6 +14,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var isTerminating = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        signal(SIGPIPE, SIG_IGN)
         installTerminationSignalHandlers()
     }
 
