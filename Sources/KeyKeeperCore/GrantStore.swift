@@ -11,8 +11,7 @@ public final class GrantStore: Sendable {
     }
 
     public static var `default`: GrantStore {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("KeyKeeper")
+        let dir = KeyKeeperPaths.applicationSupportDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return GrantStore(directory: dir)
     }

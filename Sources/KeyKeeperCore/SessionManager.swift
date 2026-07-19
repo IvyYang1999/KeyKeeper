@@ -40,12 +40,11 @@ public final class SessionManager: @unchecked Sendable {
     }
 
     public convenience init(
-        lockPolicy: SessionLockPolicy,
+        lockPolicy: SessionLockPolicy = .untilManualOrReboot,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.init(
-            directory: FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".keykeeper", isDirectory: true),
+            directory: KeyKeeperPaths.applicationSupportDirectory,
             lockPolicy: lockPolicy,
             now: now
         )

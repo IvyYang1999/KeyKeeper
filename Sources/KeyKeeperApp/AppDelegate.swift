@@ -8,6 +8,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var ipcServer: IPCServer!
+    private let sessionManager = SessionManager(lockPolicy: .untilManualOrReboot)
     private var authWindowController: AuthorizationWindowController!
     private var cancellables = Set<AnyCancellable>()
     private var terminationSignalSources: [DispatchSourceSignal] = []
@@ -23,7 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
-        ipcServer = IPCServer()
+        ipcServer = IPCServer(session: sessionManager)
         switch ipcServer.start() {
         case .started(let disposition):
             if disposition == .replacedStaleSocket {
@@ -87,6 +88,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
+        sessionManager.lock()
         ipcServer?.stop()
         terminationSignalSources.forEach { $0.cancel() }
         terminationSignalSources.removeAll()

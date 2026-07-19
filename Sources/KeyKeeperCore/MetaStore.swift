@@ -8,8 +8,7 @@ public final class MetaStore: Sendable {
     }
 
     public static var `default`: MetaStore {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("KeyKeeper")
+        let dir = KeyKeeperPaths.applicationSupportDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return MetaStore(directory: dir)
     }

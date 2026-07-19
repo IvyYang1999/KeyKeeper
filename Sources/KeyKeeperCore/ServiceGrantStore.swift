@@ -128,8 +128,7 @@ public final class ServiceGrantStore: Sendable {
     }
 
     public static var `default`: ServiceGrantStore {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("KeyKeeper")
+        let dir = KeyKeeperPaths.applicationSupportDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return ServiceGrantStore(directory: dir)
     }
