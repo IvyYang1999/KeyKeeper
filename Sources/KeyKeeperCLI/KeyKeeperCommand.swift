@@ -11,6 +11,9 @@ struct KeyKeeperCommand: ParsableCommand {
             GetCommand.self,
             MetaCommand.self,
             RunCommand.self,
+            UnlockCommand.self,
+            LockCommand.self,
+            StatusCommand.self,
             GrantsCommand.self,
             RequestsCommand.self,
         ]

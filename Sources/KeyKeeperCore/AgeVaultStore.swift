@@ -88,10 +88,7 @@ public final class AgeVaultStore: @unchecked Sendable {
     }
 
     public convenience init() {
-        self.init(
-            directory: FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".keykeeper", isDirectory: true)
-        )
+        self.init(directory: KeyKeeperPaths.applicationSupportDirectory)
     }
 
     init(

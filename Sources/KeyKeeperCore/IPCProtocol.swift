@@ -36,6 +36,7 @@ public enum IPCRequest: Codable, Sendable {
     case auth(AuthRequest)
     case value(ValueRequest)
     case serviceRequests(ServiceRequestsListRequest)
+    case sessionControl(SessionControlRequest)
 
     private enum CodingKeys: String, CodingKey { case type, data }
 
@@ -51,6 +52,9 @@ public enum IPCRequest: Codable, Sendable {
         case .serviceRequests(let r):
             try c.encode("serviceRequests", forKey: .type)
             try c.encode(r, forKey: .data)
+        case .sessionControl(let r):
+            try c.encode("sessionControl", forKey: .type)
+            try c.encode(r, forKey: .data)
         }
     }
 
@@ -60,6 +64,7 @@ public enum IPCRequest: Codable, Sendable {
         case "auth":  self = .auth(try c.decode(AuthRequest.self, forKey: .data))
         case "value": self = .value(try c.decode(ValueRequest.self, forKey: .data))
         case "serviceRequests": self = .serviceRequests(try c.decode(ServiceRequestsListRequest.self, forKey: .data))
+        case "sessionControl": self = .sessionControl(try c.decode(SessionControlRequest.self, forKey: .data))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: c, debugDescription: "Unknown IPC request type")
@@ -71,6 +76,7 @@ public enum IPCResponse: Codable, Sendable {
     case auth(AuthResponse)
     case value(ValueResponse)
     case serviceRequests(ServiceRequestsListResponse)
+    case sessionControl(SessionControlResponse)
 
     private enum CodingKeys: String, CodingKey { case type, data }
 
@@ -86,6 +92,9 @@ public enum IPCResponse: Codable, Sendable {
         case .serviceRequests(let r):
             try c.encode("serviceRequests", forKey: .type)
             try c.encode(r, forKey: .data)
+        case .sessionControl(let r):
+            try c.encode("sessionControl", forKey: .type)
+            try c.encode(r, forKey: .data)
         }
     }
 
@@ -95,6 +104,7 @@ public enum IPCResponse: Codable, Sendable {
         case "auth":  self = .auth(try c.decode(AuthResponse.self, forKey: .data))
         case "value": self = .value(try c.decode(ValueResponse.self, forKey: .data))
         case "serviceRequests": self = .serviceRequests(try c.decode(ServiceRequestsListResponse.self, forKey: .data))
+        case "sessionControl": self = .sessionControl(try c.decode(SessionControlResponse.self, forKey: .data))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: c, debugDescription: "Unknown IPC response type")
@@ -103,6 +113,55 @@ public enum IPCResponse: Codable, Sendable {
 }
 
 // MARK: - Messages
+
+public enum SessionControlAction: String, Codable, Sendable, Equatable {
+    case unlock
+    case lock
+    case status
+}
+
+public struct SessionControlRequest: Codable, Sendable, Equatable {
+    public var action: SessionControlAction
+    public var passphrase: String?
+
+    public init(action: SessionControlAction, passphrase: String? = nil) {
+        self.action = action
+        self.passphrase = passphrase
+    }
+}
+
+public enum SessionControlState: String, Codable, Sendable, Equatable {
+    case locked
+    case unlockedManual
+    case unlockedUntil
+}
+
+public enum SessionControlErrorCode: String, Codable, Sendable, Equatable {
+    case invalidRequest
+    case unlockFailed
+}
+
+public struct SessionControlResponse: Codable, Sendable, Equatable {
+    public var success: Bool
+    public var state: SessionControlState?
+    public var expiresAt: Date?
+    public var error: String?
+    public var errorCode: SessionControlErrorCode?
+
+    public init(
+        success: Bool,
+        state: SessionControlState? = nil,
+        expiresAt: Date? = nil,
+        error: String? = nil,
+        errorCode: SessionControlErrorCode? = nil
+    ) {
+        self.success = success
+        self.state = state
+        self.expiresAt = expiresAt
+        self.error = error
+        self.errorCode = errorCode
+    }
+}
 
 public struct ValueRequest: Codable, Sendable {
     public var credentialId: String
@@ -301,6 +360,7 @@ public enum IPCError: Error, LocalizedError {
     case appNotResponding
     case noAuthorization(String?)
     case keychainBlocked(String?)
+    case appVersionTooOld
 
     public var errorDescription: String? {
         switch self {
@@ -313,6 +373,7 @@ public enum IPCError: Error, LocalizedError {
         case .appNotResponding: return "KeyKeeper app did not respond to the value request"
         case .noAuthorization(let msg): return "No authorization for this caller\(msg.map { ": \($0)" } ?? "")"
         case .keychainBlocked(let msg): return "Keychain read failed or timed out\(msg.map { ": \($0)" } ?? "")"
+        case .appVersionTooOld: return "The installed KeyKeeper app is too old for this command; update the app first"
         }
     }
 }

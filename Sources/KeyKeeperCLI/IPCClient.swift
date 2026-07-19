@@ -73,6 +73,34 @@ enum IPCClient {
         return listResponse.requests
     }
 
+    static func requestSessionControl(
+        _ request: SessionControlRequest,
+        launchIfNeeded: Bool
+    ) throws -> SessionControlResponse {
+        let fd = try connectWithRetry(launchIfNeeded: launchIfNeeded)
+        defer { close(fd) }
+
+        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout), tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+
+        try IPCMessage.writeMessage(fd: fd, message: IPCRequest.sessionControl(request))
+        guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else {
+            throw IPCError.appNotResponding
+        }
+        return try decodeSessionControlResponse(response)
+    }
+
+    static func decodeSessionControlResponse(_ response: IPCResponse) throws -> SessionControlResponse {
+        switch response {
+        case .sessionControl(let sessionResponse):
+            return sessionResponse
+        case .value(let valueResponse) where valueResponse.errorCode == .invalidRequest:
+            throw IPCError.appVersionTooOld
+        default:
+            throw IPCError.appNotResponding
+        }
+    }
+
     // MARK: - Connection
 
     private static func connectWithRetry(launchIfNeeded: Bool) throws -> Int32 {

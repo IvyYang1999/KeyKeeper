@@ -1,6 +1,14 @@
 import Foundation
 import KeyKeeperCore
 
+protocol SessionControlling: AnyObject {
+    func status() -> SessionStatus
+    func unlock(passphrase: String) throws
+    func lock()
+}
+
+extension SessionManager: SessionControlling {}
+
 /// Unix domain socket server that receives authorization requests from CLI.
 @MainActor
 final class IPCServer: ObservableObject {
@@ -17,6 +25,11 @@ final class IPCServer: ObservableObject {
     private var listenSource: DispatchSourceRead?
     private var listenCancellationSemaphore: DispatchSemaphore?
     private let queue = DispatchQueue(label: "keykeeper.ipc", qos: .userInitiated)
+    private let session: SessionControlling
+
+    init(session: SessionControlling) {
+        self.session = session
+    }
 
     struct PendingAuthRequest {
         let id: String
@@ -182,7 +195,63 @@ final class IPCServer: ObservableObject {
             handleValueRequest(request, clientFd: clientFd, callerIdentity: callerIdentity)
         case .serviceRequests:
             handleServiceRequestsList(clientFd: clientFd)
+        case .sessionControl(let request):
+            let response = handleSessionControl(request)
+            Self.writeAndClose(.sessionControl(response), clientFd: clientFd)
         }
+    }
+
+    func handleSessionControl(_ request: SessionControlRequest) -> SessionControlResponse {
+        switch request.action {
+        case .unlock:
+            guard let passphrase = request.passphrase, !passphrase.isEmpty else {
+                return invalidSessionControlResponse()
+            }
+            do {
+                try session.unlock(passphrase: passphrase)
+                return response(for: session.status())
+            } catch {
+                return SessionControlResponse(
+                    success: false,
+                    error: "Unable to unlock session",
+                    errorCode: .unlockFailed
+                )
+            }
+        case .lock:
+            guard request.passphrase == nil else {
+                return invalidSessionControlResponse()
+            }
+            session.lock()
+            return response(for: session.status())
+        case .status:
+            guard request.passphrase == nil else {
+                return invalidSessionControlResponse()
+            }
+            return response(for: session.status())
+        }
+    }
+
+    private func response(for status: SessionStatus) -> SessionControlResponse {
+        switch status {
+        case .locked:
+            return SessionControlResponse(success: true, state: .locked)
+        case .unlocked(expiresAt: nil):
+            return SessionControlResponse(success: true, state: .unlockedManual)
+        case .unlocked(expiresAt: let expiration?):
+            return SessionControlResponse(
+                success: true,
+                state: .unlockedUntil,
+                expiresAt: expiration
+            )
+        }
+    }
+
+    private func invalidSessionControlResponse() -> SessionControlResponse {
+        SessionControlResponse(
+            success: false,
+            error: "Invalid session control request",
+            errorCode: .invalidRequest
+        )
     }
 
     nonisolated static func prepareAcceptedClient(_ clientFd: Int32) -> Bool {
