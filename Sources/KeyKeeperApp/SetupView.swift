@@ -110,7 +110,7 @@ struct SetupView: View {
     private var cliDetail: String {
         switch cliState {
         case .missing:
-            return "Installs the `keykeeper` binary to /usr/local/bin so scripts, cron jobs and AI tools can read keys from the encrypted vault at runtime."
+            return "Installs the `keykeeper` binary to /usr/local/bin so scripts, cron jobs and AI tools can read keys from the macOS Keychain at runtime."
         case .stale(let installed):
             return "The installed CLI (\(installed)) was built from a different version than this app (\(BuildVersion.identifier)). Update it so the two agree."
         case .current(let installed):

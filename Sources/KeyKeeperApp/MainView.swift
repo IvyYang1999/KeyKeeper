@@ -115,7 +115,7 @@ struct MainView: View {
                     Label("Couldn't read your credential list", systemImage: "exclamationmark.triangle.fill")
                         .font(.callout.weight(.semibold))
                         .foregroundColor(.red)
-                    Text("Your keys are still in the vault; only the list file failed to load. Nothing has been deleted.")
+                    Text("Your key values are safe in the macOS Keychain; only the list file failed to load. Nothing has been deleted.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

@@ -86,7 +86,7 @@ Then continue once `keykeeper list` shows the new ID.
 
 ## Rules
 
-1. NEVER ask the user for API key values, secrets, passwords or the vault passphrase.
+1. NEVER ask the user for API key values, secrets or passwords.
 2. NEVER hardcode secret values in source code or config files.
 3. NEVER print, log, echo or return the value of `os.environ["…"]`, `get_key()` / `getKey()`.
 4. NEVER run `keykeeper get` yourself; use `keykeeper run` (Option A) so the value never enters this conversation.

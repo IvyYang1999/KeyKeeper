@@ -125,7 +125,7 @@ struct KeyFieldsEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(text: "Keys", hint: "values stored in encrypted vault")
+            SectionLabel(text: "Keys", hint: "values stored in the macOS Keychain")
 
             ForEach(fields.indices, id: \.self) { i in
                 VStack(alignment: .leading, spacing: 2) {

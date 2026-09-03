@@ -6,7 +6,7 @@ struct FieldEntry: Identifiable {
     var name: String = ""
     var value: String = ""
     var visible: Bool = false  // Hidden by default, click eye to reveal
-    var existingSecret: Bool = false  // For detail view: whether this value already exists in the vault
+    var existingSecret: Bool = false  // For detail view: whether this value already exists in the keychain store
 }
 
 @MainActor
