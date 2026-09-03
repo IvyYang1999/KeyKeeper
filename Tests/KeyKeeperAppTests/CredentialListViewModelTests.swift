@@ -60,3 +60,33 @@ private final class NoopSession: CredentialSessionManaging {
     func save(credentialId: String, fieldName: String, value: String, security: SecurityLevel) throws {}
     func delete(credentialId: String, fieldName: String) throws {}
 }
+
+extension CredentialListViewModelTests {
+    func test搜索匹配字段名与环境变量名与备注() {
+        let cred = Credential(
+            label: "Stripe", notes: "billing webhook", links: [],
+            fields: ["api-key": CredentialField(secret: true)],
+            security: .standard, created: "2026-01-01", updated: "2026-01-01"
+        )
+        XCTAssertTrue(CredentialListViewModel.matches(id: "stripe", credential: cred, query: "api-key"))
+        XCTAssertTrue(CredentialListViewModel.matches(id: "stripe", credential: cred, query: "API_KEY"))
+        XCTAssertTrue(CredentialListViewModel.matches(id: "stripe", credential: cred, query: "webhook"))
+        XCTAssertTrue(CredentialListViewModel.matches(id: "stripe", credential: cred, query: "STRI"))
+        XCTAssertFalse(CredentialListViewModel.matches(id: "stripe", credential: cred, query: "openai"))
+    }
+
+    func test同一天更新的凭据按名字稳定排序() {
+        func cred(_ label: String, _ updated: String) -> Credential {
+            Credential(label: label, notes: "", links: [], fields: [:], security: .standard, created: updated, updated: updated)
+        }
+        let entries: [(id: String, credential: Credential)] = [
+            (id: "b", credential: cred("Beta", "2026-01-02")),
+            (id: "z", credential: cred("alpha", "2026-01-02")),
+            (id: "old", credential: cred("Old", "2025-12-31")),
+            (id: "a2", credential: cred("alpha", "2026-01-02")),
+        ]
+        let sorted = CredentialListViewModel.sorted(entries).map(\.id)
+        XCTAssertEqual(sorted, ["a2", "z", "b", "old"])
+        XCTAssertEqual(CredentialListViewModel.sorted(entries.reversed()).map(\.id), sorted)
+    }
+}

@@ -25,18 +25,36 @@ class CredentialListViewModel: ObservableObject {
 
     var filtered: [(id: String, credential: Credential)] {
         if searchText.isEmpty { return credentials }
-        return credentials.filter {
-            $0.id.localizedCaseInsensitiveContains(searchText) ||
-            $0.credential.label.localizedCaseInsensitiveContains(searchText)
+        return credentials.filter { Self.matches(id: $0.id, credential: $0.credential, query: searchText) }
+    }
+
+    /// Matches what the row shows: id, label, notes and key names (plus the env var
+    /// names those keys become), so searching "API_KEY" finds the credential that has it.
+    static func matches(id: String, credential: Credential, query: String) -> Bool {
+        let haystack = [id, credential.label, credential.notes]
+            + credential.fields.keys.map { $0 }
+            + credential.fields.keys.map { EnvironmentVariableName.from(fieldName: $0) }
+        return haystack.contains { $0.localizedCaseInsensitiveContains(query) }
+    }
+
+    /// Newest first; ties (same day) fall back to label, then id, so the order never jumps between loads.
+    static func sorted(_ entries: [(id: String, credential: Credential)]) -> [(id: String, credential: Credential)] {
+        entries.sorted { lhs, rhs in
+            if lhs.credential.updated != rhs.credential.updated {
+                return lhs.credential.updated > rhs.credential.updated
+            }
+            let byLabel = lhs.credential.label.localizedCaseInsensitiveCompare(rhs.credential.label)
+            if byLabel != .orderedSame {
+                return byLabel == .orderedAscending
+            }
+            return lhs.id < rhs.id
         }
     }
 
     func load() {
         do {
             let meta = try store.load()
-            credentials = meta.credentials
-                .sorted { $0.value.updated > $1.value.updated }
-                .map { (id: $0.key, credential: $0.value) }
+            credentials = Self.sorted(meta.credentials.map { (id: $0.key, credential: $0.value) })
             loadFailure = nil
         } catch {
             credentials = []
