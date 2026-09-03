@@ -6,6 +6,8 @@ extension Notification.Name {
     /// Posted on the main thread whenever the vault session is unlocked or locked,
     /// by the GUI or by a CLI request that reached the IPC server.
     static let keyKeeperSessionDidChange = Notification.Name("com.keykeeper.session.didChange")
+    /// Asks the popover to switch to the settings page (from the status bar menu).
+    static let keyKeeperOpenSettings = Notification.Name("com.keykeeper.ui.openSettings")
 }
 
 /// Session lifecycle surface the GUI needs on top of secret CRUD.

@@ -44,6 +44,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.action = #selector(togglePopover)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         updateStatusItemIcon(for: sessionState.bannerState)
         sessionState.$bannerState
@@ -200,11 +201,83 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func togglePopover() {
         guard let button = statusItem.button else { return }
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            showStatusMenu()
+            return
+        }
         if popover.isShown {
             popover.performClose(nil)
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             activatePopover()
+        }
+    }
+
+    // MARK: - Status bar menu (right-click)
+
+    private func showStatusMenu() {
+        let menu = StatusMenuBuilder.build(
+            state: sessionState.bannerState,
+            launchAtLogin: LoginItemManager.isEnabled,
+            launchAtLoginAvailable: LoginItemManager.isAvailable,
+            target: self,
+            actions: StatusMenuBuilder.Actions(
+                open: #selector(menuOpen),
+                lock: #selector(menuLock),
+                unlock: #selector(menuUnlock),
+                launchAtLogin: #selector(menuToggleLaunchAtLogin),
+                settings: #selector(menuSettings),
+                quit: #selector(menuQuit)
+            )
+        )
+        // Assigning the menu makes the next click open it; clearing it afterwards keeps
+        // left-click bound to the popover.
+        statusItem.menu = menu
+        statusItem.button?.performClick(nil)
+        statusItem.menu = nil
+    }
+
+    @objc private func menuOpen() {
+        if !popover.isShown { showPopover() }
+    }
+
+    @objc private func menuLock() {
+        sessionState.lock()
+    }
+
+    /// Unlock and vault creation both live in the banner at the top of the popover.
+    @objc private func menuUnlock() {
+        if !popover.isShown { showPopover() }
+    }
+
+    @objc private func menuToggleLaunchAtLogin() {
+        do {
+            try LoginItemManager.setEnabled(!LoginItemManager.isEnabled)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't change Launch at Login"
+            alert.informativeText = error.localizedDescription + "\n\nYou can also add KeyKeeper under System Settings › General › Login Items."
+            alert.runModal()
+        }
+    }
+
+    @objc private func menuSettings() {
+        NotificationCenter.default.post(name: .keyKeeperOpenSettings, object: nil)
+        if !popover.isShown { showPopover() }
+    }
+
+    @objc private func menuQuit() {
+        guard sessionState.isUnlocked else {
+            NSApp.terminate(nil)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Quit KeyKeeper?"
+        alert.informativeText = "Quitting locks the vault. Cron jobs, scripts and AI tools can't read keys until you open KeyKeeper and unlock it again."
+        alert.addButton(withTitle: "Quit and Lock Vault")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSApp.terminate(nil)
         }
     }
 
