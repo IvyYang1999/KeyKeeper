@@ -10,10 +10,12 @@ final class AuthorizationWindowController {
     private var isProgrammaticClose = false
 
     func show(request: AuthRequest,
+              waiting: Int = 0,
               onAuthorize: @escaping (GrantDuration) throws -> Void,
               onDeny: @escaping () -> Void) {
         show(
             prompt: .strict(request),
+            waiting: waiting,
             onAuthorizeGrant: onAuthorize,
             onAuthorizeService: nil,
             onDeny: onDeny
@@ -21,10 +23,12 @@ final class AuthorizationWindowController {
     }
 
     func show(serviceRequest: IPCServer.PendingServiceRequest,
+              waiting: Int = 0,
               onAuthorize: @escaping (ServiceGrantDuration) throws -> Void,
               onDeny: @escaping () -> Void) {
         show(
             prompt: .service(serviceRequest),
+            waiting: waiting,
             onAuthorizeGrant: nil,
             onAuthorizeService: onAuthorize,
             onDeny: onDeny
@@ -40,7 +44,12 @@ final class AuthorizationWindowController {
         windowDelegate = nil
     }
 
+    static func windowTitle(waiting: Int) -> String {
+        waiting > 0 ? "KeyKeeper Authorization (\(waiting) more waiting)" : "KeyKeeper Authorization"
+    }
+
     private func show(prompt: AuthorizationPrompt,
+                      waiting: Int,
                       onAuthorizeGrant: ((GrantDuration) throws -> Void)?,
                       onAuthorizeService: ((ServiceGrantDuration) throws -> Void)?,
                       onDeny: @escaping () -> Void) {
@@ -66,7 +75,7 @@ final class AuthorizationWindowController {
         let hostingController = NSHostingController(rootView: view)
 
         let win = NSWindow(contentViewController: hostingController)
-        win.title = "KeyKeeper Authorization"
+        win.title = Self.windowTitle(waiting: waiting)
         win.styleMask = [.titled, .closable]
         win.level = .floating
         win.isReleasedWhenClosed = false

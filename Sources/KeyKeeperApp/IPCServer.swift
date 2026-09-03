@@ -15,6 +15,28 @@ extension SessionManager: SessionControlling {}
 final class IPCServer: ObservableObject {
     @Published var pendingRequest: PendingAuthRequest?
     @Published var pendingServiceRequest: PendingServiceRequest?
+    /// Requests waiting behind the one currently shown. They used to be denied outright,
+    /// which made concurrent cron jobs fail with "denied" although nobody had denied them.
+    @Published private(set) var waitingCount = 0
+
+    static let maximumWaiting = 16
+    static let busyMessage =
+        "KeyKeeper already has \(maximumWaiting) authorization requests waiting. " +
+        "Approve or deny them in the KeyKeeper window, then retry."
+
+    private enum WaitingAuthorization {
+        case auth(PendingAuthRequest)
+        case service(PendingServiceRequest)
+
+        var expiresAt: Date {
+            switch self {
+            case .auth(let pending): return pending.expiresAt
+            case .service(let pending): return pending.expiresAt
+            }
+        }
+    }
+
+    private var waiting: [WaitingAuthorization] = []
 
     enum StartResult {
         case started(IPCSocketAcquisitionDisposition)
@@ -133,12 +155,14 @@ final class IPCServer: ObservableObject {
         guard pendingRequest?.id == pending.id else { return }
         pendingRequest = nil
         send(IPCResponse.auth(response), clientFd: pending.clientFd)
+        promoteNextWaiting()
     }
 
     func fulfillServiceRequest(_ pending: PendingServiceRequest, serviceGrant: ServiceGrant) {
         expirePendingIfNeeded()
         guard pendingServiceRequest?.id == pending.id else { return }
         pendingServiceRequest = nil
+        defer { promoteNextWaiting() }
         let session = self.session
         let grantStore = self.grantStore
         let serviceGrantStore = self.serviceGrantStore
@@ -167,6 +191,7 @@ final class IPCServer: ObservableObject {
             )),
             clientFd: pending.clientFd
         )
+        promoteNextWaiting()
     }
 
     /// Deny the current pending request.
@@ -299,18 +324,6 @@ final class IPCServer: ObservableObject {
             guard let self else { return }
             self.expirePendingIfNeeded()
 
-            // If there's already a pending request, deny the new one
-            if self.pendingRequest != nil || self.pendingServiceRequest != nil {
-                self.send(
-                    IPCResponse.auth(AuthResponse(
-                        granted: false,
-                        error: "Another authorization is in progress"
-                    )),
-                    clientFd: clientFd
-                )
-                return
-            }
-
             let now = Date()
             let pending = PendingAuthRequest(
                 id: UUID().uuidString,
@@ -319,8 +332,79 @@ final class IPCServer: ObservableObject {
                 requestedAt: now,
                 expiresAt: now.addingTimeInterval(IPCConstants.authTimeout)
             )
+
+            // Another prompt is on screen: wait for it instead of failing the caller.
+            if self.pendingRequest != nil || self.pendingServiceRequest != nil {
+                self.enqueueWaiting(.auth(pending))
+                return
+            }
+
             self.pendingRequest = pending
             self.scheduleExpirationCheck()
+        }
+    }
+
+    private func enqueueWaiting(_ item: WaitingAuthorization) {
+        guard waiting.count < Self.maximumWaiting else {
+            switch item {
+            case .auth(let pending):
+                send(
+                    IPCResponse.auth(AuthResponse(granted: false, error: Self.busyMessage)),
+                    clientFd: pending.clientFd
+                )
+            case .service(let pending):
+                send(
+                    IPCResponse.value(ValueResponse(
+                        success: false,
+                        error: Self.busyMessage,
+                        errorCode: .noAuthorization
+                    )),
+                    clientFd: pending.clientFd
+                )
+            }
+            return
+        }
+        waiting.append(item)
+        waitingCount = waiting.count
+    }
+
+    /// Shows the next waiting request once the current prompt has been answered or expired.
+    private func promoteNextWaiting(now: Date = Date()) {
+        guard pendingRequest == nil, pendingServiceRequest == nil else { return }
+        while !waiting.isEmpty {
+            let next = waiting.removeFirst()
+            waitingCount = waiting.count
+            if now >= next.expiresAt {
+                sendExpired(next)
+                continue
+            }
+            switch next {
+            case .auth(let pending):
+                pendingRequest = pending
+            case .service(let pending):
+                pendingServiceRequest = pending
+            }
+            scheduleExpirationCheck(at: next.expiresAt)
+            return
+        }
+    }
+
+    private func sendExpired(_ item: WaitingAuthorization) {
+        switch item {
+        case .auth(let pending):
+            send(
+                IPCResponse.auth(AuthResponse(granted: false, error: "Authorization request expired")),
+                clientFd: pending.clientFd
+            )
+        case .service(let pending):
+            send(
+                IPCResponse.value(ValueResponse(
+                    success: false,
+                    error: "Service authorization request expired",
+                    errorCode: .pendingExpired
+                )),
+                clientFd: pending.clientFd
+            )
         }
     }
 
@@ -420,18 +504,6 @@ final class IPCServer: ObservableObject {
             guard let self else { return }
             self.expirePendingIfNeeded()
 
-            guard self.pendingRequest == nil, self.pendingServiceRequest == nil else {
-                self.send(
-                    IPCResponse.value(ValueResponse(
-                        success: false,
-                        error: "Another authorization is in progress",
-                        errorCode: .noAuthorization
-                    )),
-                    clientFd: clientFd
-                )
-                return
-            }
-
             let requestedFields = self.validRequestedFields(
                 request.requestedFieldNames,
                 currentFieldName: request.fieldName,
@@ -449,6 +521,12 @@ final class IPCServer: ObservableObject {
                 requestedAt: now,
                 expiresAt: now.addingTimeInterval(IPCConstants.authTimeout)
             )
+
+            if self.pendingRequest != nil || self.pendingServiceRequest != nil {
+                self.enqueueWaiting(.service(pending))
+                return
+            }
+
             self.pendingServiceRequest = pending
             self.scheduleExpirationCheck()
         }
@@ -458,7 +536,12 @@ final class IPCServer: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.expirePendingIfNeeded()
-            let summaries = self.pendingServiceRequest.map { [$0.summary] } ?? []
+            var summaries = self.pendingServiceRequest.map { [$0.summary] } ?? []
+            for item in self.waiting {
+                if case .service(let pending) = item {
+                    summaries.append(pending.summary)
+                }
+            }
             self.send(
                 IPCResponse.serviceRequests(ServiceRequestsListResponse(requests: summaries)),
                 clientFd: clientFd
@@ -545,27 +628,27 @@ final class IPCServer: ObservableObject {
     private func expirePendingIfNeeded(now: Date = Date()) {
         if let pending = pendingRequest, now >= pending.expiresAt {
             pendingRequest = nil
-            send(
-                IPCResponse.auth(AuthResponse(granted: false, error: "Authorization request expired")),
-                clientFd: pending.clientFd
-            )
+            sendExpired(.auth(pending))
         }
 
         if let pending = pendingServiceRequest, now >= pending.expiresAt {
             pendingServiceRequest = nil
-            send(
-                IPCResponse.value(ValueResponse(
-                    success: false,
-                    error: "Service authorization request expired",
-                    errorCode: .pendingExpired
-                )),
-                clientFd: pending.clientFd
-            )
+            sendExpired(.service(pending))
         }
+
+        let expiredWaiting = waiting.filter { now >= $0.expiresAt }
+        if !expiredWaiting.isEmpty {
+            waiting.removeAll { now >= $0.expiresAt }
+            waitingCount = waiting.count
+            expiredWaiting.forEach(sendExpired)
+        }
+
+        promoteNextWaiting(now: now)
     }
 
-    private func scheduleExpirationCheck() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + IPCConstants.authTimeout) { [weak self] in
+    private func scheduleExpirationCheck(at date: Date? = nil) {
+        let delay = date.map { max(0, $0.timeIntervalSinceNow) } ?? IPCConstants.authTimeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.expirePendingIfNeeded()
         }
     }

@@ -116,6 +116,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         authWindowController.show(
             request: request,
+            waiting: ipcServer.waitingCount,
             onAuthorize: { [weak self] duration in
                 guard let self else { return }
 
@@ -148,6 +149,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         authWindowController.show(
             serviceRequest: pending,
+            waiting: ipcServer.waitingCount,
             onAuthorize: { [weak self] duration in
                 guard let self else { return }
 
