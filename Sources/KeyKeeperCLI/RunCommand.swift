@@ -8,7 +8,7 @@ struct RunCommand: ParsableCommand {
         commandName: "run",
         abstract: "Run a command with secrets injected as environment variables",
         discussion: """
-        Reads secret fields from macOS Keychain and injects them as environment \
+        Reads secret fields from the unlocked age vault and injects them as environment \
         variables into the subprocess. Secrets exist only in the subprocess memory \
         and are never written to disk or stdout.
 
@@ -69,7 +69,7 @@ struct RunCommand: ParsableCommand {
                 throw ValidationError("Credential '\(credId)' not found.")
             }
 
-            // For strict credentials, check/request grant before accessing Keychain
+            // For strict credentials, check/request grant before accessing the value
             if cred.security == .strict {
                 try Self.ensureGrant(
                     credentialId: credId, credential: cred,
@@ -92,7 +92,7 @@ struct RunCommand: ParsableCommand {
                     )
                 }
 
-                // Read secret via IPC — App owns the Keychain entries, no ACL prompts
+                // Read secret via IPC — App owns the unlocked age session
                 let value = try IPCClient.requestValue(
                     credentialId: credId,
                     fieldName: fieldName,

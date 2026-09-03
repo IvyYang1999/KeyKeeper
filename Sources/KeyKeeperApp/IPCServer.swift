@@ -1,10 +1,11 @@
 import Foundation
 import KeyKeeperCore
 
-protocol SessionControlling: AnyObject {
+protocol SessionControlling: AnyObject, Sendable {
     func status() -> SessionStatus
     func unlock(passphrase: String) throws
     func lock()
+    func retrieve(credentialId: String, fieldName: String) throws -> String
 }
 
 extension SessionManager: SessionControlling {}
@@ -26,9 +27,20 @@ final class IPCServer: ObservableObject {
     private var listenCancellationSemaphore: DispatchSemaphore?
     private let queue = DispatchQueue(label: "keykeeper.ipc", qos: .userInitiated)
     private let session: SessionControlling
+    private let metaStore: MetaStore
+    private let grantStore: GrantStore
+    private let serviceGrantStore: ServiceGrantStore
 
-    init(session: SessionControlling) {
+    init(
+        session: SessionControlling,
+        metaStore: MetaStore = .default,
+        grantStore: GrantStore = .default,
+        serviceGrantStore: ServiceGrantStore = .default
+    ) {
         self.session = session
+        self.metaStore = metaStore
+        self.grantStore = grantStore
+        self.serviceGrantStore = serviceGrantStore
     }
 
     struct PendingAuthRequest {
@@ -127,13 +139,18 @@ final class IPCServer: ObservableObject {
         expirePendingIfNeeded()
         guard pendingServiceRequest?.id == pending.id else { return }
         pendingServiceRequest = nil
+        let session = self.session
+        let grantStore = self.grantStore
+        let serviceGrantStore = self.serviceGrantStore
         queue.async {
             Self.readValueAndRespond(
                 request: pending.request,
                 clientFd: pending.clientFd,
+                session: session,
                 matchedStrictGrant: nil,
                 matchedServiceGrant: serviceGrant,
-                credentialSecurity: .standard
+                grantStore: grantStore,
+                serviceGrantStore: serviceGrantStore
             )
         }
     }
@@ -298,15 +315,11 @@ final class IPCServer: ObservableObject {
         }
     }
 
-    private func handleValueRequest(_ request: ValueRequest,
-                                    clientFd: Int32,
-                                    callerIdentity: CallerIdentity) {
-        let store = MetaStore.default
-        let grantStore = GrantStore.default
-        let serviceGrantStore = ServiceGrantStore.default
-
+    func handleValueRequest(_ request: ValueRequest,
+                            clientFd: Int32,
+                            callerIdentity: CallerIdentity) {
         // Load credential metadata to check security level
-        guard let meta = try? store.load(),
+        guard let meta = try? metaStore.load(),
               let cred = meta.credentials[request.credentialId],
               let field = cred.fields[request.fieldName],
               field.secret else {
@@ -314,6 +327,19 @@ final class IPCServer: ObservableObject {
                 success: false,
                 error: "Credential or field not found",
                 errorCode: .notFound
+            ))
+            Self.writeAndClose(resp, clientFd: clientFd)
+            return
+        }
+
+        // A locked value request must not inspect grants, record service audit
+        // events, or enter either authorization queue.
+        guard case .unlocked = session.status() else {
+            let resp = IPCResponse.value(ValueResponse(
+                success: false,
+                error: "Credential vault is locked",
+                errorCode: .keychainError,
+                storageErrorCode: .vaultLocked
             ))
             Self.writeAndClose(resp, clientFd: clientFd)
             return
@@ -352,9 +378,11 @@ final class IPCServer: ObservableObject {
                 Self.readValueAndRespond(
                     request: request,
                     clientFd: clientFd,
+                    session: session,
                     matchedStrictGrant: matchedStrictGrant,
                     matchedServiceGrant: serviceGrant,
-                    credentialSecurity: cred.security
+                    grantStore: grantStore,
+                    serviceGrantStore: serviceGrantStore
                 )
 
             case .promptRequired:
@@ -431,22 +459,24 @@ final class IPCServer: ObservableObject {
 
     private nonisolated static func readValueAndRespond(request: ValueRequest,
                                                         clientFd: Int32,
+                                                        session: SessionControlling,
                                                         matchedStrictGrant: Grant?,
                                                         matchedServiceGrant: ServiceGrant?,
-                                                        credentialSecurity: SecurityLevel) {
-        let response = retrieveKeychainValue(
+                                                        grantStore: GrantStore,
+                                                        serviceGrantStore: ServiceGrantStore) {
+        let response = retrieveSessionValue(
+            session: session,
             credentialId: request.credentialId,
-            fieldName: request.fieldName,
-            security: credentialSecurity
+            fieldName: request.fieldName
         )
 
         if response.success {
             try? GrantAuthorizationPolicy.consumeOnceGrantAfterSuccessfulValueIfNeeded(
                 matchedStrictGrant,
-                grantStore: GrantStore.default
+                grantStore: grantStore
             )
             if let matchedServiceGrant {
-                try? ServiceGrantStore.default.noteSuccessfulUse(
+                try? serviceGrantStore.noteSuccessfulUse(
                     grantId: matchedServiceGrant.id,
                     fieldName: request.fieldName
                 )
@@ -456,49 +486,41 @@ final class IPCServer: ObservableObject {
         Self.writeAndClose(IPCResponse.value(response), clientFd: clientFd)
     }
 
-    private nonisolated static func retrieveKeychainValue(
+    private nonisolated static func retrieveSessionValue(
+        session: SessionControlling,
         credentialId: String,
-        fieldName: String,
-        security: SecurityLevel
+        fieldName: String
     ) -> ValueResponse {
-        let semaphore = DispatchSemaphore(value: 0)
-        let result = KeychainReadResult()
-        let timeout = KeychainReadTimeoutPolicy.timeout(for: security)
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let retrieved = try KeychainService().retrieve(
+        do {
+            return ValueResponse(
+                success: true,
+                value: try session.retrieve(
                     credentialId: credentialId,
                     fieldName: fieldName
                 )
-                result.setValue(retrieved)
-            } catch {
-                result.setError(error.localizedDescription)
-            }
-            semaphore.signal()
-        }
-
-        let timeoutResult = semaphore.wait(
-            timeout: .now() + timeout
-        )
-        if timeoutResult == .timedOut {
+            )
+        } catch SessionManagerError.locked {
             return ValueResponse(
                 success: false,
-                error: "Keychain did not respond within \(Int(timeout)) seconds",
-                errorCode: .keychainBlocked
+                error: "Credential vault is locked",
+                errorCode: .keychainError,
+                storageErrorCode: .vaultLocked
+            )
+        } catch KeychainError.notFound {
+            return ValueResponse(
+                success: false,
+                error: "Credential value not found",
+                errorCode: .notFound,
+                storageErrorCode: .readFailed
+            )
+        } catch {
+            return ValueResponse(
+                success: false,
+                error: "Credential vault read failed",
+                errorCode: .keychainError,
+                storageErrorCode: .readFailed
             )
         }
-
-        let snapshot = result.snapshot()
-        if let value = snapshot.value {
-            return ValueResponse(success: true, value: value)
-        }
-
-        return ValueResponse(
-            success: false,
-            error: snapshot.errorMessage ?? "Keychain read failed",
-            errorCode: .keychainError
-        )
     }
 
     private func validRequestedFields(_ requestedFieldNames: [String],
@@ -561,29 +583,5 @@ final class IPCServer: ObservableObject {
     private nonisolated static func writeAndClose(_ response: IPCResponse, clientFd: Int32) {
         try? IPCMessage.writeMessage(fd: clientFd, message: response)
         close(clientFd)
-    }
-}
-
-private final class KeychainReadResult: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value: String?
-    private var errorMessage: String?
-
-    func setValue(_ value: String) {
-        lock.lock()
-        self.value = value
-        lock.unlock()
-    }
-
-    func setError(_ errorMessage: String) {
-        lock.lock()
-        self.errorMessage = errorMessage
-        lock.unlock()
-    }
-
-    func snapshot() -> (value: String?, errorMessage: String?) {
-        lock.lock()
-        defer { lock.unlock() }
-        return (value, errorMessage)
     }
 }

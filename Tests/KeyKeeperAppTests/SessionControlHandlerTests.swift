@@ -93,7 +93,7 @@ final class SessionControlHandlerTests: XCTestCase {
     }
 }
 
-private final class FakeSessionController: SessionControlling {
+private final class FakeSessionController: SessionControlling, @unchecked Sendable {
     var currentStatus: SessionStatus = .locked
     var rejectedPassphrase: String?
     private(set) var acceptedUnlockCount = 0
@@ -116,15 +116,22 @@ private final class FakeSessionController: SessionControlling {
         lockCount += 1
         currentStatus = .locked
     }
+
+    func retrieve(credentialId: String, fieldName: String) throws -> String {
+        throw FakeSessionError.unexpectedRetrieve
+    }
 }
 
 private enum FakeSessionError: Error, LocalizedError {
     case rejected(String)
+    case unexpectedRetrieve
 
     var errorDescription: String? {
         switch self {
         case .rejected(let phrase):
             return "Rejected \(phrase)"
+        case .unexpectedRetrieve:
+            return "Unexpected value retrieval"
         }
     }
 }
