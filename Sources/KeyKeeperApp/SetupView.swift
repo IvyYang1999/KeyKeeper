@@ -51,7 +51,7 @@ struct SetupView: View {
                 step: 1,
                 done: cliInstalled,
                 title: "Install CLI Tool",
-                detail: "Installs the `keykeeper` binary to /usr/local/bin so your code can securely read keys from macOS Keychain at runtime.",
+                detail: "Installs the `keykeeper` binary to /usr/local/bin so your code can securely read keys from the encrypted vault at runtime.",
                 actionLabel: cliInstalled ? nil : "Install CLI",
                 isLoading: isInstallingCLI,
                 action: installCLI

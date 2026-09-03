@@ -3,31 +3,25 @@ import KeyKeeperCore
 
 struct CredentialDetailView: View {
     let credentialId: String
-    @State private var credential: Credential
-    @State private var fields: [FieldEntry] = []
-    @State private var security: SecurityLevel
-    @State private var isEditing = false
-    @State private var errorMessage: String?
-    @State private var originalLabel: String
+    @StateObject private var vm: CredentialDetailViewModel
     var onBack: () -> Void
     var onUpdate: () -> Void
 
-    private let keychain = KeychainService()
-    private let store = MetaStore.default
-
-    init(credentialId: String, credential: Credential, onBack: @escaping () -> Void, onUpdate: @escaping () -> Void) {
+    init(
+        credentialId: String,
+        credential: Credential,
+        session: any CredentialSessionManaging,
+        onBack: @escaping () -> Void,
+        onUpdate: @escaping () -> Void
+    ) {
         self.credentialId = credentialId
-        self._credential = State(initialValue: credential)
-        self._security = State(initialValue: credential.security)
-        self._originalLabel = State(initialValue: credential.label)
+        _vm = StateObject(wrappedValue: CredentialDetailViewModel(
+            credentialId: credentialId,
+            credential: credential,
+            session: session
+        ))
         self.onBack = onBack
         self.onUpdate = onUpdate
-
-        // Build field entries from credential (values loaded later from Keychain)
-        let entries = credential.fields.sorted { $0.key < $1.key }.map { name, field in
-            FieldEntry(name: name, value: "", visible: false, existingSecret: field.secret)
-        }
-        self._fields = State(initialValue: entries)
     }
 
     var body: some View {
@@ -45,37 +39,37 @@ struct CredentialDetailView: View {
                     .buttonStyle(.plain)
                     .foregroundColor(.accentColor)
                     Spacer()
-                    Button(isEditing ? "Cancel" : "Edit") {
-                        if isEditing {
-                            reloadCredential()
+                    Button(vm.isEditing ? "Cancel" : "Edit") {
+                        if vm.isEditing {
+                            vm.reloadCredential()
                         }
-                        isEditing.toggle()
+                        vm.isEditing.toggle()
                     }
                     .font(.caption)
                 }
 
                 // Name
-                if isEditing {
+                if vm.isEditing {
                     VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                         SectionLabel(text: "Name")
-                        TextField("Name", text: $credential.label)
+                        TextField("Name", text: $vm.credential.label)
                             .textFieldStyle(.roundedBorder)
                     }
                 } else {
-                    Text(credential.label).font(.headline)
+                    Text(vm.credential.label).font(.headline)
                 }
 
                 // Description
-                if isEditing {
-                    DescriptionEditor(text: $credential.notes)
+                if vm.isEditing {
+                    DescriptionEditor(text: $vm.credential.notes)
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
                         SectionLabel(text: "Description", hint: "visible to AI")
-                        if credential.notes.isEmpty {
+                        if vm.credential.notes.isEmpty {
                             Text("No description")
                                 .font(.callout).foregroundColor(.secondary)
                         } else {
-                            Text(credential.notes)
+                            Text(vm.credential.notes)
                                 .font(.callout).foregroundColor(.secondary)
                                 .textSelection(.enabled)
                         }
@@ -83,13 +77,13 @@ struct CredentialDetailView: View {
                 }
 
                 // Keys
-                if isEditing {
-                    KeyFieldsEditor(fields: $fields)
+                if vm.isEditing {
+                    KeyFieldsEditor(fields: $vm.fields)
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         SectionLabel(text: "Keys")
 
-                        ForEach(Array(fields.enumerated()), id: \.offset) { index, field in
+                        ForEach(Array(vm.fields.enumerated()), id: \.offset) { index, field in
                             HStack(spacing: 6) {
                                 Text(field.name)
                                     .font(.callout.monospaced())
@@ -103,12 +97,7 @@ struct CredentialDetailView: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
 
                                 Button(action: {
-                                    if fields[index].visible {
-                                        fields[index].visible = false
-                                    } else {
-                                        loadFieldValue(at: index)
-                                        fields[index].visible = true
-                                    }
+                                    vm.toggleFieldVisibility(at: index)
                                 }) {
                                     Image(systemName: field.visible ? "eye.fill" : "eye.slash.fill")
                                         .foregroundColor(.secondary)
@@ -116,7 +105,12 @@ struct CredentialDetailView: View {
                                 }
                                 .buttonStyle(.plain)
 
-                                Button(action: { copyFieldValue(field.name) }) {
+                                Button(action: {
+                                    if let value = vm.copyFieldValue(field.name) {
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString(value, forType: .string)
+                                    }
+                                }) {
                                     Image(systemName: "doc.on.doc")
                                         .foregroundColor(.secondary)
                                         .frame(width: 18)
@@ -128,37 +122,39 @@ struct CredentialDetailView: View {
                 }
 
                 // Grants (view mode, strict only)
-                if !isEditing && credential.security == .strict {
+                if !vm.isEditing && vm.credential.security == .strict {
                     GrantsSection(credentialId: credentialId)
                 }
 
                 // Advanced (edit mode only)
-                if isEditing {
-                    AdvancedSecuritySection(security: $security)
+                if vm.isEditing {
+                    AdvancedSecuritySection(security: $vm.security)
                 }
 
                 // Error
-                if let error = errorMessage {
+                if let error = vm.errorMessage {
                     Text(error).font(.caption).foregroundColor(.red)
                 }
 
                 // Save button (edit mode)
-                if isEditing {
+                if vm.isEditing {
                     HStack {
                         Spacer()
                         Button("Save") {
-                            saveChanges()
+                            if vm.saveChanges() {
+                                onUpdate()
+                            }
                         }
                         .buttonStyle(.borderedProminent)
                     }
                 }
 
                 // Metadata
-                if !isEditing {
+                if !vm.isEditing {
                     HStack {
-                        Text("Created \(credential.created)")
+                        Text("Created \(vm.credential.created)")
                         Spacer()
-                        Text("Updated \(credential.updated)")
+                        Text("Updated \(vm.credential.updated)")
                     }
                     .font(.caption2)
                     .foregroundColor(.secondary.opacity(0.4))
@@ -169,83 +165,4 @@ struct CredentialDetailView: View {
         .frame(width: 380, height: 480)
     }
 
-    /// Load a single field value from Keychain on demand (when user clicks eye or copy).
-    private func loadFieldValue(at index: Int) {
-        guard fields[index].existingSecret, fields[index].value.isEmpty else { return }
-        do {
-            fields[index].value = try keychain.retrieve(
-                credentialId: credentialId, fieldName: fields[index].name
-            )
-        } catch {
-            errorMessage = "Failed to read key: \(error.localizedDescription)"
-        }
-    }
-
-    private func reloadCredential() {
-        do {
-            let meta = try store.load()
-            if let cred = meta.credentials[credentialId] {
-                credential = cred
-                security = cred.security
-                fields = cred.fields.sorted { $0.key < $1.key }.map { name, field in
-                    FieldEntry(name: name, value: "", visible: false, existingSecret: field.secret)
-                }
-                // Values will be loaded on demand (eye click or edit mode)
-            }
-        } catch {}
-    }
-
-    private func copyFieldValue(_ fieldName: String) {
-        do {
-            let value = try keychain.retrieve(credentialId: credentialId, fieldName: fieldName)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(value, forType: .string)
-        } catch {
-            errorMessage = "Copy failed: \(error.localizedDescription)"
-        }
-    }
-
-    private func saveChanges() {
-        do {
-            var meta = try store.load()
-
-            // Save key values to Keychain
-            for field in fields where !field.name.isEmpty && !field.value.isEmpty {
-                try keychain.save(
-                    credentialId: credentialId, fieldName: field.name,
-                    value: field.value, security: security
-                )
-            }
-
-            // Build credential fields
-            var credFields: [String: CredentialField] = [:]
-            for field in fields where !field.name.isEmpty {
-                credFields[field.name] = CredentialField(secret: true)
-            }
-
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-
-            // Only update timestamp if something actually changed
-            let hasChanges = credential.label != originalLabel
-                || credential.notes != meta.credentials[credentialId]?.notes
-                || credFields.keys.sorted() != meta.credentials[credentialId]?.fields.keys.sorted()
-                || security != meta.credentials[credentialId]?.security
-
-            credential.fields = credFields
-            credential.security = security
-            if hasChanges {
-                credential.updated = formatter.string(from: Date())
-            }
-
-            meta.credentials[credentialId] = credential
-            try store.save(meta)
-            onUpdate()
-            isEditing = false
-            errorMessage = nil
-            originalLabel = credential.label
-        } catch {
-            errorMessage = "Save failed: \(error.localizedDescription)"
-        }
-    }
 }

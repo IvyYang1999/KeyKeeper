@@ -5,8 +5,15 @@ import KeyKeeperCore
 class CredentialListViewModel: ObservableObject {
     @Published var credentials: [(id: String, credential: Credential)] = []
     @Published var searchText = ""
+    @Published var errorMessage: String?
 
-    private let store = MetaStore.default
+    private let session: any CredentialSessionManaging
+    private let store: MetaStore
+
+    init(session: any CredentialSessionManaging, store: MetaStore = .default) {
+        self.session = session
+        self.store = store
+    }
 
     var filtered: [(id: String, credential: Credential)] {
         if searchText.isEmpty { return credentials }
@@ -23,15 +30,33 @@ class CredentialListViewModel: ObservableObject {
             .map { (id: $0.key, credential: $0.value) }
     }
 
-    func delete(id: String) {
-        guard var meta = try? store.load() else { return }
-        let cred = meta.credentials[id]
-        let keychain = KeychainService()
-        for (fieldName, field) in cred?.fields ?? [:] where field.secret {
-            try? keychain.delete(credentialId: id, fieldName: fieldName)
+    @discardableResult
+    func delete(id: String) -> Bool {
+        do {
+            try CredentialOperationMessages.requireUnlocked(session)
+            var meta = try store.load()
+            guard let credential = meta.credentials[id] else { return false }
+
+            let secretFieldNames = credential.fields
+                .filter { $0.value.secret }
+                .map(\.key)
+                .sorted()
+            for fieldName in secretFieldNames {
+                try session.delete(credentialId: id, fieldName: fieldName)
+            }
+
+            meta.credentials.removeValue(forKey: id)
+            try store.save(meta)
+            load()
+            errorMessage = nil
+            return true
+        } catch {
+            errorMessage = CredentialOperationMessages.failure(
+                action: "delete this credential",
+                fallbackPrefix: "Delete failed",
+                error: error
+            )
+            return false
         }
-        meta.credentials.removeValue(forKey: id)
-        try? store.save(meta)
-        load()
     }
 }
