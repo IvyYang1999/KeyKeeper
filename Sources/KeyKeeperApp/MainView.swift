@@ -12,11 +12,15 @@ struct MainView: View {
     @State private var showServiceGrants = false
     @State private var serviceGrants: [ServiceGrant] = []
 
+    @ObservedObject var sessionState: SessionStateViewModel
+    @State private var showQuitConfirmation = false
+
     private let serviceGrantStore = ServiceGrantStore.default
     private let session: any CredentialSessionManaging
 
-    init(session: any CredentialSessionManaging) {
+    init(session: any CredentialSessionManaging, sessionState: SessionStateViewModel) {
         self.session = session
+        self.sessionState = sessionState
         _viewModel = StateObject(wrappedValue: CredentialListViewModel(session: session))
         _addVM = StateObject(wrappedValue: AddCredentialViewModel(session: session))
     }
@@ -80,6 +84,10 @@ struct MainView: View {
                 }
             }
             .padding()
+
+            SessionBanner(state: sessionState)
+                .padding(.horizontal)
+                .padding(.bottom, DS.Spacing.sm)
 
             TextField("Search...", text: $viewModel.searchText)
                 .textFieldStyle(.roundedBorder)
@@ -188,12 +196,24 @@ struct MainView: View {
                 Divider()
 
                 HStack {
-                    Button(action: { NSApplication.shared.terminate(nil) }) {
+                    Button(action: requestQuit) {
                         Label("Quit KeyKeeper", systemImage: "power")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .confirmationDialog(
+                        "Quit KeyKeeper?",
+                        isPresented: $showQuitConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Quit and Lock Vault", role: .destructive) {
+                            NSApplication.shared.terminate(nil)
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Quitting locks the vault. Cron jobs, scripts and AI tools can't read keys until you open KeyKeeper and unlock it again.")
+                    }
                     Spacer()
                 }
             }
@@ -204,6 +224,14 @@ struct MainView: View {
         .onAppear {
             loadServiceAuthorizationMode()
             loadServiceGrants()
+        }
+    }
+
+    private func requestQuit() {
+        if sessionState.isUnlocked {
+            showQuitConfirmation = true
+        } else {
+            NSApplication.shared.terminate(nil)
         }
     }
 

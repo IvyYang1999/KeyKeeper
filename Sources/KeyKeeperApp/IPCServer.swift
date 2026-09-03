@@ -226,6 +226,7 @@ final class IPCServer: ObservableObject {
             }
             do {
                 try session.unlock(passphrase: passphrase)
+                Self.notifySessionDidChange()
                 return response(for: session.status())
             } catch {
                 return SessionControlResponse(
@@ -239,12 +240,20 @@ final class IPCServer: ObservableObject {
                 return invalidSessionControlResponse()
             }
             session.lock()
+            Self.notifySessionDidChange()
             return response(for: session.status())
         case .status:
             guard request.passphrase == nil else {
                 return invalidSessionControlResponse()
             }
             return response(for: session.status())
+        }
+    }
+
+    /// Lets the GUI (banner, menu bar icon) follow unlock/lock requests that arrived over IPC.
+    private nonisolated static func notifySessionDidChange() {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .keyKeeperSessionDidChange, object: nil)
         }
     }
 

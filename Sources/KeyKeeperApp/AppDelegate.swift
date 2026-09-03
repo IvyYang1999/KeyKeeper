@@ -9,6 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var popover: NSPopover!
     private var ipcServer: IPCServer!
     private let sessionManager = SessionManager(lockPolicy: .untilManualOrReboot)
+    private lazy var sessionState = SessionStateViewModel(session: sessionManager)
     private var authWindowController: AuthorizationWindowController!
     private var cancellables = Set<AnyCancellable>()
     private var terminationSignalSources: [DispatchSourceSignal] = []
@@ -42,15 +43,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "key.fill", accessibilityDescription: "KeyKeeper")
             button.action = #selector(togglePopover)
         }
+        updateStatusItemIcon(for: sessionState.bannerState)
+        sessionState.$bannerState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.updateStatusItemIcon(for: state)
+            }
+            .store(in: &cancellables)
 
         popover = NSPopover()
         popover.contentSize = NSSize(width: 360, height: 480)
         popover.behavior = .semitransient
         popover.contentViewController = NSHostingController(
-            rootView: MainView(session: sessionManager)
+            rootView: MainView(session: sessionManager, sessionState: sessionState)
         )
 
         authWindowController = AuthorizationWindowController()
@@ -159,6 +166,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.ipcServer.denyServiceRequest(pending)
             }
         )
+    }
+
+    /// The menu bar icon is the only always-visible signal that background jobs will fail.
+    static func statusItemSymbol(for state: SessionBannerState) -> (name: String, description: String) {
+        switch state {
+        case .unlocked:
+            return ("key.fill", "KeyKeeper, vault unlocked")
+        case .locked:
+            return ("lock.fill", "KeyKeeper, vault locked")
+        case .needsVault:
+            return ("lock.slash", "KeyKeeper, no vault yet")
+        }
+    }
+
+    private func updateStatusItemIcon(for state: SessionBannerState) {
+        guard let button = statusItem?.button else { return }
+        let symbol = Self.statusItemSymbol(for: state)
+        button.image = NSImage(systemSymbolName: symbol.name, accessibilityDescription: symbol.description)
+        button.toolTip = symbol.description
     }
 
     private func showPopover() {
