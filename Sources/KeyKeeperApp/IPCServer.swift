@@ -2,6 +2,7 @@ import Foundation
 import KeyKeeperCore
 
 protocol SessionControlling: AnyObject, Sendable {
+    var isVaultInitialized: Bool { get }
     func status() -> SessionStatus
     func unlock(passphrase: String) throws
     func lock()
@@ -256,7 +257,7 @@ final class IPCServer: ObservableObject {
             } catch {
                 return SessionControlResponse(
                     success: false,
-                    error: "Unable to unlock session",
+                    error: Self.unlockFailureMessage(vaultInitialized: session.isVaultInitialized),
                     errorCode: .unlockFailed
                 )
             }
@@ -280,6 +281,13 @@ final class IPCServer: ObservableObject {
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .keyKeeperSessionDidChange, object: nil)
         }
+    }
+
+    /// Never echoes the passphrase; does say whether there is a vault to unlock at all.
+    static func unlockFailureMessage(vaultInitialized: Bool) -> String {
+        vaultInitialized
+            ? "Wrong passphrase, or the vault could not be opened. Try again, or use your recovery key in the KeyKeeper app."
+            : "No vault yet. Click the KeyKeeper icon in the menu bar and create one first."
     }
 
     private func response(for status: SessionStatus) -> SessionControlResponse {

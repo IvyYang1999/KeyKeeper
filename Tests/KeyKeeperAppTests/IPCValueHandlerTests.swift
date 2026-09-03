@@ -249,6 +249,7 @@ final class IPCValueHandlerTests: XCTestCase {
 }
 
 private final class FakeValueSession: SessionControlling, @unchecked Sendable {
+    var isVaultInitialized = true
     private let mutex = NSLock()
     private var currentStatus: SessionStatus
     private var currentResult: Result<String, Error>

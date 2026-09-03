@@ -154,6 +154,7 @@ final class IPCAuthorizationQueueTests: XCTestCase {
 }
 
 private final class QueueSession: SessionControlling, @unchecked Sendable {
+    var isVaultInitialized = true
     func status() -> SessionStatus { .unlocked(expiresAt: nil) }
     func unlock(passphrase: String) throws {}
     func lock() {}

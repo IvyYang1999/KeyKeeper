@@ -94,6 +94,7 @@ final class SessionControlHandlerTests: XCTestCase {
 }
 
 private final class FakeSessionController: SessionControlling, @unchecked Sendable {
+    var isVaultInitialized = true
     var currentStatus: SessionStatus = .locked
     var rejectedPassphrase: String?
     private(set) var acceptedUnlockCount = 0
@@ -133,5 +134,24 @@ private enum FakeSessionError: Error, LocalizedError {
         case .unexpectedRetrieve:
             return "Unexpected value retrieval"
         }
+    }
+}
+
+extension SessionControlHandlerTests {
+    func test没有vault时unlock失败提示去App建库() {
+        let session = FakeSessionController()
+        session.isVaultInitialized = false
+        session.rejectedPassphrase = "any phrase placeholder"
+        let server = IPCServer(session: session)
+
+        let response = server.handleSessionControl(SessionControlRequest(
+            action: .unlock, passphrase: "any phrase placeholder"
+        ))
+
+        XCTAssertFalse(response.success)
+        XCTAssertEqual(response.errorCode, .unlockFailed)
+        XCTAssertTrue(response.error?.contains("No vault yet") ?? false)
+        XCTAssertFalse(response.error?.contains("any phrase") ?? true)
+        XCTAssertTrue(IPCServer.unlockFailureMessage(vaultInitialized: true).contains("Wrong passphrase"))
     }
 }
