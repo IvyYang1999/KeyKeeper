@@ -78,6 +78,24 @@ public final class SessionManager: @unchecked Sendable {
         }
     }
 
+    /// Whether a vault exists on disk. A missing vault means the user still has to
+    /// choose a passphrase (first run or fresh migration).
+    public var isVaultInitialized: Bool {
+        AgeVaultStore(directory: directory).isInitialized
+    }
+
+    /// Creates the vault and leaves the session unlocked, so the user can start
+    /// adding credentials right away. Returns the emergency recovery identity,
+    /// which is shown exactly once and never stored by KeyKeeper.
+    public func createVault(passphrase: String) throws -> EmergencyIdentity {
+        try withLock {
+            let store = AgeVaultStore(directory: directory)
+            let emergency = try store.initVault(passphrase: passphrase)
+            unlockedStore = store
+            return emergency
+        }
+    }
+
     /// Repeated calls are idempotent while the current session remains unlocked.
     public func unlock(passphrase: String) throws {
         try withLock {

@@ -108,6 +108,12 @@ public final class AgeVaultStore: @unchecked Sendable {
         self.atomicWriteInterceptor = atomicWriteInterceptor
     }
 
+    /// Whether a vault has been created in this directory (both encrypted files present).
+    public var isInitialized: Bool {
+        FileManager.default.fileExists(atPath: identityURL.path)
+            && FileManager.default.fileExists(atPath: vaultURL.path)
+    }
+
     public func initVault(passphrase: String) throws -> EmergencyIdentity {
         guard !passphrase.isEmpty else { throw AgeVaultError.emptyPassphrase }
         return try withLock {

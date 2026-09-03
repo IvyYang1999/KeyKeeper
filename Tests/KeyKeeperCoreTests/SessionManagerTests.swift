@@ -259,3 +259,38 @@ private final class SessionOutcomeCollector: @unchecked Sendable {
         lock.unlock()
     }
 }
+
+extension SessionManagerTests {
+    func testCreateVaultLeavesSessionUnlockedAndReportsInitialized() throws {
+        let manager = SessionManager(directory: directory, lockPolicy: .untilManualOrReboot)
+        XCTAssertFalse(manager.isVaultInitialized)
+        XCTAssertEqual(manager.status(), .locked)
+
+        let emergency = try manager.createVault(passphrase: "fresh vault phrase placeholder")
+
+        XCTAssertTrue(emergency.identity.hasPrefix("AGE-SECRET-KEY-"))
+        XCTAssertTrue(manager.isVaultInitialized)
+        XCTAssertTrue(manager.isUnlocked)
+        try manager.save(
+            credentialId: "service-a", fieldName: "access",
+            value: "value-after-create", security: .standard
+        )
+        XCTAssertEqual(
+            try manager.retrieve(credentialId: "service-a", fieldName: "access"),
+            "value-after-create"
+        )
+    }
+
+    func testCreateVaultTwiceFailsWithAlreadyInitialized() throws {
+        let manager = SessionManager(directory: directory, lockPolicy: .untilManualOrReboot)
+        _ = try manager.createVault(passphrase: "first phrase placeholder")
+        manager.lock()
+
+        XCTAssertThrowsError(try manager.createVault(passphrase: "second phrase placeholder")) { error in
+            guard case AgeVaultError.alreadyInitialized = error else {
+                return XCTFail("Expected alreadyInitialized, got \(error)")
+            }
+        }
+        XCTAssertEqual(manager.status(), .locked)
+    }
+}
