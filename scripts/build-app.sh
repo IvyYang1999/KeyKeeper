@@ -93,11 +93,14 @@ fi
 # Step 6: Create PkgInfo
 echo -n "APPL????" > "$APP_BUNDLE/Contents/PkgInfo"
 
-# Step 6.5: Code sign with entitlements (required for Keychain access control / Touch ID)
-ENTITLEMENTS="$PROJECT_DIR/Sources/KeyKeeperApp/KeyKeeperApp.entitlements"
-echo "==> Signing binaries with entitlements..."
-codesign --force --sign - --entitlements "$ENTITLEMENTS" "$APP_BUNDLE/Contents/MacOS/KeyKeeperApp"
-codesign --force --sign - --entitlements "$ENTITLEMENTS" "$APP_BUNDLE/Contents/MacOS/keykeeper"
+# Step 6.5: Ad-hoc code sign the whole bundle.
+# Do NOT attach KeyKeeperApp.entitlements here: an ad-hoc signature carrying
+# keychain-access-groups is killed by the kernel at launch (exit 137) on a machine
+# without a matching provisioning profile. The vault no longer needs Keychain, and
+# scripts/post-commit has always re-signed without entitlements for that reason.
+echo "==> Signing bundle (ad-hoc, no entitlements)..."
+xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+codesign --force --deep --sign - "$APP_BUNDLE"
 
 # Step 7: Create .dmg
 echo "==> Creating .dmg..."
