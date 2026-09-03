@@ -8,9 +8,9 @@ struct RunCommand: ParsableCommand {
         commandName: "run",
         abstract: "Run a command with secrets injected as environment variables",
         discussion: """
-        Asks the running KeyKeeper app for the credential's secret fields (the app holds \
-        the unlocked vault; run 'keykeeper unlock' after a reboot) and injects them as environment \
-        variables into the subprocess. Secrets exist only in the subprocess memory \
+        Asks the KeyKeeper app for the credential's secret fields (starting the app \
+        automatically if needed) and injects them as environment variables into the \
+        subprocess. Secrets exist only in the subprocess memory \
         and are never written to disk or stdout.
 
         Any secret value that appears in the subprocess stdout or stderr is \
@@ -29,9 +29,9 @@ struct RunCommand: ParsableCommand {
           keykeeper run -c my-api --tty -- vim
           keykeeper run -c stripe -c openai -- node server.js
 
-        If the vault is locked or the caller is not approved yet, the error says \
-        exactly what to do next ('keykeeper unlock', approve in the KeyKeeper window, \
-        or switch the credential to "Background OK" in the app).
+        If the caller is not approved yet, the error says exactly what to do next \
+        (approve in the KeyKeeper window, or switch the credential to "Background OK" \
+        in the app).
         """
     )
 

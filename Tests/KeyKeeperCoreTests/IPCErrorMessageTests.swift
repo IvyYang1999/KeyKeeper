@@ -4,15 +4,15 @@ import XCTest
 final class IPCErrorMessageTests: XCTestCase {
     func test每个错误都告诉用户下一步() {
         let cases: [(IPCError, String)] = [
-            (.vaultLocked, "keykeeper unlock"),
-            (.appNotRunning, "keykeeper unlock"),
+            (.vaultLocked, "Open the KeyKeeper app"),
+            (.appNotRunning, "Open KeyKeeper from Applications"),
             (.noAuthorization("No valid grant"), "Background OK"),
             (.noAuthorization(nil), "keykeeper grants list"),
             (.denied("User denied"), "Authorize"),
             (.timeout, "Run the command again"),
             (.vaultReadFailed(nil), "KeyKeeper app"),
             (.appVersionTooOld, "Update the app"),
-            (.connectionFailed, "keykeeper status"),
+            (.connectionFailed, "Open KeyKeeper from Applications"),
         ]
         for (error, hint) in cases {
             XCTAssertTrue(

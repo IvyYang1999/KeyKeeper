@@ -1,159 +1,36 @@
 import ArgumentParser
-import Darwin
 import Foundation
 import KeyKeeperCore
 
-protocol PassphraseReading {
-    func readPassphrase() throws -> String
-}
-
-enum PassphraseReaderError: Error, LocalizedError {
-    case interactiveTerminalRequired
-    case promptFailed
-
-    var errorDescription: String? {
-        switch self {
-        case .interactiveTerminalRequired:
-            return "unlock requires an interactive terminal; run it from a TTY"
-        case .promptFailed:
-            return "Could not read the passphrase from the interactive terminal"
-        }
-    }
-}
-
-struct TerminalPassphraseReader: PassphraseReading {
-    private let isStandardInputTerminal: () -> Bool
-    private let readHiddenPassphrase: () throws -> String
-
-    init(
-        isStandardInputTerminal: @escaping () -> Bool = {
-            isatty(STDIN_FILENO) == 1
-        },
-        readHiddenPassphrase: @escaping () throws -> String = {
-            var buffer = [CChar](repeating: 0, count: 4_096)
-            defer {
-                buffer.withUnsafeMutableBufferPointer { pointer in
-                    pointer.initialize(repeating: 0)
-                }
-            }
-            guard readpassphrase(
-                "Passphrase: ",
-                &buffer,
-                buffer.count,
-                RPP_ECHO_OFF | RPP_REQUIRE_TTY
-            ) != nil else {
-                throw PassphraseReaderError.promptFailed
-            }
-            return String(cString: buffer)
-        }
-    ) {
-        self.isStandardInputTerminal = isStandardInputTerminal
-        self.readHiddenPassphrase = readHiddenPassphrase
-    }
-
-    func readPassphrase() throws -> String {
-        guard isStandardInputTerminal() else {
-            throw PassphraseReaderError.interactiveTerminalRequired
-        }
-        return try readHiddenPassphrase()
-    }
-}
-
-struct SessionCommandExecutor {
-    typealias Request = (SessionControlRequest, Bool) throws -> SessionControlResponse
-
-    private let request: Request
-
-    init(_ request: @escaping Request) {
-        self.request = request
-    }
-
-    static let live = SessionCommandExecutor { request, launchIfNeeded in
-        try IPCClient.requestSessionControl(request, launchIfNeeded: launchIfNeeded)
-    }
-
-    func unlock(using passphraseReader: PassphraseReading) throws -> String {
-        let passphrase = try passphraseReader.readPassphrase()
-        let response = try request(
-            SessionControlRequest(action: .unlock, passphrase: passphrase),
-            true
-        )
-        return try formattedOutput(for: response)
-    }
-
-    func lock() throws -> String {
-        do {
-            let response = try request(SessionControlRequest(action: .lock), false)
-            return try formattedOutput(for: response)
-        } catch IPCError.appNotRunning {
-            return "locked"
-        }
-    }
-
-    func status() throws -> String {
-        do {
-            let response = try request(SessionControlRequest(action: .status), false)
-            return try formattedOutput(for: response)
-        } catch IPCError.appNotRunning {
-            return "locked (app not running)"
-        }
-    }
-
-    private func formattedOutput(for response: SessionControlResponse) throws -> String {
-        guard response.success else {
-            throw CommandFailure(response.error ?? "Session control request failed")
-        }
-        switch response.state {
-        case .locked:
-            return "locked"
-        case .unlockedManual:
-            return "unlocked (until you lock manually or the KeyKeeper app quits/restarts)"
-        case .unlockedUntil:
-            guard let expiresAt = response.expiresAt else {
-                throw CommandFailure("App returned an invalid session status")
-            }
-            return "unlocked (until \(Self.dateFormatter.string(from: expiresAt)))"
-        case .none:
-            throw CommandFailure("App returned an invalid session status")
-        }
-    }
-
-    private static let dateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-}
-
-struct UnlockCommand: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "unlock",
-        abstract: "Unlock the credential session using a hidden TTY prompt"
-    )
-
-    func run() throws {
-        print(try SessionCommandExecutor.live.unlock(using: TerminalPassphraseReader()))
-    }
-}
-
-struct LockCommand: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "lock",
-        abstract: "Lock the credential session"
-    )
-
-    func run() throws {
-        print(try SessionCommandExecutor.live.lock())
-    }
-}
-
+/// There is no unlock/lock any more: the keychain opens with the user's login
+/// (decision 2026-09-03). `status` only reports whether the app is reachable.
 struct StatusCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "status",
-        abstract: "Show the credential session status"
+        abstract: "Show whether the KeyKeeper app is reachable"
     )
 
     func run() throws {
-        print(try SessionCommandExecutor.live.status())
+        print(Self.report(
+            query: { try IPCClient.requestSessionControl(
+                SessionControlRequest(action: .status),
+                launchIfNeeded: false
+            ) }
+        ))
+    }
+
+    /// Pure so it can be tested without a socket.
+    static func report(query: () throws -> SessionControlResponse) -> String {
+        do {
+            let response = try query()
+            guard response.success else {
+                return "app responded with an error\(response.error.map { ": \($0)" } ?? "")"
+            }
+            return "ready"
+        } catch IPCError.appNotRunning {
+            return "app not running (it starts automatically when a key is requested)"
+        } catch {
+            return "app not reachable: \(error.localizedDescription)"
+        }
     }
 }

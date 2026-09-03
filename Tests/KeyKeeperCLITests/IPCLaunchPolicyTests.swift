@@ -3,22 +3,20 @@ import XCTest
 import KeyKeeperCore
 
 final class IPCLaunchPolicyTests: XCTestCase {
-    /// 决策 2026-07-20 ⑥：仅 unlock 可启动 App。
-    func test只有unlock会拉起App() {
+    /// 决策 2026-09-03：Keychain 存储下 App 即起即用，取值/授权请求按需拉起 App，
+    /// cron 在重启后自愈；status 保持无副作用。（取代 2026-07-20 决策⑥）
+    func test取值与授权请求会拉起App() {
         XCTAssertTrue(IPCLaunchPolicy.shouldLaunchApp(
-            for: .sessionControl(SessionControlRequest(action: .unlock, passphrase: "phrase placeholder"))
-        ))
-        XCTAssertFalse(IPCLaunchPolicy.shouldLaunchApp(
-            for: .sessionControl(SessionControlRequest(action: .lock))
-        ))
-        XCTAssertFalse(IPCLaunchPolicy.shouldLaunchApp(
-            for: .sessionControl(SessionControlRequest(action: .status))
-        ))
-        XCTAssertFalse(IPCLaunchPolicy.shouldLaunchApp(
             for: .value(ValueRequest(credentialId: "c", fieldName: "f", sessionId: nil))
         ))
-        XCTAssertFalse(IPCLaunchPolicy.shouldLaunchApp(
+        XCTAssertTrue(IPCLaunchPolicy.shouldLaunchApp(
             for: .auth(AuthRequest(credentialId: "c", credentialLabel: "C", fieldNames: ["f"], sessionId: nil, sessionLabel: nil, pid: 1))
+        ))
+    }
+
+    func testStatus与请求列表不拉起App() {
+        XCTAssertFalse(IPCLaunchPolicy.shouldLaunchApp(
+            for: .sessionControl(SessionControlRequest(action: .status))
         ))
         XCTAssertFalse(IPCLaunchPolicy.shouldLaunchApp(for: .serviceRequests(ServiceRequestsListRequest())))
     }

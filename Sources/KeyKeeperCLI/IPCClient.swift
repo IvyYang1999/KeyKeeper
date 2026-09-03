@@ -3,15 +3,20 @@ import KeyKeeperCore
 
 /// Which requests may start the KeyKeeper app when it is not running.
 ///
-/// Only `unlock` may (project decision 2026-07-20 ⑥): a value or authorization request
-/// from cron would otherwise launch the GUI on the user's screen at night, and after the
-/// age cutover a freshly launched app is locked anyway, so the request would still fail.
+/// With the Keychain store (decision 2026-09-03) a freshly launched app can serve
+/// immediately — no unlock exists — so value and authorization requests start it on
+/// demand. That makes cron self-healing after a reboot: the first job after login
+/// launches the app and succeeds. Status stays passive so health checks do not have
+/// the side effect of launching anything. (Supersedes decision 2026-07-20 ⑥, which
+/// restricted launching to `unlock` because an age vault woke up locked.)
 enum IPCLaunchPolicy {
     static func shouldLaunchApp(for request: IPCRequest) -> Bool {
-        if case .sessionControl(let control) = request, control.action == .unlock {
+        switch request {
+        case .value, .auth:
             return true
+        case .sessionControl, .serviceRequests:
+            return false
         }
-        return false
     }
 }
 

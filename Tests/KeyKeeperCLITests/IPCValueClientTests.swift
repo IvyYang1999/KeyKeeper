@@ -3,7 +3,8 @@ import XCTest
 import KeyKeeperCore
 
 final class IPCValueClientTests: XCTestCase {
-    func testVaultLockedStorageErrorTakesPriorityAndPointsToUnlock() {
+    /// vaultLocked 只会来自旧 App（wire 兼容）；新模型没有 unlock，指引改为打开 App。
+    func testVaultLockedStorageErrorStillDecodesWithActionableHint() {
         XCTAssertThrowsError(try IPCClient.decodeValueResponse(ValueResponse(
             success: false,
             error: "Credential vault is locked",
@@ -13,7 +14,8 @@ final class IPCValueClientTests: XCTestCase {
             guard case IPCError.vaultLocked = error else {
                 return XCTFail("Expected IPCError.vaultLocked, got \(error)")
             }
-            XCTAssertTrue(error.localizedDescription.contains("keykeeper unlock"))
+            XCTAssertTrue(error.localizedDescription.contains("Open the KeyKeeper app"))
+            XCTAssertFalse(error.localizedDescription.contains("unlock"))
         }
     }
 
@@ -22,7 +24,7 @@ final class IPCValueClientTests: XCTestCase {
 
         XCTAssertNotEqual(KeyKeeperCommand.exitCode(for: error), .success)
         XCTAssertTrue(
-            KeyKeeperCommand.fullMessage(for: error).contains("keykeeper unlock")
+            KeyKeeperCommand.fullMessage(for: error).contains("Open the KeyKeeper app")
         )
     }
 

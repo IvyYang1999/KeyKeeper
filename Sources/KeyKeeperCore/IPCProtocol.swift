@@ -381,7 +381,7 @@ public enum IPCError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .connectionFailed:
-            return "Failed to connect to the KeyKeeper app. Run 'keykeeper status' to check it, or 'keykeeper unlock' to start it."
+            return "Failed to connect to the KeyKeeper app. Open KeyKeeper from Applications, then retry."
         case .writeFailed:
             return "Failed to send the request to the KeyKeeper app. Retry; if it keeps failing, quit and reopen KeyKeeper."
         case .readFailed:
@@ -391,7 +391,7 @@ public enum IPCError: Error, LocalizedError {
         case .denied(let msg):
             return "Authorization denied\(Self.detail(msg)). Run the command again and choose Authorize in the KeyKeeper window."
         case .appNotRunning:
-            return "The KeyKeeper app is not running. Run 'keykeeper unlock' to start it and unlock the vault, or open KeyKeeper from Applications."
+            return "The KeyKeeper app could not be started. Open KeyKeeper from Applications, then retry."
         case .appNotResponding:
             return "The KeyKeeper app did not answer the request. Quit and reopen KeyKeeper, then retry."
         case .noAuthorization(let msg):
@@ -399,9 +399,9 @@ public enum IPCError: Error, LocalizedError {
         case .keychainBlocked(let msg):
             return "Keychain read failed or timed out\(Self.detail(msg)). Open the KeyKeeper app and check the credential."
         case .vaultLocked:
-            return "The vault is locked, so no keys can be read. Run 'keykeeper unlock' in a terminal, or click the lock icon in the menu bar and unlock KeyKeeper."
+            return "KeyKeeper could not read this key right now. Open the KeyKeeper app, then retry."
         case .vaultReadFailed(let msg):
-            return "Failed to read from the vault\(Self.detail(msg)). Open the credential in the KeyKeeper app; if it was added before the vault migration, re-enter its values."
+            return "Failed to read this key from storage\(Self.detail(msg)). Open the credential in the KeyKeeper app and check it; re-enter the value if needed."
         case .appVersionTooOld:
             return "The installed KeyKeeper app is too old for this command. Update the app, then retry."
         }
