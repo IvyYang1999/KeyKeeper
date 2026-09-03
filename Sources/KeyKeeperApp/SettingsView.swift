@@ -158,7 +158,7 @@ struct SettingsView: View {
     private var dataCard: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             SectionLabel(text: "Data")
-            Text("Encrypted vault and metadata live in Application Support. Back up that folder together with your passphrase and recovery key.")
+            Text("Key values live in the macOS Keychain (covered by your normal macOS backup). This folder holds names, notes and approvals — no secret values.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

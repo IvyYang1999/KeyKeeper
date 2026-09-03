@@ -167,7 +167,7 @@ struct KeyFieldsEditor: View {
             .buttonStyle(.plain)
             .foregroundColor(.accentColor)
 
-            Text("Names are visible to AI. Values are encrypted in the vault — AI never sees them.")
+            Text("Names are visible to AI. Values are encrypted by the macOS Keychain — AI never sees them.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
