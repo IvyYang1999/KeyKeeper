@@ -14,6 +14,7 @@ struct MainView: View {
 
     @ObservedObject var sessionState: SessionStateViewModel
     @State private var showQuitConfirmation = false
+    @State private var pendingDeleteId: String?
 
     private let serviceGrantStore = ServiceGrantStore.default
     private let session: any CredentialSessionManaging
@@ -61,7 +62,14 @@ struct MainView: View {
                         credential: item.credential,
                         session: session,
                         onBack: { selectedCredentialId = nil },
-                        onUpdate: { viewModel.load() }
+                        onUpdate: { viewModel.load() },
+                        onDelete: {
+                            guard viewModel.delete(id: item.id) else {
+                                return viewModel.errorMessage ?? "Delete failed"
+                            }
+                            selectedCredentialId = nil
+                            return nil
+                        }
                     )
                 } else {
                     credentialListContent
@@ -137,14 +145,32 @@ struct MainView: View {
                                     selectedCredentialId = item.id
                                 }
                                 .contextMenu {
-                                    Button("Delete", role: .destructive) {
-                                        viewModel.delete(id: item.id)
+                                    Button("Delete\u{2026}", role: .destructive) {
+                                        pendingDeleteId = item.id
                                     }
                                 }
                         }
                     }
                     .padding(.horizontal)
                     .padding(.top, DS.Spacing.md)
+                }
+                .confirmationDialog(
+                    "Delete \"\(credentialLabel(for: pendingDeleteId ?? ""))\"?",
+                    isPresented: Binding(
+                        get: { pendingDeleteId != nil },
+                        set: { if !$0 { pendingDeleteId = nil } }
+                    ),
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete", role: .destructive) {
+                        if let id = pendingDeleteId {
+                            viewModel.delete(id: id)
+                        }
+                        pendingDeleteId = nil
+                    }
+                    Button("Cancel", role: .cancel) { pendingDeleteId = nil }
+                } message: {
+                    Text(CredentialDeletionCopy.message(credentialId: pendingDeleteId ?? ""))
                 }
             }
         }
@@ -402,4 +428,10 @@ private struct ServiceGrantGroup: Identifiable {
     let credentialId: String
     let grants: [ServiceGrant]
     var id: String { credentialId }
+}
+
+enum CredentialDeletionCopy {
+    static func message(credentialId: String) -> String {
+        "Its key values are erased from the vault. This can't be undone, and anything running `keykeeper run -c \(credentialId)` will stop working."
+    }
 }

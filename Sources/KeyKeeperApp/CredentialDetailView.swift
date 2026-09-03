@@ -6,13 +6,18 @@ struct CredentialDetailView: View {
     @StateObject private var vm: CredentialDetailViewModel
     var onBack: () -> Void
     var onUpdate: () -> Void
+    /// Deletes the credential. Returns an error message, or nil when it succeeded.
+    var onDelete: () -> String?
+
+    @State private var showDeleteConfirmation = false
 
     init(
         credentialId: String,
         credential: Credential,
         session: any CredentialSessionManaging,
         onBack: @escaping () -> Void,
-        onUpdate: @escaping () -> Void
+        onUpdate: @escaping () -> Void,
+        onDelete: @escaping () -> String?
     ) {
         self.credentialId = credentialId
         _vm = StateObject(wrappedValue: CredentialDetailViewModel(
@@ -22,6 +27,7 @@ struct CredentialDetailView: View {
         ))
         self.onBack = onBack
         self.onUpdate = onUpdate
+        self.onDelete = onDelete
     }
 
     var body: some View {
@@ -158,6 +164,31 @@ struct CredentialDetailView: View {
                     }
                     .font(.caption2)
                     .foregroundColor(.secondary.opacity(0.4))
+
+                    Divider()
+
+                    Button {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Label("Delete this credential\u{2026}", systemImage: "trash")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .confirmationDialog(
+                        "Delete \"\(vm.credential.label)\"?",
+                        isPresented: $showDeleteConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Delete", role: .destructive) {
+                            if let problem = onDelete() {
+                                vm.errorMessage = problem
+                            }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text(CredentialDeletionCopy.message(credentialId: credentialId))
+                    }
                 }
             }
             .padding()
