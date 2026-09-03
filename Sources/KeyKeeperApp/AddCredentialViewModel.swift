@@ -15,7 +15,7 @@ class AddCredentialViewModel: ObservableObject {
     @Published var credentialId = ""
     @Published var notes = ""
     @Published var fields: [FieldEntry] = [FieldEntry()]
-    @Published var security: SecurityLevel = .strict
+    @Published var security: SecurityLevel = SecurityLevelPresentation.defaultLevel
     @Published var errorMessage: String?
 
     private let session: any CredentialSessionManaging
@@ -39,7 +39,7 @@ class AddCredentialViewModel: ObservableObject {
         credentialId = ""
         notes = ""
         fields = [FieldEntry()]
-        security = .strict
+        security = SecurityLevelPresentation.defaultLevel
         errorMessage = nil
         previousAutoId = ""
     }

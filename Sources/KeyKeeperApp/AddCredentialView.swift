@@ -149,34 +149,30 @@ struct AdvancedSecuritySection: View {
     @Binding var security: SecurityLevel
 
     var body: some View {
-        DisclosureGroup("Advanced") {
-            VStack(alignment: .leading, spacing: 8) {
-                Toggle(isOn: Binding(
-                    get: { security == .strict },
-                    set: { security = $0 ? .strict : .standard }
-                )) {
-                    Text("Require authentication every time")
-                        .font(.subheadline)
-                }
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+            SectionLabel(text: SecurityLevelPresentation.sectionTitle)
 
-                if security == .strict {
-                    Text("Each access requires explicit approval after the vault is unlocked. This is the safest option.")
+            Toggle(isOn: Binding(
+                get: { security == .strict },
+                set: { security = $0 ? .strict : .standard }
+            )) {
+                Text(SecurityLevelPresentation.strictToggleLabel)
+                    .font(.subheadline)
+            }
+
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(SecurityLevelPresentation.title(security))
+                        .font(.caption.weight(.medium))
+                    Text(SecurityLevelPresentation.detail(security))
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                } else {
-                    Label {
-                        Text("macOS will remember access after the first authorization. Less secure — only disable this if you understand the risk.")
-                            .font(.caption2)
-                    } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.orange)
-                            .font(.caption2)
-                    }
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+            } icon: {
+                Image(systemName: SecurityLevelPresentation.symbolName(security))
+                    .foregroundColor(security == .strict ? .orange : .green)
             }
-            .padding(.top, 4)
         }
-        .font(.caption)
-        .foregroundColor(.secondary)
     }
 }
