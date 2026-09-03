@@ -10,7 +10,7 @@ final class AuthorizationWindowController {
     private var isProgrammaticClose = false
 
     func show(request: AuthRequest,
-              onAuthorize: @escaping (GrantDuration) -> Void,
+              onAuthorize: @escaping (GrantDuration) throws -> Void,
               onDeny: @escaping () -> Void) {
         show(
             prompt: .strict(request),
@@ -21,7 +21,7 @@ final class AuthorizationWindowController {
     }
 
     func show(serviceRequest: IPCServer.PendingServiceRequest,
-              onAuthorize: @escaping (ServiceGrantDuration) -> Void,
+              onAuthorize: @escaping (ServiceGrantDuration) throws -> Void,
               onDeny: @escaping () -> Void) {
         show(
             prompt: .service(serviceRequest),
@@ -41,8 +41,8 @@ final class AuthorizationWindowController {
     }
 
     private func show(prompt: AuthorizationPrompt,
-                      onAuthorizeGrant: ((GrantDuration) -> Void)?,
-                      onAuthorizeService: ((ServiceGrantDuration) -> Void)?,
+                      onAuthorizeGrant: ((GrantDuration) throws -> Void)?,
+                      onAuthorizeService: ((ServiceGrantDuration) throws -> Void)?,
                       onDeny: @escaping () -> Void) {
         // Close existing window if any
         dismiss()
@@ -50,11 +50,11 @@ final class AuthorizationWindowController {
         let view = AuthorizationView(
             prompt: prompt,
             onAuthorizeGrant: { [weak self] duration in
-                onAuthorizeGrant?(duration)
+                try onAuthorizeGrant?(duration)
                 self?.dismiss()
             },
             onAuthorizeService: { [weak self] duration in
-                onAuthorizeService?(duration)
+                try onAuthorizeService?(duration)
                 self?.dismiss()
             },
             onDeny: { [weak self] in

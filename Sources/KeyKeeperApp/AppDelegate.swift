@@ -112,24 +112,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onAuthorize: { [weak self] duration in
                 guard let self else { return }
 
-                do {
-                    // Resolve actual duration (fill in session ID for .session).
-                    let resolvedDuration = try GrantAuthorizationPolicy.resolveIssuedDuration(
-                        requestedDuration: duration,
-                        requestSessionId: request.sessionId
-                    )
-                    let grant = Grant(
-                        credentialId: request.credentialId,
-                        sessionId: request.sessionId,
-                        duration: resolvedDuration
-                    )
-                    try grantStore.addGrant(grant)
-                    let response = AuthResponse(granted: true, grantId: grant.id)
-                    self.ipcServer.respond(to: pending, with: response)
-                } catch {
-                    let response = AuthResponse(granted: false, error: error.localizedDescription)
-                    self.ipcServer.respond(to: pending, with: response)
-                }
+                // Errors propagate to the window, which shows them and stays open so the
+                // user can pick another option; the CLI keeps waiting on the same request.
+                let resolvedDuration = try GrantAuthorizationPolicy.resolveIssuedDuration(
+                    requestedDuration: duration,
+                    requestSessionId: request.sessionId
+                )
+                let grant = Grant(
+                    credentialId: request.credentialId,
+                    sessionId: request.sessionId,
+                    duration: resolvedDuration
+                )
+                try grantStore.addGrant(grant)
+                let response = AuthResponse(granted: true, grantId: grant.id)
+                self.ipcServer.respond(to: pending, with: response)
             },
             onDeny: { [weak self] in
                 self?.ipcServer.respond(
@@ -148,19 +144,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onAuthorize: { [weak self] duration in
                 guard let self else { return }
 
-                do {
-                    let grant = ServiceGrant(
-                        credentialId: pending.credentialId,
-                        subjectFingerprint: pending.callerIdentity.subjectFingerprint,
-                        subjectDisplayName: pending.callerIdentity.displayName,
-                        fields: pending.fieldNames,
-                        duration: duration
-                    )
-                    try serviceGrantStore.addGrant(grant)
-                    self.ipcServer.fulfillServiceRequest(pending, serviceGrant: grant)
-                } catch {
-                    self.ipcServer.denyServiceRequest(pending, message: error.localizedDescription)
-                }
+                let grant = ServiceGrant(
+                    credentialId: pending.credentialId,
+                    subjectFingerprint: pending.callerIdentity.subjectFingerprint,
+                    subjectDisplayName: pending.callerIdentity.displayName,
+                    fields: pending.fieldNames,
+                    duration: duration
+                )
+                try serviceGrantStore.addGrant(grant)
+                self.ipcServer.fulfillServiceRequest(pending, serviceGrant: grant)
             },
             onDeny: { [weak self] in
                 self?.ipcServer.denyServiceRequest(pending)

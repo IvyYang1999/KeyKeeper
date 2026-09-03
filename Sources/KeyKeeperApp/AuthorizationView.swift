@@ -38,6 +38,14 @@ enum AuthorizationPrompt {
         return request.sessionLabel
     }
 
+    /// Terminal session the caller belongs to, when it has one. Cron, IDE and SDK
+    /// callers usually do not, and a "this session" grant cannot be issued for them.
+    var hasTerminalSession: Bool {
+        guard case .strict(let request) = self,
+              let sessionId = request.sessionId else { return false }
+        return !sessionId.isEmpty
+    }
+
     var pid: Int32 {
         switch self {
         case .strict(let request):
@@ -59,18 +67,33 @@ enum AuthorizationPrompt {
 
 struct AuthorizationView: View {
     let prompt: AuthorizationPrompt
-    let onAuthorizeGrant: ((GrantDuration) -> Void)?
-    let onAuthorizeService: ((ServiceGrantDuration) -> Void)?
+    /// Throwing lets the window show what went wrong and stay open, instead of
+    /// closing as if the grant succeeded while the CLI receives a denial.
+    let onAuthorizeGrant: ((GrantDuration) throws -> Void)?
+    let onAuthorizeService: ((ServiceGrantDuration) throws -> Void)?
     let onDeny: () -> Void
 
-    @State private var selectedDuration: DurationOption = .session
+    @State private var selectedDuration: DurationOption
     @State private var isAuthenticating = false
     @State private var errorMessage: String?
     @State private var showCallerDetails = false
 
+    init(prompt: AuthorizationPrompt,
+         onAuthorizeGrant: ((GrantDuration) throws -> Void)?,
+         onAuthorizeService: ((ServiceGrantDuration) throws -> Void)?,
+         onDeny: @escaping () -> Void) {
+        self.prompt = prompt
+        self.onAuthorizeGrant = onAuthorizeGrant
+        self.onAuthorizeService = onAuthorizeService
+        self.onDeny = onDeny
+        _selectedDuration = State(initialValue: DurationOption.defaultSelection(
+            hasTerminalSession: prompt.hasTerminalSession
+        ))
+    }
+
     enum DurationOption: String, CaseIterable {
         case once = "Just this once"
-        case session = "This session"
+        case session = "This terminal session"
         case oneHour = "1 hour"
         case always = "Always"
 
@@ -81,6 +104,15 @@ struct AuthorizationView: View {
             case .oneHour: return .timed(Date().addingTimeInterval(3600))
             case .always: return .always
             }
+        }
+
+        /// "This terminal session" is only offered when the caller actually has one.
+        static func available(hasTerminalSession: Bool) -> [DurationOption] {
+            allCases.filter { $0 != .session || hasTerminalSession }
+        }
+
+        static func defaultSelection(hasTerminalSession: Bool) -> DurationOption {
+            hasTerminalSession ? .session : .oneHour
         }
     }
 
@@ -173,11 +205,18 @@ struct AuthorizationView: View {
                 .font(.subheadline.bold())
 
             Picker("Duration", selection: $selectedDuration) {
-                ForEach(DurationOption.allCases, id: \.self) { option in
+                ForEach(DurationOption.available(hasTerminalSession: prompt.hasTerminalSession), id: \.self) { option in
                     Text(option.rawValue).tag(option)
                 }
             }
             .pickerStyle(.radioGroup)
+
+            if !prompt.hasTerminalSession {
+                Text("This caller has no terminal session (cron, IDE or SDK), so a per-session grant isn't available.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -190,7 +229,7 @@ struct AuthorizationView: View {
 
             Button(action: {
                 authenticate {
-                    onAuthorizeGrant?(selectedDuration.grantDuration)
+                    try onAuthorizeGrant?(selectedDuration.grantDuration)
                 }
             }) {
                 HStack(spacing: 4) {
@@ -343,21 +382,21 @@ struct AuthorizationView: View {
                 HStack(spacing: DS.Spacing.sm) {
                     Button("Once") {
                         authenticate {
-                            onAuthorizeService?(.once)
+                            try onAuthorizeService?(.once)
                         }
                     }
                     .disabled(isAuthenticating)
 
                     Button("1 Hour") {
                         authenticate {
-                            onAuthorizeService?(.timed(Date().addingTimeInterval(3600)))
+                            try onAuthorizeService?(.timed(Date().addingTimeInterval(3600)))
                         }
                     }
                     .disabled(isAuthenticating)
 
                     Button {
                         authenticate {
-                            onAuthorizeService?(.always)
+                            try onAuthorizeService?(.always)
                         }
                     } label: {
                         HStack(spacing: 4) {
@@ -378,7 +417,16 @@ struct AuthorizationView: View {
         }
     }
 
-    private func authenticate(_ completion: @escaping () -> Void) {
+    /// Runs the grant callback and keeps the window open with the reason when it fails.
+    private func finishAuthorization(_ completion: () throws -> Void) {
+        do {
+            try completion()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func authenticate(_ completion: @escaping () throws -> Void) {
         let context = LAContext()
         var error: NSError?
 
@@ -387,7 +435,7 @@ struct AuthorizationView: View {
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error),
               error == nil else {
             // No biometrics available — authorize directly from UI confirmation
-            completion()
+            finishAuthorization(completion)
             return
         }
 
@@ -399,11 +447,11 @@ struct AuthorizationView: View {
             DispatchQueue.main.async {
                 isAuthenticating = false
                 if success {
-                    completion()
+                    finishAuthorization(completion)
                 } else if (authError as? LAError)?.code == .userFallback ||
                           (authError as? LAError)?.code == .biometryNotAvailable {
                     // User chose password or biometry unavailable — authorize from UI
-                    completion()
+                    finishAuthorization(completion)
                 } else if (authError as? LAError)?.code == .userCancel {
                     errorMessage = "Cancelled"
                 } else {
