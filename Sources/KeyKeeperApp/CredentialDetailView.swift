@@ -10,6 +10,7 @@ struct CredentialDetailView: View {
     var onDelete: () -> String?
 
     @State private var showDeleteConfirmation = false
+    @State private var showDiscardConfirmation = false
     @State private var copiedFieldIndex: Int?
 
     init(
@@ -36,7 +37,13 @@ struct CredentialDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 // Header
                 HStack {
-                    Button(action: onBack) {
+                    Button(action: {
+                        if vm.isEditing {
+                            showDiscardConfirmation = true
+                        } else {
+                            onBack()
+                        }
+                    }) {
                         HStack(spacing: 4) {
                             Image(systemName: "chevron.left")
                             Text("Back")
@@ -45,6 +52,18 @@ struct CredentialDetailView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.accentColor)
+                    .confirmationDialog(
+                        "Discard unsaved changes?",
+                        isPresented: $showDiscardConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Discard Changes", role: .destructive) {
+                            vm.reloadCredential()
+                            vm.isEditing = false
+                            onBack()
+                        }
+                        Button("Keep Editing", role: .cancel) {}
+                    }
                     Spacer()
                     Button(vm.isEditing ? "Cancel" : "Edit") {
                         if vm.isEditing {
@@ -232,7 +251,7 @@ struct CredentialDetailView: View {
             }
             .padding()
         }
-        .frame(width: 380, height: 480)
+        .frame(width: DS.Popover.width, height: DS.Popover.height)
     }
 
 }

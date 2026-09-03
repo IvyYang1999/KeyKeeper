@@ -83,7 +83,7 @@ struct AddCredentialView: View {
             }
             .padding()
         }
-        .frame(width: 380, height: 480)
+        .frame(width: DS.Popover.width, height: DS.Popover.height)
     }
 }
 

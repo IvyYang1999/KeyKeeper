@@ -55,8 +55,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
 
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 360, height: 480)
+        popover.contentSize = DS.Popover.size
         popover.behavior = .semitransient
+        // Dragging the popover away turns it into a window that survives clicks elsewhere,
+        // which is what you want while pasting several keys.
+        popover.delegate = self
         popover.contentViewController = NSHostingController(
             rootView: MainView(session: sessionManager, sessionState: sessionState)
         )
@@ -322,5 +325,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func writeToStandardError(_ message: String) {
         FileHandle.standardError.write(Data("\(message)\n".utf8))
+    }
+}
+
+extension AppDelegate: NSPopoverDelegate {
+    func popoverShouldDetach(_ popover: NSPopover) -> Bool {
+        true
     }
 }

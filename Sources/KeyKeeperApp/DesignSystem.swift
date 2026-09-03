@@ -18,6 +18,13 @@ enum DS {
         static let lg: CGFloat = 16
     }
 
+    /// One size for every page, so the popover never jumps or clips when switching pages.
+    enum Popover {
+        static let width: CGFloat = 380
+        static let height: CGFloat = 500
+        static var size: CGSize { CGSize(width: width, height: height) }
+    }
+
     enum Fill {
         static let card = Color.primary.opacity(0.06)
         static let cardSecondary = Color.primary.opacity(0.04)

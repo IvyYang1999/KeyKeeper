@@ -207,7 +207,7 @@ struct MainView: View {
                 }
             }
         }
-        .frame(width: 360, height: 480)
+        .frame(width: DS.Popover.width, height: DS.Popover.height)
         .onAppear { viewModel.load() }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: DS.Spacing.sm) {
@@ -394,7 +394,7 @@ struct MainView: View {
                 }
             }
         }
-        .frame(width: 360, height: 480)
+        .frame(width: DS.Popover.width, height: DS.Popover.height)
         .onAppear { loadServiceGrants() }
     }
 

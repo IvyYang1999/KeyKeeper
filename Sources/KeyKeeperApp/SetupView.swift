@@ -39,7 +39,7 @@ struct SetupView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
         }
-        .frame(width: 360, height: 480)
+        .frame(width: DS.Popover.width, height: DS.Popover.height)
         .onAppear { checkCLI() }
     }
 
