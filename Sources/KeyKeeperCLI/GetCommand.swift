@@ -37,15 +37,15 @@ struct GetCommand: ParsableCommand {
         let meta = try store.load()
 
         guard let cred = meta.credentials[credentialId] else {
-            throw ValidationError("Credential '\(credentialId)' not found. Run 'keykeeper list' to see the available IDs.")
+            throw CommandFailure("Credential '\(credentialId)' not found. Run 'keykeeper list' to see the available IDs.")
         }
         guard let field = cred.fields[fieldName] else {
-            throw ValidationError("Field '\(fieldName)' not found in '\(credentialId)'. Run 'keykeeper list --detail' to see its fields.")
+            throw CommandFailure("Field '\(fieldName)' not found in '\(credentialId)'. Run 'keykeeper list --detail' to see its fields.")
         }
 
         if field.secret {
             if Self.refusesToPrint(stdoutIsTerminal: isatty(STDOUT_FILENO) == 1, reveal: reveal) {
-                throw ValidationError(Self.terminalRefusalMessage)
+                throw CommandFailure(Self.terminalRefusalMessage)
             }
             let session = SessionResolver.resolve()
 

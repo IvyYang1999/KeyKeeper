@@ -101,7 +101,7 @@ struct SessionCommandExecutor {
 
     private func formattedOutput(for response: SessionControlResponse) throws -> String {
         guard response.success else {
-            throw ValidationError(response.error ?? "Session control request failed")
+            throw CommandFailure(response.error ?? "Session control request failed")
         }
         switch response.state {
         case .locked:
@@ -110,11 +110,11 @@ struct SessionCommandExecutor {
             return "unlocked (until you lock manually or the KeyKeeper app quits/restarts)"
         case .unlockedUntil:
             guard let expiresAt = response.expiresAt else {
-                throw ValidationError("App returned an invalid session status")
+                throw CommandFailure("App returned an invalid session status")
             }
             return "unlocked (until \(Self.dateFormatter.string(from: expiresAt)))"
         case .none:
-            throw ValidationError("App returned an invalid session status")
+            throw CommandFailure("App returned an invalid session status")
         }
     }
 

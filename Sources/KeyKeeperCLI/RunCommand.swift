@@ -71,7 +71,7 @@ struct RunCommand: ParsableCommand {
 
         for credId in credential {
             guard let cred = meta.credentials[credId] else {
-                throw ValidationError("Credential '\(credId)' not found. Run 'keykeeper list' to see the available IDs.")
+                throw CommandFailure("Credential '\(credId)' not found. Run 'keykeeper list' to see the available IDs.")
             }
 
             // For strict credentials, check/request grant before accessing the value
@@ -91,7 +91,7 @@ struct RunCommand: ParsableCommand {
                 let envName = prefix + Self.envVarName(from: fieldName)
 
                 if injectedEnv[envName] != nil {
-                    throw ValidationError(
+                    throw CommandFailure(
                         "Environment variable conflict: '\(envName)' would be set by multiple fields. " +
                         "Use --prefix to disambiguate."
                     )

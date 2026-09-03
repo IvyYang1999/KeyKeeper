@@ -16,7 +16,7 @@ struct MetaCommand: ParsableCommand {
         let meta = try store.load()
 
         guard let cred = meta.credentials[credentialId] else {
-            throw ValidationError("Credential '\(credentialId)' not found")
+            throw CommandFailure("Credential '\(credentialId)' not found. Run 'keykeeper list' to see the available IDs.")
         }
 
         let encoder = JSONEncoder()
