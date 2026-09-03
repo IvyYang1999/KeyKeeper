@@ -8,7 +8,8 @@ struct RunCommand: ParsableCommand {
         commandName: "run",
         abstract: "Run a command with secrets injected as environment variables",
         discussion: """
-        Reads secret fields from the unlocked age vault and injects them as environment \
+        Asks the running KeyKeeper app for the credential's secret fields (the app holds \
+        the unlocked vault; run 'keykeeper unlock' after a reboot) and injects them as environment \
         variables into the subprocess. Secrets exist only in the subprocess memory \
         and are never written to disk or stdout.
 
@@ -27,6 +28,10 @@ struct RunCommand: ParsableCommand {
           keykeeper run -c my-api -- python script.py
           keykeeper run -c my-api --tty -- vim
           keykeeper run -c stripe -c openai -- node server.js
+
+        If the vault is locked or the caller is not approved yet, the error says \
+        exactly what to do next ('keykeeper unlock', approve in the KeyKeeper window, \
+        or switch the credential to "Background OK" in the app).
         """
     )
 
@@ -66,7 +71,7 @@ struct RunCommand: ParsableCommand {
 
         for credId in credential {
             guard let cred = meta.credentials[credId] else {
-                throw ValidationError("Credential '\(credId)' not found.")
+                throw ValidationError("Credential '\(credId)' not found. Run 'keykeeper list' to see the available IDs.")
             }
 
             // For strict credentials, check/request grant before accessing the value
