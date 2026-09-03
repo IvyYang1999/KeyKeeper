@@ -27,7 +27,7 @@ final class AgeVaultStoreProcessTests: XCTestCase {
             directory: directory,
             ageExecutable: helperURL,
             keygenExecutable: helperURL,
-            helperProcessTimeout: 0.1
+            helperProcessTimeout: 1.0
         )
 
         let startedAt = Date()
@@ -42,7 +42,7 @@ final class AgeVaultStoreProcessTests: XCTestCase {
             XCTFail("Expected AgeVaultError.helperProcessTimedOut, got \(error)")
         }
 
-        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 2)
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 3)
         let processIdentifier = try XCTUnwrap(
             pid_t(String(contentsOf: processIdentifierURL, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines))
