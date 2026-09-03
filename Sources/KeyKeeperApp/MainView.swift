@@ -101,7 +101,40 @@ struct MainView: View {
                 .textFieldStyle(.roundedBorder)
                 .padding(.horizontal)
 
-            if viewModel.filtered.isEmpty {
+            if let failure = viewModel.loadFailure {
+                Spacer()
+                VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                    Label("Couldn't read your credential list", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout.weight(.semibold))
+                        .foregroundColor(.red)
+                    Text("Your keys are still in the vault; only the list file failed to load. Nothing has been deleted.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(failure.reason)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(failure.fileURL.path)
+                        .font(.caption2.monospaced())
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                    HStack {
+                        Button("Show in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([failure.fileURL])
+                        }
+                        .font(.caption)
+                        Button("Try again") { viewModel.load() }
+                            .font(.caption)
+                    }
+                }
+                .dsCard(padding: DS.Spacing.md, fill: Color.red.opacity(0.08))
+                .padding(.horizontal)
+                Spacer()
+            } else if viewModel.filtered.isEmpty {
                 Spacer()
                 if addVM.hasDraft {
                     VStack(spacing: 8) {

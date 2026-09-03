@@ -1,7 +1,8 @@
 import Foundation
 
 public final class MetaStore: Sendable {
-    private let fileURL: URL
+    /// Where the metadata lives; surfaced in the GUI when it cannot be read.
+    public let fileURL: URL
 
     public init(directory: URL) {
         self.fileURL = directory.appendingPathComponent("meta.json")
