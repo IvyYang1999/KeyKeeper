@@ -2,12 +2,15 @@ import SwiftUI
 
 struct SetupView: View {
     @Binding var setupComplete: Bool
-    @State private var cliInstalled = false
+    @State private var cliState: CLIInstallState = .missing
+    @State private var skillInstalled = false
     @State private var showManual = false
     @State private var isInstallingCLI = false
     @State private var errorMessage: String?
 
-    // We only check CLI installation. Skill installation is delegated to Claude Code.
+    static let skillInstallPrompt = "Install the KeyKeeper skill for me. Download it from https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/keykeeper.md and save it as a global skill at ~/.claude/skills/keykeeper/SKILL.md."
+
+    private var cliInstalled: Bool { cliState.isUsable }
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
@@ -49,10 +52,10 @@ struct SetupView: View {
             // Step 1: CLI
             StepCard(
                 step: 1,
-                done: cliInstalled,
+                done: cliState.isCurrent,
                 title: "Install CLI Tool",
-                detail: "Installs the `keykeeper` binary to /usr/local/bin so your code can securely read keys from the encrypted vault at runtime.",
-                actionLabel: cliInstalled ? nil : "Install CLI",
+                detail: cliDetail,
+                actionLabel: cliActionLabel,
                 isLoading: isInstallingCLI,
                 action: installCLI
             )
@@ -63,28 +66,36 @@ struct SetupView: View {
                     .foregroundColor(.red)
             }
 
-            // Step 2: Skill — always delegate to Claude Code
+            // Step 2: Skill — delegated to Claude Code; we only check the result.
             StepCard(
                 step: 2,
-                done: false,
+                done: skillInstalled,
                 title: "Set Up Claude Code",
-                detail: "Copy the message below and paste it into Claude Code. It will install the KeyKeeper skill in the correct location automatically.",
-                actionLabel: nil,
-                action: {}
+                detail: skillInstalled
+                    ? "The KeyKeeper skill is installed. Claude Code will use `keykeeper run` instead of asking you for key values."
+                    : "Copy the message below and paste it into Claude Code. It installs the KeyKeeper skill; this card turns green once ~/.claude/skills/keykeeper/SKILL.md exists.",
+                actionLabel: skillInstalled ? nil : "Check again",
+                action: checkCLI
             )
 
-            CopyableCommand("Install the KeyKeeper skill for me. Download it from https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/keykeeper.md and save it as a global skill.")
+            if !skillInstalled {
+                CopyableCommand(Self.skillInstallPrompt)
+            }
 
-            // Skip / Get Started
-            if cliInstalled {
-                Button("Get Started") {
-                    setupComplete = true
-                    UserDefaults.standard.set(true, forKey: "setupComplete")
+            VStack(spacing: DS.Spacing.sm) {
+                if cliInstalled {
+                    Button("Get Started") { finishSetup() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .frame(maxWidth: .infinity)
+                        .help("You can finish the Claude Code step later.")
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
-                .help("You can set up the Claude Code skill later.")
+
+                Button("Skip for now") { finishSetup() }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .help("Open this screen again from Settings whenever you want.")
             }
         }
 
@@ -94,6 +105,30 @@ struct SetupView: View {
         .buttonStyle(.plain)
         .font(.caption)
         .foregroundColor(.accentColor)
+    }
+
+    private var cliDetail: String {
+        switch cliState {
+        case .missing:
+            return "Installs the `keykeeper` binary to /usr/local/bin so scripts, cron jobs and AI tools can read keys from the encrypted vault at runtime."
+        case .stale(let installed):
+            return "The installed CLI (\(installed)) was built from a different version than this app (\(BuildVersion.identifier)). Update it so the two agree."
+        case .current(let installed):
+            return "Installed: \(installed)."
+        }
+    }
+
+    private var cliActionLabel: String? {
+        switch cliState {
+        case .missing: return "Install CLI"
+        case .stale: return "Update CLI"
+        case .current: return nil
+        }
+    }
+
+    private func finishSetup() {
+        setupComplete = true
+        UserDefaults.standard.set(true, forKey: "setupComplete")
     }
 
     // MARK: - Manual Section
@@ -112,7 +147,7 @@ struct SetupView: View {
             Text("Step 2: Install Claude Code Skill").font(.subheadline.bold())
             Text("Paste this into Claude Code and let it handle the rest:")
                 .font(.caption).foregroundColor(.secondary)
-            CopyableCommand("Install the KeyKeeper skill for me. Download it from https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/keykeeper.md and save it as a global skill.")
+            CopyableCommand(Self.skillInstallPrompt)
 
             Divider()
 
@@ -136,7 +171,8 @@ struct SetupView: View {
     // MARK: - Actions
 
     func checkCLI() {
-        cliInstalled = FileManager.default.fileExists(atPath: "/usr/local/bin/keykeeper")
+        cliState = CLIInstallState.probe(appVersion: BuildVersion.identifier)
+        skillInstalled = CLIInstallState.skillInstalled()
     }
 
     func installCLI() {

@@ -27,7 +27,8 @@ let package = Package(
         .executableTarget(
             name: "KeyKeeperApp",
             dependencies: ["KeyKeeperCore"],
-            path: "Sources/KeyKeeperApp"
+            path: "Sources/KeyKeeperApp",
+            plugins: ["GenerateVersionPlugin"]
         ),
         .testTarget(
             name: "KeyKeeperCoreTests",
