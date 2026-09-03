@@ -5,76 +5,92 @@ description: Use when user mentions API keys, secrets, credentials, or KeyKeeper
 
 # KeyKeeper - API Key Management
 
-The user's API keys and credentials are managed by KeyKeeper.
-Secret values are stored in macOS Keychain and MUST NOT appear in this conversation.
+The user's API keys and credentials are managed by KeyKeeper, a macOS menu bar app.
+Secret values live in an encrypted vault that only the KeyKeeper app can open.
+**Secret values MUST NOT appear in this conversation, in code, or in terminal output.**
 
-## Discovering Available Credentials
-
-Run `keykeeper list --detail` to see all available credentials with their plain-text fields.
-Secret field values are shown as `********` — this is expected.
-
-## Using Credentials in Code
-
-### Option A: Process-Level Injection (Recommended)
-
-Use `keykeeper run` to inject secrets as environment variables into a subprocess.
-Secrets only exist in the subprocess memory — they never appear in stdout or this conversation.
+## Discovering available credentials
 
 ```bash
-# Inject all secret fields from a credential as env vars
-keykeeper run -c <credential-id> -- python script.py
-
-# Inject from multiple credentials
-keykeeper run -c stripe -c openai -- node server.js
-
-# Add prefix to avoid naming conflicts
-keykeeper run -c stripe --prefix STRIPE_ -- python script.py
+keykeeper list --detail      # every credential: ID, label, notes, field names (secrets shown as ********)
+keykeeper meta <id>          # one credential as JSON, no secret values
+keykeeper status             # locked / unlocked
 ```
 
-Write code that reads from environment variables:
+The **ID** (left of the `|` in `keykeeper list`) is what you pass to `-c`.
+Field names become environment variable names: `api-key` → `API_KEY`, `base url` → `BASE_URL`.
 
-**Python:**
+## Using credentials
+
+### Option A: process-level injection (recommended)
+
+`keykeeper run` injects every secret field of a credential as environment variables into a
+subprocess. The values exist only in that process; anything the process prints that contains
+a secret is replaced with `[REDACTED]`.
+
+```bash
+keykeeper run -c <credential-id> -- python script.py
+keykeeper run -c stripe -c openai -- node server.js        # several credentials
+keykeeper run -c stripe --prefix STRIPE_ -- python app.py  # STRIPE_API_KEY instead of API_KEY
+keykeeper run -c my-api --tty -- opencode                   # interactive / full-screen programs
+keykeeper run -c my-api --verbose -- ./job.sh               # prints the injected variable NAMES to stderr
+```
+
+Write code that reads from the environment:
+
 ```python
 import os
 api_key = os.environ["API_KEY"]
 ```
 
-**Node.js:**
 ```javascript
 const apiKey = process.env.API_KEY;
 ```
 
-Field names are converted to env var names automatically:
-`api-key` → `API_KEY`, `base url` → `BASE_URL`
+`--tty` is for programs that need a real terminal (TUI editors, agents with a UI). In that
+mode output redaction is off, so keep it for interactive use only.
 
-Use `--verbose` to see which variable names are injected (values are never printed).
+### Option B: SDK runtime access
 
-### Option B: SDK Runtime Access
-
-Use the SDK when you need secrets inside application logic rather than as env vars.
-
-**Python:**
 ```python
 from keykeeper import get_key, get_field
-
 secret = get_key("credential-id", "field-name")
-value = get_field("credential-id", "field-name")
 ```
 
-**Node.js:**
 ```javascript
 const { getKey, getField } = require('keykeeper');
-
 const secret = await getKey("credential-id", "field-name");
-const value = await getField("credential-id", "field-name");
 ```
+
+## When a credential is missing
+
+Do not ask for the value. Tell the user what to add, and give them a link that opens the
+KeyKeeper form already filled in with the name and field names (they paste the values there):
+
+```bash
+open "keykeeper://add?label=OpenAI&fields=api-key,org-id"
+```
+
+Then continue once `keykeeper list` shows the new ID.
+
+## Errors and what to do
+
+| Message contains | Meaning | What to do |
+|---|---|---|
+| `vault is locked` / `Run 'keykeeper unlock'` | The app is running but the vault is locked (happens after every reboot or app restart). | Ask the user to run `keykeeper unlock` in their own terminal and type the passphrase, or click the lock icon in the menu bar. Never try to pass the passphrase yourself (no flags, env vars or pipes are accepted). |
+| `app is not running` | KeyKeeper isn't open. | Same as above; `keykeeper unlock` starts the app. |
+| `not authorized` / `Approve it in the KeyKeeper window` | This caller has not been approved for that credential yet. | Tell the user an approval window is (or will be) open in KeyKeeper; they click Authorize. For unattended jobs, suggest setting the credential to "Background OK" in the app. |
+| `Timed out … waiting for approval` | Nobody clicked Authorize within 2 minutes. | Run the command again while the user is at the Mac. |
+| `not found. Run 'keykeeper list'` | Wrong credential ID or field name. | Run `keykeeper list --detail` and use the exact ID. |
+| `Refusing to print a secret to the terminal` | `keykeeper get` was run in a terminal. | Use `keykeeper run` instead; never add `--reveal`. |
 
 ## Rules
 
-1. NEVER ask the user for API key values, secrets, or passwords
-2. NEVER hardcode secret values in source code
-3. NEVER print, log, or output the return value of `get_key()` / `getKey()` / `os.environ["SECRET"]`
-4. Prefer `keykeeper run` (Option A) over SDK calls when possible — it provides stronger isolation
-5. ALWAYS use `get_key()` / `getKey()` or `os.environ` for secret fields — never inline values
-6. Use `keykeeper list --detail` to find the correct credential ID and field names
-7. If a needed credential doesn't exist, tell the user to add it via the KeyKeeper app
+1. NEVER ask the user for API key values, secrets, passwords or the vault passphrase.
+2. NEVER hardcode secret values in source code or config files.
+3. NEVER print, log, echo or return the value of `os.environ["…"]`, `get_key()` / `getKey()`.
+4. NEVER run `keykeeper get` yourself; use `keykeeper run` (Option A) so the value never enters this conversation.
+5. ALWAYS read secrets from the environment (or the SDK) inside the code you write.
+6. Use `keykeeper list --detail` to find the exact credential ID and field names.
+7. If a credential doesn't exist, offer the `keykeeper://add?…` link above; the user adds it in the app.
+8. If the vault is locked, ask the user to unlock it; do not work around it.
