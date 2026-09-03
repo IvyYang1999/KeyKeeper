@@ -241,13 +241,7 @@ struct RunCommand: ParsableCommand {
     /// Convert a field name to a valid environment variable name.
     /// "api-key" → "API_KEY", "base url" → "BASE_URL", "apiKey" → "APIKEY"
     static func envVarName(from fieldName: String) -> String {
-        fieldName
-            .uppercased()
-            .map { $0.isLetter || $0.isNumber ? $0 : Character("_") }
-            .map(String.init)
-            .joined()
-            .replacing(#/_{2,}/#, with: "_")
-            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        EnvironmentVariableName.from(fieldName: fieldName)
     }
 
 }
