@@ -77,6 +77,49 @@ struct AuthorizationView: View {
     @State private var isAuthenticating = false
     @State private var errorMessage: String?
     @State private var showCallerDetails = false
+    private let authenticationMethod: AuthenticationMethod
+
+    /// How the "Authorize" click is confirmed. The button icon must match what will
+    /// actually happen; a Touch ID glyph on a machine without Touch ID promised a
+    /// check that never ran.
+    enum AuthenticationMethod: Equatable {
+        case biometrics
+        case devicePassword
+        case none
+
+        static func choose(biometricsAvailable: Bool, devicePasswordAvailable: Bool) -> AuthenticationMethod {
+            if biometricsAvailable { return .biometrics }
+            if devicePasswordAvailable { return .devicePassword }
+            return .none
+        }
+
+        var symbolName: String {
+            switch self {
+            case .biometrics: return "touchid"
+            case .devicePassword: return "lock.fill"
+            case .none: return "checkmark.circle"
+            }
+        }
+
+        var policy: LAPolicy? {
+            switch self {
+            case .biometrics: return .deviceOwnerAuthenticationWithBiometrics
+            case .devicePassword: return .deviceOwnerAuthentication
+            case .none: return nil
+            }
+        }
+
+        static func detect() -> AuthenticationMethod {
+            let context = LAContext()
+            var error: NSError?
+            let biometrics = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+                && error == nil
+            error = nil
+            let password = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
+                && error == nil
+            return choose(biometricsAvailable: biometrics, devicePasswordAvailable: password)
+        }
+    }
 
     init(prompt: AuthorizationPrompt,
          onAuthorizeGrant: ((GrantDuration) throws -> Void)?,
@@ -86,6 +129,7 @@ struct AuthorizationView: View {
         self.onAuthorizeGrant = onAuthorizeGrant
         self.onAuthorizeService = onAuthorizeService
         self.onDeny = onDeny
+        self.authenticationMethod = AuthenticationMethod.detect()
         _selectedDuration = State(initialValue: DurationOption.defaultSelection(
             hasTerminalSession: prompt.hasTerminalSession
         ))
@@ -122,6 +166,7 @@ struct AuthorizationView: View {
             case .strict:
                 header
                 requestInfo
+                callerDetailsSection
                 strictDurationPicker
                 strictButtons
             case .service:
@@ -163,14 +208,9 @@ struct AuthorizationView: View {
 
             if let caller = prompt.callerIdentity {
                 infoRow("Caller", value: caller.displayName)
-                infoRow(
-                    "Subject",
-                    value: shortFingerprint(caller.subjectFingerprint),
-                    monospaced: true
-                )
             }
-
-            infoRow("PID", value: "\(prompt.pid)", monospaced: true)
+            // Subject fingerprint, PID and the process chain are diagnostics; they live
+            // in the collapsible "Caller Details" section below.
         }
         .padding()
         .background(DS.Fill.card)
@@ -237,7 +277,7 @@ struct AuthorizationView: View {
                         ProgressView()
                             .controlSize(.small)
                     } else {
-                        Image(systemName: "touchid")
+                        Image(systemName: authenticationMethod.symbolName)
                     }
                     Text("Authorize")
                 }
@@ -404,7 +444,7 @@ struct AuthorizationView: View {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
-                                Image(systemName: "touchid")
+                                Image(systemName: authenticationMethod.symbolName)
                             }
                             Text("Always")
                         }
@@ -427,14 +467,9 @@ struct AuthorizationView: View {
     }
 
     private func authenticate(_ completion: @escaping () throws -> Void) {
-        let context = LAContext()
-        var error: NSError?
-
-        // Only use biometrics if available and the app can actually use them
-        // (unsigned debug builds may trigger extra system prompts with LAContext)
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error),
-              error == nil else {
-            // No biometrics available — authorize directly from UI confirmation
+        guard let policy = authenticationMethod.policy else {
+            // Neither biometrics nor a device password can be evaluated (for example an
+            // unsigned debug build): the click itself is the confirmation.
             finishAuthorization(completion)
             return
         }
@@ -442,7 +477,8 @@ struct AuthorizationView: View {
         isAuthenticating = true
         errorMessage = nil
 
-        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
+        let context = LAContext()
+        context.evaluatePolicy(policy,
                                localizedReason: "Authorize access to \"\(prompt.credentialLabel)\"") { success, authError in
             DispatchQueue.main.async {
                 isAuthenticating = false
