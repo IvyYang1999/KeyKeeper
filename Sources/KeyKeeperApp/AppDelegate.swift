@@ -86,6 +86,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        ipcServer.$waitingCount
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] waiting in
+                self?.authWindowController.updateWaiting(waiting)
+            }
+            .store(in: &cancellables)
+
         Publishers.CombineLatest(ipcServer.$pendingRequest, ipcServer.$pendingServiceRequest)
             .dropFirst()
             .receive(on: DispatchQueue.main)

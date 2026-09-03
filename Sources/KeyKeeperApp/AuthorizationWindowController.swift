@@ -35,6 +35,12 @@ final class AuthorizationWindowController {
         )
     }
 
+    /// Keeps the "(N more waiting)" suffix current while the window is open; requests
+    /// that arrive after the prompt was shown used to be invisible until the next prompt.
+    func updateWaiting(_ waiting: Int) {
+        window?.title = Self.windowTitle(waiting: waiting)
+    }
+
     func dismiss() {
         guard let window else { return }
         isProgrammaticClose = true
