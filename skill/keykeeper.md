@@ -6,7 +6,8 @@ description: Use when user mentions API keys, secrets, credentials, or KeyKeeper
 # KeyKeeper - API Key Management
 
 The user's API keys and credentials are managed by KeyKeeper, a macOS menu bar app.
-Secret values live in an encrypted vault that only the KeyKeeper app can open.
+Secret values live in the macOS Keychain and are served only by the KeyKeeper app,
+which starts automatically when a key is requested.
 **Secret values MUST NOT appear in this conversation, in code, or in terminal output.**
 
 ## Discovering available credentials
@@ -14,7 +15,7 @@ Secret values live in an encrypted vault that only the KeyKeeper app can open.
 ```bash
 keykeeper list --detail      # every credential: ID, label, notes, field names (secrets shown as ********)
 keykeeper meta <id>          # one credential as JSON, no secret values
-keykeeper status             # locked / unlocked
+keykeeper status             # is the app reachable (it starts on demand anyway)
 ```
 
 The **ID** (left of the `|` in `keykeeper list`) is what you pass to `-c`.
@@ -77,8 +78,7 @@ Then continue once `keykeeper list` shows the new ID.
 
 | Message contains | Meaning | What to do |
 |---|---|---|
-| `vault is locked` / `Run 'keykeeper unlock'` | The app is running but the vault is locked (happens after every reboot or app restart). | Ask the user to run `keykeeper unlock` in their own terminal and type the passphrase, or click the lock icon in the menu bar. Never try to pass the passphrase yourself (no flags, env vars or pipes are accepted). |
-| `app is not running` | KeyKeeper isn't open. | Same as above; `keykeeper unlock` starts the app. |
+| `could not be started` | The KeyKeeper app failed to launch. | Ask the user to open KeyKeeper from Applications once, then retry. |
 | `not authorized` / `Approve it in the KeyKeeper window` | This caller has not been approved for that credential yet. | Tell the user an approval window is (or will be) open in KeyKeeper; they click Authorize. For unattended jobs, suggest setting the credential to "Background OK" in the app. |
 | `Timed out … waiting for approval` | Nobody clicked Authorize within 2 minutes. | Run the command again while the user is at the Mac. |
 | `not found. Run 'keykeeper list'` | Wrong credential ID or field name. | Run `keykeeper list --detail` and use the exact ID. |
@@ -93,4 +93,3 @@ Then continue once `keykeeper list` shows the new ID.
 5. ALWAYS read secrets from the environment (or the SDK) inside the code you write.
 6. Use `keykeeper list --detail` to find the exact credential ID and field names.
 7. If a credential doesn't exist, offer the `keykeeper://add?…` link above; the user adds it in the app.
-8. If the vault is locked, ask the user to unlock it; do not work around it.
