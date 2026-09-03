@@ -9,7 +9,14 @@ protocol SessionControlling: AnyObject, Sendable {
     func retrieve(credentialId: String, fieldName: String) throws -> String
 }
 
-extension SessionManager: SessionControlling {}
+/// Keychain-backed storage has no lock: logging into the Mac IS the unlock
+/// (decision 2026-09-03, 方案-20260903-去passphrase化). The protocol keeps its
+/// unlock/lock surface only for wire compatibility with older CLIs.
+extension KeychainCredentialService: SessionControlling {
+    var isVaultInitialized: Bool { true }
+    func unlock(passphrase: String) throws {}
+    func lock() {}
+}
 
 /// Unix domain socket server that receives authorization requests from CLI.
 @MainActor
@@ -252,7 +259,6 @@ final class IPCServer: ObservableObject {
             }
             do {
                 try session.unlock(passphrase: passphrase)
-                Self.notifySessionDidChange()
                 return response(for: session.status())
             } catch {
                 return SessionControlResponse(
@@ -266,20 +272,12 @@ final class IPCServer: ObservableObject {
                 return invalidSessionControlResponse()
             }
             session.lock()
-            Self.notifySessionDidChange()
             return response(for: session.status())
         case .status:
             guard request.passphrase == nil else {
                 return invalidSessionControlResponse()
             }
             return response(for: session.status())
-        }
-    }
-
-    /// Lets the GUI (banner, menu bar icon) follow unlock/lock requests that arrived over IPC.
-    private nonisolated static func notifySessionDidChange() {
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .keyKeeperSessionDidChange, object: nil)
         }
     }
 

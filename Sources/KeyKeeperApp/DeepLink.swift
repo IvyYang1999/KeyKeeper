@@ -50,4 +50,6 @@ final class DeepLinkPayload {
 
 extension Notification.Name {
     static let keyKeeperOpenAddCredential = Notification.Name("com.keykeeper.ui.openAddCredential")
+    /// Asks the popover to switch to the settings page (from the status bar menu).
+    static let keyKeeperOpenSettings = Notification.Name("com.keykeeper.ui.openSettings")
 }

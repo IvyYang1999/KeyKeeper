@@ -57,31 +57,21 @@ final class IPCValueHandlerTests: XCTestCase {
         XCTAssertNil(server.pendingServiceRequest)
     }
 
-    func testUnlockedSessionReadsActualAgeVaultRoundTrip() throws {
-        try XCTSkipUnless(
-            FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/age") &&
-                FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/age-keygen"),
-            "The system age executables are unavailable."
-        )
-        let store = AgeVaultStore(directory: directory)
-        _ = try store.initVault(passphrase: "session phrase placeholder")
-        try store.save(
+    func testKeychainServiceReadsValueRoundTrip() throws {
+        try saveMetadata(security: .standard)
+        let service = KeychainCredentialService(store: KeychainBlobStore(io: MemoryBlobIO()))
+        try service.save(
             credentialId: "service-a",
             fieldName: "access",
-            value: "opaque-age-value",
+            value: "opaque-keychain-value",
             security: .standard
         )
-        let session = SessionManager(
-            directory: directory,
-            lockPolicy: .untilManualOrReboot
-        )
-        try session.unlock(passphrase: "session phrase placeholder")
-        let server = makeServer(session: session)
+        let server = makeServer(session: service)
 
         let response = try requestValue(server: server)
 
         XCTAssertTrue(response.success)
-        XCTAssertEqual(response.value, "opaque-age-value")
+        XCTAssertEqual(response.value, "opaque-keychain-value")
         XCTAssertNil(response.errorCode)
         XCTAssertNil(response.storageErrorCode)
     }
@@ -100,7 +90,7 @@ final class IPCValueHandlerTests: XCTestCase {
 
         let errors: [Error] = [
             KeychainError.unexpectedData,
-            AgeVaultError.helperProcessTimedOut,
+            StorageTestError.timedOut,
         ]
 
         for error in errors {
@@ -127,7 +117,7 @@ final class IPCValueHandlerTests: XCTestCase {
         try grantStore.addGrant(grant)
         let session = FakeValueSession(
             status: .unlocked(expiresAt: nil),
-            result: .failure(AgeVaultError.helperProcessTimedOut)
+            result: .failure(StorageTestError.timedOut)
         )
         let server = makeServer(session: session)
 
@@ -155,7 +145,7 @@ final class IPCValueHandlerTests: XCTestCase {
         try serviceGrantStore.addGrant(serviceGrant)
         let session = FakeValueSession(
             status: .unlocked(expiresAt: nil),
-            result: .failure(AgeVaultError.helperProcessTimedOut)
+            result: .failure(StorageTestError.timedOut)
         )
         let server = makeServer(session: session)
 
@@ -289,4 +279,14 @@ private final class FakeValueSession: SessionControlling, @unchecked Sendable {
         defer { mutex.unlock() }
         return try operation()
     }
+}
+
+private enum StorageTestError: Error {
+    case timedOut
+}
+
+private final class MemoryBlobIO: KeychainBlobIO, @unchecked Sendable {
+    var blob: Data?
+    func readBlob() throws -> Data? { blob }
+    func writeBlob(_ data: Data) throws { blob = data }
 }

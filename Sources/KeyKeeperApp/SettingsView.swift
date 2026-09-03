@@ -3,7 +3,6 @@ import KeyKeeperCore
 
 /// Global switches that used to be scattered over the list footer and the setup screen.
 struct SettingsView: View {
-    @ObservedObject var sessionState: SessionStateViewModel
     var onBack: () -> Void
     var onShowServiceGrants: () -> Void
     var onShowSetup: () -> Void

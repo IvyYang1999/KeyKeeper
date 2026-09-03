@@ -8,8 +8,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var ipcServer: IPCServer!
-    private let sessionManager = SessionManager(lockPolicy: .untilManualOrReboot)
-    private lazy var sessionState = SessionStateViewModel(session: sessionManager)
+    private let credentialService = KeychainCredentialService()
     private var authWindowController: AuthorizationWindowController!
     private var cancellables = Set<AnyCancellable>()
     private var terminationSignalSources: [DispatchSourceSignal] = []
@@ -28,7 +27,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
-        ipcServer = IPCServer(session: sessionManager)
+        ipcServer = IPCServer(session: credentialService)
         switch ipcServer.start() {
         case .started(let disposition):
             if disposition == .replacedStaleSocket {
@@ -46,16 +45,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
+            button.image = NSImage(systemSymbolName: "key.fill", accessibilityDescription: "KeyKeeper")
             button.action = #selector(togglePopover)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-        updateStatusItemIcon(for: sessionState.bannerState)
-        sessionState.$bannerState
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
-                self?.updateStatusItemIcon(for: state)
-            }
-            .store(in: &cancellables)
 
         popover = NSPopover()
         popover.contentSize = DS.Popover.size
@@ -64,7 +57,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // which is what you want while pasting several keys.
         popover.delegate = self
         popover.contentViewController = NSHostingController(
-            rootView: MainView(session: sessionManager, sessionState: sessionState)
+            rootView: MainView(session: credentialService)
         )
 
         authWindowController = AuthorizationWindowController()
@@ -107,8 +100,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // vault yet). A CLI `keykeeper unlock` from cron or a script also launches the app,
         // and must not pop a window onto the screen.
         if Self.shouldShowPopoverOnLaunch(
-            setupComplete: UserDefaults.standard.bool(forKey: "setupComplete"),
-            sessionState: sessionState.bannerState
+            setupComplete: UserDefaults.standard.bool(forKey: "setupComplete")
         ) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.showPopover()
@@ -130,7 +122,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
-        sessionManager.lock()
         ipcServer?.stop()
         terminationSignalSources.forEach { $0.cancel() }
         terminationSignalSources.removeAll()
@@ -195,27 +186,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    static func shouldShowPopoverOnLaunch(setupComplete: Bool, sessionState: SessionBannerState) -> Bool {
-        !setupComplete || sessionState == .needsVault
-    }
-
-    /// The menu bar icon is the only always-visible signal that background jobs will fail.
-    static func statusItemSymbol(for state: SessionBannerState) -> (name: String, description: String) {
-        switch state {
-        case .unlocked:
-            return ("key.fill", "KeyKeeper, vault unlocked")
-        case .locked:
-            return ("lock.fill", "KeyKeeper, vault locked")
-        case .needsVault:
-            return ("lock.slash", "KeyKeeper, no vault yet")
-        }
-    }
-
-    private func updateStatusItemIcon(for state: SessionBannerState) {
-        guard let button = statusItem?.button else { return }
-        let symbol = Self.statusItemSymbol(for: state)
-        button.image = NSImage(systemSymbolName: symbol.name, accessibilityDescription: symbol.description)
-        button.toolTip = symbol.description
+    static func shouldShowPopoverOnLaunch(setupComplete: Bool) -> Bool {
+        !setupComplete
     }
 
     private func showPopover() {
@@ -242,14 +214,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showStatusMenu() {
         let menu = StatusMenuBuilder.build(
-            state: sessionState.bannerState,
             launchAtLogin: LoginItemManager.isEnabled,
             launchAtLoginAvailable: LoginItemManager.isAvailable,
             target: self,
             actions: StatusMenuBuilder.Actions(
                 open: #selector(menuOpen),
-                lock: #selector(menuLock),
-                unlock: #selector(menuUnlock),
                 launchAtLogin: #selector(menuToggleLaunchAtLogin),
                 settings: #selector(menuSettings),
                 quit: #selector(menuQuit)
@@ -263,15 +232,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func menuOpen() {
-        if !popover.isShown { showPopover() }
-    }
-
-    @objc private func menuLock() {
-        sessionState.lock()
-    }
-
-    /// Unlock and vault creation both live in the banner at the top of the popover.
-    @objc private func menuUnlock() {
         if !popover.isShown { showPopover() }
     }
 
@@ -291,19 +251,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !popover.isShown { showPopover() }
     }
 
+    /// Quitting is cheap now: the app relaunches automatically the next time the CLI
+    /// requests a value, and the keychain needs no unlocking. No confirmation needed.
     @objc private func menuQuit() {
-        guard sessionState.isUnlocked else {
-            NSApp.terminate(nil)
-            return
-        }
-        let alert = NSAlert()
-        alert.messageText = "Quit KeyKeeper?"
-        alert.informativeText = "Quitting locks the vault. Cron jobs, scripts and AI tools can't read keys until you open KeyKeeper and unlock it again."
-        alert.addButton(withTitle: "Quit and Lock Vault")
-        alert.addButton(withTitle: "Cancel")
-        if alert.runModal() == .alertFirstButtonReturn {
-            NSApp.terminate(nil)
-        }
+        NSApp.terminate(nil)
     }
 
     /// Ensure the popover window accepts keyboard input.

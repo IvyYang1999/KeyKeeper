@@ -5,56 +5,41 @@ import AppKit
 enum StatusMenuBuilder {
     enum Entry: Equatable {
         case open
-        case lock
-        case unlock
-        case createVault
         case launchAtLogin(enabled: Bool, available: Bool)
         case settings
         case separator
         case quit
     }
 
-    static func entries(state: SessionBannerState, launchAtLogin: Bool, launchAtLoginAvailable: Bool) -> [Entry] {
-        var entries: [Entry] = [.open, .separator]
-        switch state {
-        case .unlocked: entries.append(.lock)
-        case .locked: entries.append(.unlock)
-        case .needsVault: entries.append(.createVault)
-        }
-        entries.append(.launchAtLogin(enabled: launchAtLogin, available: launchAtLoginAvailable))
-        entries.append(.settings)
-        entries.append(.separator)
-        entries.append(.quit)
-        return entries
+    static func entries(launchAtLogin: Bool, launchAtLoginAvailable: Bool) -> [Entry] {
+        [
+            .open,
+            .separator,
+            .launchAtLogin(enabled: launchAtLogin, available: launchAtLoginAvailable),
+            .settings,
+            .separator,
+            .quit,
+        ]
     }
 
     struct Actions {
         let open: Selector
-        let lock: Selector
-        let unlock: Selector
         let launchAtLogin: Selector
         let settings: Selector
         let quit: Selector
     }
 
     static func build(
-        state: SessionBannerState,
         launchAtLogin: Bool,
         launchAtLoginAvailable: Bool,
         target: AnyObject,
         actions: Actions
     ) -> NSMenu {
         let menu = NSMenu()
-        for entry in entries(state: state, launchAtLogin: launchAtLogin, launchAtLoginAvailable: launchAtLoginAvailable) {
+        for entry in entries(launchAtLogin: launchAtLogin, launchAtLoginAvailable: launchAtLoginAvailable) {
             switch entry {
             case .open:
                 menu.addItem(item("Open KeyKeeper", actions.open, target))
-            case .lock:
-                menu.addItem(item("Lock Vault", actions.lock, target))
-            case .unlock:
-                menu.addItem(item("Unlock Vault\u{2026}", actions.unlock, target))
-            case .createVault:
-                menu.addItem(item("Create Vault\u{2026}", actions.unlock, target))
             case .launchAtLogin(let enabled, let available):
                 let launch = item("Launch at Login", actions.launchAtLogin, target)
                 launch.state = enabled ? .on : .off

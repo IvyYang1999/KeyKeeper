@@ -209,41 +209,6 @@ final class CredentialGUIDataTests: XCTestCase {
         XCTAssertNil(try store.load().credentials["service"])
     }
 
-    func testIPC锁定同一Session后GUI立即读取失败() throws {
-        try XCTSkipUnless(
-            FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/age") &&
-                FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/age-keygen"),
-            "The system age executables are unavailable."
-        )
-        let vault = AgeVaultStore(directory: directory)
-        _ = try vault.initVault(passphrase: "session phrase placeholder")
-        try vault.save(
-            credentialId: "service",
-            fieldName: "token",
-            value: "shared-session-value",
-            security: .standard
-        )
-        let manager = SessionManager(directory: directory, lockPolicy: .untilManualOrReboot)
-        try manager.unlock(passphrase: "session phrase placeholder")
-        let credential = try XCTUnwrap(store.load().credentials["service"])
-        let detailVM = CredentialDetailViewModel(
-            credentialId: "service",
-            credential: credential,
-            session: manager,
-            store: store
-        )
-        let server = IPCServer(session: manager)
-
-        detailVM.toggleFieldVisibility(at: 0)
-        XCTAssertEqual(detailVM.fields[0].value, "shared-session-value")
-        detailVM.toggleFieldVisibility(at: 0)
-
-        XCTAssertTrue(server.handleSessionControl(SessionControlRequest(action: .lock)).success)
-        detailVM.toggleFieldVisibility(at: 0)
-        XCTAssertFalse(detailVM.fields[0].visible)
-        XCTAssertTrue(detailVM.errorMessage?.localizedCaseInsensitiveContains("unlock") == true)
-    }
-
     private func makeCredential(fields: [String: CredentialField]) -> Credential {
         Credential(
             label: "Service",
