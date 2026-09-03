@@ -93,14 +93,25 @@ fi
 # Step 6: Create PkgInfo
 echo -n "APPL????" > "$APP_BUNDLE/Contents/PkgInfo"
 
-# Step 6.5: Ad-hoc code sign the whole bundle.
-# Do NOT attach KeyKeeperApp.entitlements here: an ad-hoc signature carrying
-# keychain-access-groups is killed by the kernel at launch (exit 137) on a machine
-# without a matching provisioning profile. The vault no longer needs Keychain, and
-# scripts/post-commit has always re-signed without entitlements for that reason.
-echo "==> Signing bundle (ad-hoc, no entitlements)..."
+# Step 6.5: Code sign the whole bundle.
+#
+# A STABLE signing identity is what keeps macOS keychain items readable without
+# prompts across rebuilds: the item's ACL trusts the identity that created it, and
+# ad-hoc signatures mint a new identity on every build (the July 2026 popup storms).
+# Identity resolution: $KEYKEEPER_SIGN_IDENTITY, else the .signing-identity file at
+# the repo root (gitignored, holds e.g. "Developer ID Application: ..."), else
+# ad-hoc "-" so open-source contributors can still build (they get at most one
+# prompt per rebuild thanks to the single-item store; a self-made cert fixes even that).
+# No entitlements: an ad-hoc signature carrying keychain-access-groups is killed by
+# the kernel at launch (exit 137).
+SIGN_IDENTITY="${KEYKEEPER_SIGN_IDENTITY:-}"
+if [ -z "$SIGN_IDENTITY" ] && [ -f "$PROJECT_DIR/.signing-identity" ]; then
+    SIGN_IDENTITY="$(cat "$PROJECT_DIR/.signing-identity")"
+fi
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+echo "==> Signing bundle (identity: ${SIGN_IDENTITY})..."
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
-codesign --force --deep --sign - "$APP_BUNDLE"
+codesign --force --deep --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
 
 # Step 7: Create .dmg
 echo "==> Creating .dmg..."

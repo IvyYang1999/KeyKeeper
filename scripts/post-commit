@@ -68,8 +68,16 @@ cp "$BUILD_DIR/KeyKeeperApp" "$APP_BUNDLE/Contents/MacOS/KeyKeeperApp"
 cp "$BUILD_DIR/keykeeper" "$APP_BUNDLE/Contents/MacOS/keykeeper"
 [ -f "$PROJECT_DIR/skill/keykeeper.md" ] && cp "$PROJECT_DIR/skill/keykeeper.md" "$APP_BUNDLE/Contents/Resources/keykeeper.md"
 
-# 4. 更新 CLI，并在改动当前 App 前确认部署版本
-echo "==> 更新 CLI..."
+# 3.5 解析签名身份（与 build-app.sh 同一套规则：env → .signing-identity 文件 → ad-hoc）
+SIGN_IDENTITY="${KEYKEEPER_SIGN_IDENTITY:-}"
+if [ -z "$SIGN_IDENTITY" ] && [ -f "$PROJECT_DIR/.signing-identity" ]; then
+    SIGN_IDENTITY="$(cat "$PROJECT_DIR/.signing-identity")"
+fi
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+
+# 4. 更新 CLI（先用稳定身份签名，与 App 同源），并在改动当前 App 前确认部署版本
+echo "==> 签名并更新 CLI (identity: ${SIGN_IDENTITY})..."
+codesign --force --sign "$SIGN_IDENTITY" "$BUILD_DIR/keykeeper"
 "$PROJECT_DIR/scripts/install-cli.sh" \
     "$BUILD_DIR/keykeeper" \
     "/opt/homebrew/bin/keykeeper"
@@ -84,9 +92,10 @@ echo "==> 替换 /Applications/${APP_NAME}.app..."
 rm -rf "/Applications/${APP_NAME}.app"
 cp -R "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
 
-# ad-hoc 签名 + 清 quarantine（防 LaunchServices kLSNoExecutableErr，2026-07-05/06 两次翻车）
+# 稳定身份签名 + 清 quarantine（防 LaunchServices kLSNoExecutableErr，2026-07-05/06 两次翻车）。
+# 稳定签名 = Keychain 条目 ACL 跨部署存活 = 重编译不再弹窗（2026-09-03 方案A）。
 xattr -cr "/Applications/${APP_NAME}.app" 2>/dev/null || true
-codesign --force --deep -s - "/Applications/${APP_NAME}.app"
+codesign --force --deep --sign "$SIGN_IDENTITY" "/Applications/${APP_NAME}.app"
 
 # 7. 重新启动
 echo "==> 启动 ${APP_NAME}..."

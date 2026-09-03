@@ -12,3 +12,4 @@ node_modules/
 *.o
 *.swiftdeps
 *.swiftdeps~
+.signing-identity
