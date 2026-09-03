@@ -177,18 +177,7 @@ struct SetupView: View {
 
     func installCLI() {
         isInstallingCLI = true
-        errorMessage = nil
-
-        let bundleCLI = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/MacOS/keykeeper").path
-        let escapedPath = bundleCLI.replacingOccurrences(of: "'", with: "'\\''")
-        let script = "cp '\(escapedPath)' /usr/local/bin/keykeeper && chmod +x /usr/local/bin/keykeeper"
-        let fullScript = "do shell script \"\(script)\" with administrator privileges"
-        var error: NSDictionary?
-        NSAppleScript(source: fullScript)?.executeAndReturnError(&error)
-        if error != nil {
-            errorMessage = "CLI install cancelled or failed."
-        }
+        errorMessage = CLIInstaller.installWithAdminPrivileges()
         checkCLI()
         isInstallingCLI = false
     }

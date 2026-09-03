@@ -7,8 +7,7 @@ struct MainView: View {
     @State private var setupComplete = UserDefaults.standard.bool(forKey: "setupComplete")
     @State private var selectedCredentialId: String?
     @State private var showingAdd = false
-    @State private var enforceServiceGrants = false
-    @State private var serviceModeError: String?
+    @State private var showSettings = false
     @State private var showServiceGrants = false
     @State private var serviceGrants: [ServiceGrant] = []
 
@@ -26,10 +25,11 @@ struct MainView: View {
         _addVM = StateObject(wrappedValue: AddCredentialViewModel(session: session))
     }
 
-    enum Page { case list, add, detail(String), serviceGrants }
+    enum Page { case list, add, detail(String), serviceGrants, settings }
 
     private var currentPage: Page {
         if showServiceGrants { return .serviceGrants }
+        if showSettings { return .settings }
         if showingAdd { return .add }
         if let id = selectedCredentialId { return .detail(id) }
         return .list
@@ -76,6 +76,17 @@ struct MainView: View {
                 }
             case .serviceGrants:
                 serviceGrantsView
+            case .settings:
+                SettingsView(
+                    sessionState: sessionState,
+                    onBack: { showSettings = false },
+                    onShowServiceGrants: { showServiceGrants = true },
+                    onShowSetup: {
+                        showSettings = false
+                        UserDefaults.standard.set(false, forKey: "setupComplete")
+                        setupComplete = false
+                    }
+                )
             }
         }
     }
@@ -87,9 +98,14 @@ struct MainView: View {
                 Text("KeyKeeper")
                     .font(.title3.weight(.semibold))
                 Spacer()
+                Button(action: { showSettings = true }) {
+                    Image(systemName: "gearshape")
+                }
+                .help("Settings")
                 Button(action: { showingAdd = true }) {
                     Image(systemName: "plus")
                 }
+                .help("New key group")
             }
             .padding()
 
@@ -211,48 +227,12 @@ struct MainView: View {
         .onAppear { viewModel.load() }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: DS.Spacing.sm) {
-                VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-                    Toggle(isOn: $enforceServiceGrants) {
-                        Text("Require approval for background access")
-                            .font(.caption)
-                    }
-                    .onChange(of: enforceServiceGrants) { _, value in
-                        saveServiceAuthorizationMode(value)
-                    }
-
-                    if enforceServiceGrants {
-                        Text("Non-interactive callers must be approved before reading standard credentials.")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-
-                    if !serviceGrants.isEmpty {
-                        Button {
-                            showServiceGrants = true
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "checkmark.shield")
-                                    .font(.caption)
-                                Text("\(serviceGrants.count) active grant\(serviceGrants.count == 1 ? "" : "s")")
-                                    .font(.caption)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption2)
-                            }
-                            .foregroundColor(.accentColor)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                if let error = viewModel.errorMessage ?? serviceModeError {
+                if let error = viewModel.errorMessage {
                     Text(error)
                         .font(.caption2)
                         .foregroundColor(.red)
                         .lineLimit(2)
                 }
-
-                Divider()
 
                 HStack {
                     Button(action: requestQuit) {
@@ -281,8 +261,13 @@ struct MainView: View {
             .background(.regularMaterial)
         }
         .onAppear {
-            loadServiceAuthorizationMode()
             loadServiceGrants()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .keyKeeperOpenSettings)) { _ in
+            showServiceGrants = false
+            showingAdd = false
+            selectedCredentialId = nil
+            showSettings = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .keyKeeperOpenAddCredential)) { note in
             guard let payload = note.object as? DeepLinkPayload,
@@ -299,24 +284,6 @@ struct MainView: View {
             showQuitConfirmation = true
         } else {
             NSApplication.shared.terminate(nil)
-        }
-    }
-
-    private func loadServiceAuthorizationMode() {
-        do {
-            enforceServiceGrants = try serviceGrantStore.authorizationMode() == .enforced
-            serviceModeError = nil
-        } catch {
-            serviceModeError = error.localizedDescription
-        }
-    }
-
-    private func saveServiceAuthorizationMode(_ enforced: Bool) {
-        do {
-            try serviceGrantStore.setAuthorizationMode(enforced ? .enforced : .permissive)
-            serviceModeError = nil
-        } catch {
-            serviceModeError = error.localizedDescription
         }
     }
 
@@ -354,7 +321,7 @@ struct MainView: View {
             }
             .padding()
 
-            Text("Service Grants")
+            Text("Approved background callers")
                 .font(.title3.weight(.semibold))
                 .padding(.horizontal)
                 .padding(.bottom, DS.Spacing.sm)
@@ -365,7 +332,7 @@ struct MainView: View {
                     Image(systemName: "checkmark.shield")
                         .font(.system(size: 24))
                         .foregroundColor(.secondary)
-                    Text("No active service grants")
+                    Text("No background callers approved yet")
                         .font(.callout)
                         .foregroundColor(.secondary)
                 }

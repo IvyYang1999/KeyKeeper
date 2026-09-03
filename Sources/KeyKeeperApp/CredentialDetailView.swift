@@ -185,9 +185,9 @@ struct CredentialDetailView: View {
                     }
                 }
 
-                // Grants (view mode, strict only)
-                if !vm.isEditing && vm.credential.security == .strict {
-                    GrantsSection(credentialId: credentialId)
+                // Who is approved (view mode): terminal sessions and background callers in one list
+                if !vm.isEditing {
+                    AccessSection(credentialId: credentialId, security: vm.credential.security)
                 }
 
                 // Advanced (edit mode only)
