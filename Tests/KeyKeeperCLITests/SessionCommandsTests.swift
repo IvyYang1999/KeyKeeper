@@ -105,7 +105,7 @@ final class SessionCommandsTests: XCTestCase {
         XCTAssertThrowsError(try IPCClient.decodeSessionControlResponse(oldAppResponse)) { error in
             XCTAssertEqual(
                 error.localizedDescription,
-                "The installed KeyKeeper app is too old for this command; update the app first"
+                "The installed KeyKeeper app is too old for this command. Update the app, then retry."
             )
         }
     }

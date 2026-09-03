@@ -376,20 +376,39 @@ public enum IPCError: Error, LocalizedError {
     case vaultReadFailed(String?)
     case appVersionTooOld
 
+    /// Every message ends with what to do next: these strings are what cron logs and
+    /// AI agents see, and a bare "denied" sends them guessing.
     public var errorDescription: String? {
         switch self {
-        case .connectionFailed: return "Failed to connect to KeyKeeper app"
-        case .writeFailed: return "Failed to send authorization request"
-        case .readFailed: return "Failed to read authorization response"
-        case .timeout: return "Authorization timed out (waiting for user)"
-        case .denied(let msg): return "Authorization denied\(msg.map { ": \($0)" } ?? "")"
-        case .appNotRunning: return "KeyKeeper app is not running. Launch it from Applications."
-        case .appNotResponding: return "KeyKeeper app did not respond to the value request"
-        case .noAuthorization(let msg): return "No authorization for this caller\(msg.map { ": \($0)" } ?? "")"
-        case .keychainBlocked(let msg): return "Keychain read failed or timed out\(msg.map { ": \($0)" } ?? "")"
-        case .vaultLocked: return "The age vault is locked. Run 'keykeeper unlock' first."
-        case .vaultReadFailed(let msg): return "Failed to read from the age vault\(msg.map { ": \($0)" } ?? "")"
-        case .appVersionTooOld: return "The installed KeyKeeper app is too old for this command; update the app first"
+        case .connectionFailed:
+            return "Failed to connect to the KeyKeeper app. Run 'keykeeper status' to check it, or 'keykeeper unlock' to start it."
+        case .writeFailed:
+            return "Failed to send the request to the KeyKeeper app. Retry; if it keeps failing, quit and reopen KeyKeeper."
+        case .readFailed:
+            return "Failed to read the KeyKeeper app's response. Retry; if it keeps failing, quit and reopen KeyKeeper."
+        case .timeout:
+            return "Timed out after \(Int(IPCConstants.authTimeout)) s waiting for approval in the KeyKeeper window. Run the command again and click Authorize."
+        case .denied(let msg):
+            return "Authorization denied\(Self.detail(msg)). Run the command again and choose Authorize in the KeyKeeper window."
+        case .appNotRunning:
+            return "The KeyKeeper app is not running. Run 'keykeeper unlock' to start it and unlock the vault, or open KeyKeeper from Applications."
+        case .appNotResponding:
+            return "The KeyKeeper app did not answer the request. Quit and reopen KeyKeeper, then retry."
+        case .noAuthorization(let msg):
+            return "This caller is not authorized\(Self.detail(msg)). Approve it in the KeyKeeper window, or set the credential to \"Background OK\" in the app so background jobs are approved once per caller. 'keykeeper grants list' shows existing approvals."
+        case .keychainBlocked(let msg):
+            return "Keychain read failed or timed out\(Self.detail(msg)). Open the KeyKeeper app and check the credential."
+        case .vaultLocked:
+            return "The vault is locked, so no keys can be read. Run 'keykeeper unlock' in a terminal, or click the lock icon in the menu bar and unlock KeyKeeper."
+        case .vaultReadFailed(let msg):
+            return "Failed to read from the vault\(Self.detail(msg)). Open the credential in the KeyKeeper app; if it was added before the vault migration, re-enter its values."
+        case .appVersionTooOld:
+            return "The installed KeyKeeper app is too old for this command. Update the app, then retry."
         }
+    }
+
+    private static func detail(_ message: String?) -> String {
+        guard let message, !message.isEmpty else { return "" }
+        return ": \(message)"
     }
 }
