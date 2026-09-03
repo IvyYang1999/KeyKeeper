@@ -1,10 +1,24 @@
 import Foundation
 import KeyKeeperCore
 
+/// Which requests may start the KeyKeeper app when it is not running.
+///
+/// Only `unlock` may (project decision 2026-07-20 ⑥): a value or authorization request
+/// from cron would otherwise launch the GUI on the user's screen at night, and after the
+/// age cutover a freshly launched app is locked anyway, so the request would still fail.
+enum IPCLaunchPolicy {
+    static func shouldLaunchApp(for request: IPCRequest) -> Bool {
+        if case .sessionControl(let control) = request, control.action == .unlock {
+            return true
+        }
+        return false
+    }
+}
+
 enum IPCClient {
     /// Request authorization from the KeyKeeper app via Unix socket.
     static func requestAuthorization(_ request: AuthRequest) throws -> AuthResponse {
-        let fd = try connectWithRetry(launchIfNeeded: true)
+        let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: .auth(request)))
         defer { close(fd) }
 
         // Set read timeout
@@ -26,18 +40,17 @@ enum IPCClient {
     static func requestValue(credentialId: String, fieldName: String,
                              sessionId: String?,
                              requestedFieldNames: [String]? = nil) throws -> String {
-        let fd = try connectWithRetry(launchIfNeeded: true)
-        defer { close(fd) }
-
-        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout), tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-
         let request = ValueRequest(
             credentialId: credentialId,
             fieldName: fieldName,
             sessionId: sessionId,
             requestedFieldNames: requestedFieldNames
         )
+        let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: .value(request)))
+        defer { close(fd) }
+
+        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout), tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         try IPCMessage.writeMessage(fd: fd, message: IPCRequest.value(request))
 
         guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self),

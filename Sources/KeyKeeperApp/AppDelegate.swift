@@ -89,9 +89,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
-        // Auto-show popover on launch so user knows the app is running
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.showPopover()
+        // Open the popover only when the user has something to do in it (first run, or no
+        // vault yet). A CLI `keykeeper unlock` from cron or a script also launches the app,
+        // and must not pop a window onto the screen.
+        if Self.shouldShowPopoverOnLaunch(
+            setupComplete: UserDefaults.standard.bool(forKey: "setupComplete"),
+            sessionState: sessionState.bannerState
+        ) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.showPopover()
+            }
         }
     }
 
@@ -158,6 +165,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.ipcServer.denyServiceRequest(pending)
             }
         )
+    }
+
+    static func shouldShowPopoverOnLaunch(setupComplete: Bool, sessionState: SessionBannerState) -> Bool {
+        !setupComplete || sessionState == .needsVault
     }
 
     /// The menu bar icon is the only always-visible signal that background jobs will fail.
