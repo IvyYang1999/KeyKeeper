@@ -284,6 +284,14 @@ struct MainView: View {
             loadServiceAuthorizationMode()
             loadServiceGrants()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .keyKeeperOpenAddCredential)) { note in
+            guard let payload = note.object as? DeepLinkPayload,
+                  case .addCredential(let label, let fields, let notes) = payload.link else { return }
+            addVM.prefill(label: label, fields: fields, notes: notes)
+            showServiceGrants = false
+            selectedCredentialId = nil
+            showingAdd = true
+        }
     }
 
     private func requestQuit() {

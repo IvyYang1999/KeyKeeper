@@ -73,6 +73,16 @@ class AddCredentialViewModel: ObservableObject {
         refreshExistingIds()
     }
 
+    /// Fills the form from a `keykeeper://add` link. Replaces any draft: the link is a
+    /// deliberate user action, and the values still have to be pasted by hand.
+    func prefill(label: String?, fields fieldNames: [String], notes: String?) {
+        reset()
+        self.label = label ?? ""
+        self.notes = notes ?? ""
+        self.fields = fieldNames.isEmpty ? [FieldEntry()] : fieldNames.map { FieldEntry(name: $0) }
+        autoGenerateId()
+    }
+
     func autoGenerateId() {
         if credentialId.isEmpty || credentialId == previousAutoId {
             let newId = Self.sanitizeId(label)

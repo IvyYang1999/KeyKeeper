@@ -56,6 +56,17 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLIST'
     <string>0.1.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>KeyKeeper deep links</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>keykeeper</string>
+            </array>
+        </dict>
+    </array>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>

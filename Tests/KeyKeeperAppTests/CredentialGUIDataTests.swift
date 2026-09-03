@@ -358,3 +358,25 @@ extension CredentialGUIDataTests {
         XCTAssertEqual(vm.draftTitle, "OpenAI")
     }
 }
+
+extension CredentialGUIDataTests {
+    func test深链预填名字字段并生成ID() {
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        vm.label = "old draft"
+        vm.prefill(label: "Feishu Bot", fields: ["app-id", "app-secret"], notes: "from agent")
+
+        XCTAssertEqual(vm.label, "Feishu Bot")
+        XCTAssertEqual(vm.credentialId, "feishu-bot")
+        XCTAssertEqual(vm.fields.map(\.name), ["app-id", "app-secret"])
+        XCTAssertTrue(vm.fields.allSatisfy { $0.value.isEmpty })
+        XCTAssertEqual(vm.notes, "from agent")
+        XCTAssertFalse(vm.isValid, "values still have to be pasted by the user")
+    }
+
+    func test深链没有字段时保留一个空行() {
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        vm.prefill(label: nil, fields: [], notes: nil)
+        XCTAssertEqual(vm.fields.count, 1)
+        XCTAssertEqual(vm.label, "")
+    }
+}

@@ -103,6 +103,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// `keykeeper://` links registered in Info.plist (CFBundleURLTypes).
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard let link = DeepLink.parse(url) else { continue }
+            NotificationCenter.default.post(
+                name: .keyKeeperOpenAddCredential,
+                object: DeepLinkPayload(link: link)
+            )
+        }
+        if !popover.isShown { showPopover() }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
         sessionManager.lock()
