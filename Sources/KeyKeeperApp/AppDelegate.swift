@@ -21,8 +21,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Hide dock icon
-        NSApp.setActivationPolicy(.accessory)
+        // Hide dock icon. UI automation (E2E acceptance) can only address regular apps,
+        // so a test-only environment variable keeps the Dock icon; nothing else changes.
+        if ProcessInfo.processInfo.environment["KEYKEEPER_UI_TEST_REGULAR"] == nil {
+            NSApp.setActivationPolicy(.accessory)
+        }
 
         // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
         ipcServer = IPCServer(session: sessionManager)
