@@ -62,7 +62,15 @@ struct CredentialDetailView: View {
                             .textFieldStyle(.roundedBorder)
                     }
                 } else {
-                    Text(vm.credential.label).font(.headline)
+                    VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                        Text(vm.credential.label).font(.headline)
+                        HStack(spacing: DS.Spacing.sm) {
+                            SecurityBadge(level: vm.credential.security)
+                            Text(SecurityLevelPresentation.title(vm.credential.security))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
 
                 // Description
