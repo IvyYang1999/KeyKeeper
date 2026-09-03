@@ -14,12 +14,21 @@ final class MaskedValueFieldTests: XCTestCase {
         ))
     }
 
-    func test失焦后非空值自动遮罩() {
+    func test未揭示的非空值失焦后显示遮罩标签() {
         XCTAssertFalse(MaskedFieldPresentation.showsTextField(
             editable: true, revealed: false, valueIsEmpty: false, isFocused: false
         ))
-        XCTAssertTrue(MaskedFieldPresentation.shouldMaskAfterFocusLoss(valueIsEmpty: false))
-        XCTAssertFalse(MaskedFieldPresentation.shouldMaskAfterFocusLoss(valueIsEmpty: true))
+    }
+
+    /// 【曾经的 bug】点眼睛揭示时，SecureField 卸载触发的失焦回调把 visible 拍回 false，值从未明文显示。
+    /// 揭示与否只由 revealed 决定，焦点变化不再参与遮罩。
+    func test曾经的Bug揭示状态不受焦点变化影响() {
+        XCTAssertTrue(MaskedFieldPresentation.showsTextField(
+            editable: true, revealed: true, valueIsEmpty: false, isFocused: false
+        ))
+        XCTAssertTrue(MaskedFieldPresentation.showsTextField(
+            editable: true, revealed: true, valueIsEmpty: false, isFocused: true
+        ))
     }
 
     func test点眼睛揭示后即使失焦也显示输入框() {

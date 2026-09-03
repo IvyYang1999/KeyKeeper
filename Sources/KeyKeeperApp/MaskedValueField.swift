@@ -17,11 +17,6 @@ enum MaskedFieldPresentation {
         return revealed || valueIsEmpty || isFocused
     }
 
-    /// Whether the value should be hidden again after focus moved away from the control.
-    static func shouldMaskAfterFocusLoss(valueIsEmpty: Bool) -> Bool {
-        !valueIsEmpty
-    }
-
     /// "sk_live_abc123def456" → "sk***56"
     static func mask(_ text: String) -> String {
         guard text.count > 4 else { return "***" }
@@ -32,8 +27,10 @@ enum MaskedFieldPresentation {
 }
 
 /// Displays a secret value as masked text (first 2 + last 2, middle as ***).
-/// Provides eye toggle and copy button. Typing and pasting both work: the field
-/// only masks itself after it loses focus.
+/// Provides eye toggle and copy button. Typing happens in a SecureField (dots), so
+/// nothing is ever shown in the clear unless the eye is clicked; the eye is the only
+/// thing that reveals or hides. (An earlier "mask on focus loss" rule raced with the
+/// SecureField→TextField swap on the eye click and immediately re-hid the value.)
 struct MaskedValueField: View {
     @Binding var value: String
     @Binding var visible: Bool
@@ -66,12 +63,6 @@ struct MaskedValueField: View {
                 .textContentType(.none)
                 .font(.callout.monospaced())
                 .focused($isFocused)
-                .onChange(of: isFocused) { _, focused in
-                    if !focused,
-                       MaskedFieldPresentation.shouldMaskAfterFocusLoss(valueIsEmpty: value.isEmpty) {
-                        visible = false
-                    }
-                }
             } else {
                 Text(MaskedFieldPresentation.mask(value))
                     .font(.callout.monospaced())
@@ -96,7 +87,10 @@ struct MaskedValueField: View {
 
             Button(action: {
                 visible.toggle()
-                if visible, editable { isFocused = true }
+                if visible, editable {
+                    // The control is swapped (SecureField → TextField); focus it once the new one exists.
+                    DispatchQueue.main.async { isFocused = true }
+                }
             }) {
                 Image(systemName: visible ? "eye.fill" : "eye.slash.fill")
                     .foregroundColor(.secondary)
