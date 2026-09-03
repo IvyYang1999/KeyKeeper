@@ -125,7 +125,7 @@ struct MainView: View {
                             Button(action: { showingAdd = true }) {
                                 HStack {
                                     Image(systemName: "doc.badge.ellipsis")
-                                    Text("Draft: \(addVM.label)")
+                                    Text("Draft: \(addVM.draftTitle)")
                                         .lineLimit(1)
                                     Spacer()
                                     Text("Continue")

@@ -312,3 +312,49 @@ private enum SessionOperation: Equatable {
 private enum TestError: Error {
     case injectedFailure
 }
+
+extension CredentialGUIDataTests {
+    /// 【曾经的 bug】label 重名生成同一 ID，保存直接覆盖旧凭据的 meta 与 vault 值，无任何提示。
+    func test曾经的Bug重复ID被拦截不再静默覆盖() throws {
+        try store.save(MetaFile(credentials: [
+            "stripe": makeCredential(fields: ["token": CredentialField(secret: true)])
+        ]))
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        vm.label = "Stripe"
+        vm.autoGenerateId()
+        vm.fields = [FieldEntry(name: "token", value: "new-value")]
+
+        XCTAssertEqual(vm.credentialId, "stripe")
+        XCTAssertNotNil(vm.idProblem)
+        XCTAssertTrue(vm.idProblem?.contains("already exists") ?? false)
+        XCTAssertFalse(vm.isValid)
+
+        vm.userEditedId("stripe-test")
+        XCTAssertNil(vm.idProblem)
+        XCTAssertTrue(vm.isValid)
+    }
+
+    func test符号或空格名字生成空ID时不可保存() {
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        vm.label = "!!! ???"
+        vm.autoGenerateId()
+        vm.fields = [FieldEntry(name: "token", value: "value")]
+        XCTAssertEqual(vm.credentialId, "")
+        XCTAssertNotNil(vm.idProblem)
+        XCTAssertFalse(vm.isValid)
+    }
+
+    func test手动输入ID会被规整为小写连字符() {
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        vm.userEditedId("My Service 2")
+        XCTAssertEqual(vm.credentialId, "my-service-2")
+        XCTAssertEqual(AddCredentialViewModel.sanitizeId("飞搜 API"), "飞搜-api")
+    }
+
+    func test草稿标题在未填名字时给出占位() {
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        XCTAssertEqual(vm.draftTitle, "(untitled)")
+        vm.label = "OpenAI"
+        XCTAssertEqual(vm.draftTitle, "OpenAI")
+    }
+}

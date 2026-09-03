@@ -70,6 +70,10 @@ struct CredentialDetailView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
+                        Text("ID \(credentialId)")
+                            .font(.caption.monospaced())
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
                     }
                 }
 
@@ -131,6 +135,21 @@ struct CredentialDetailView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
+                        }
+                    }
+                }
+
+                // How to use it (view mode)
+                if !vm.isEditing {
+                    VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                        SectionLabel(text: "Use in terminal", hint: "values injected as env vars")
+                        CopyableCommand(CredentialUsageCopy.runCommand(credentialId: credentialId))
+                        let names = CredentialUsageCopy.environmentNames(for: vm.credential)
+                        if !names.isEmpty {
+                            Text(names.joined(separator: "  "))
+                                .font(.caption2.monospaced())
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
                         }
                     }
                 }
@@ -204,4 +223,18 @@ struct CredentialDetailView: View {
         .frame(width: 380, height: 480)
     }
 
+}
+
+enum CredentialUsageCopy {
+    static func runCommand(credentialId: String) -> String {
+        "keykeeper run -c \(credentialId) -- <your command>"
+    }
+
+    static func environmentNames(for credential: Credential) -> [String] {
+        credential.fields
+            .filter { $0.value.secret }
+            .keys
+            .sorted()
+            .map { EnvironmentVariableName.from(fieldName: $0) }
+    }
 }

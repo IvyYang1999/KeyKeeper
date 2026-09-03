@@ -33,6 +33,23 @@ struct AddCredentialView: View {
                         .onChange(of: vm.label) { vm.autoGenerateId() }
                 }
 
+                // 1b. ID — what scripts and AI tools pass to `keykeeper run -c`
+                VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                    SectionLabel(text: "ID", hint: "used as keykeeper run -c <id>")
+                    TextField("stripe", text: Binding(
+                        get: { vm.credentialId },
+                        set: { vm.userEditedId($0) }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.callout.monospaced())
+                    if vm.hasDraft, let problem = vm.idProblem {
+                        Text(problem)
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
                 // 2. Description
                 DescriptionEditor(text: $vm.notes)
 
@@ -111,22 +128,31 @@ struct KeyFieldsEditor: View {
             SectionLabel(text: "Keys", hint: "values stored in encrypted vault")
 
             ForEach(fields.indices, id: \.self) { i in
-                HStack(spacing: 6) {
-                    TextField("Name", text: $fields[i].name)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 100)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        TextField("Name", text: $fields[i].name)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
 
-                    MaskedValueField(
-                        value: $fields[i].value,
-                        visible: $fields[i].visible
-                    )
+                        MaskedValueField(
+                            value: $fields[i].value,
+                            visible: $fields[i].visible
+                        )
 
-                    if fields.count > 1 {
-                        Button(action: { fields.remove(at: i) }) {
-                            Image(systemName: "minus.circle.fill")
-                                .foregroundColor(.secondary.opacity(0.5))
+                        if fields.count > 1 {
+                            Button(action: { fields.remove(at: i) }) {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundColor(.secondary.opacity(0.5))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Remove this key")
                         }
-                        .buttonStyle(.plain)
+                    }
+
+                    if !fields[i].name.isEmpty {
+                        Text("\u{2192} \(EnvironmentVariableName.from(fieldName: fields[i].name)) in keykeeper run")
+                            .font(.caption2.monospaced())
+                            .foregroundColor(.secondary.opacity(0.7))
                     }
                 }
             }

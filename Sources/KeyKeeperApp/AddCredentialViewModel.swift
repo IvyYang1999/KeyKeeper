@@ -17,6 +17,8 @@ class AddCredentialViewModel: ObservableObject {
     @Published var fields: [FieldEntry] = [FieldEntry()]
     @Published var security: SecurityLevel = SecurityLevelPresentation.defaultLevel
     @Published var errorMessage: String?
+    /// IDs already in the metadata store, so a duplicate is caught before it overwrites.
+    @Published private(set) var existingIds: Set<String> = []
 
     private let session: any CredentialSessionManaging
     private let store: MetaStore
@@ -24,14 +26,40 @@ class AddCredentialViewModel: ObservableObject {
     init(session: any CredentialSessionManaging, store: MetaStore = .default) {
         self.session = session
         self.store = store
+        refreshExistingIds()
     }
 
     var isValid: Bool {
-        !label.isEmpty && fields.contains { !$0.name.isEmpty && !$0.value.isEmpty }
+        !label.isEmpty
+            && idProblem == nil
+            && fields.contains { !$0.name.isEmpty && !$0.value.isEmpty }
     }
 
     var hasDraft: Bool {
         !label.isEmpty || fields.contains { !$0.name.isEmpty || !$0.value.isEmpty }
+    }
+
+    /// Shown in the list's "continue draft" hint.
+    var draftTitle: String {
+        label.isEmpty ? "(untitled)" : label
+    }
+
+    /// Why the current ID can't be saved, or nil when it is fine.
+    var idProblem: String? {
+        if credentialId.isEmpty {
+            return "Add letters or numbers to the name, or type an ID."
+        }
+        if credentialId != Self.sanitizeId(credentialId) {
+            return "IDs can only use lowercase letters, numbers and dashes."
+        }
+        if existingIds.contains(credentialId) {
+            return "A credential with ID \u{201C}\(credentialId)\u{201D} already exists. Pick another ID or edit the existing one."
+        }
+        return nil
+    }
+
+    func refreshExistingIds() {
+        existingIds = Set((try? store.load())?.credentials.keys ?? [:].keys)
     }
 
     func reset() {
@@ -42,17 +70,32 @@ class AddCredentialViewModel: ObservableObject {
         security = SecurityLevelPresentation.defaultLevel
         errorMessage = nil
         previousAutoId = ""
+        refreshExistingIds()
     }
 
     func autoGenerateId() {
         if credentialId.isEmpty || credentialId == previousAutoId {
-            let newId = label
-                .lowercased()
-                .replacingOccurrences(of: " ", with: "-")
-                .filter { $0.isLetter || $0.isNumber || $0 == "-" }
+            let newId = Self.sanitizeId(label)
             credentialId = newId
             previousAutoId = newId
         }
+    }
+
+    /// Applied while the user edits the ID field directly.
+    func userEditedId(_ raw: String) {
+        let cleaned = Self.sanitizeId(raw)
+        if cleaned != credentialId {
+            credentialId = cleaned
+        }
+    }
+
+    static func sanitizeId(_ raw: String) -> String {
+        raw
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+            .filter { $0.isLetter || $0.isNumber || $0 == "-" }
+            .replacing(#/-{2,}/#, with: "-")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
     private var previousAutoId = ""
@@ -91,6 +134,7 @@ class AddCredentialViewModel: ObservableObject {
             )
             try store.save(meta)
             errorMessage = nil
+            refreshExistingIds()
             return true
         } catch {
             errorMessage = CredentialOperationMessages.failure(
