@@ -136,7 +136,10 @@ struct KeyFieldsEditor: View {
 
                         MaskedValueField(
                             value: $fields[i].value,
-                            visible: $fields[i].visible
+                            visible: $fields[i].visible,
+                            placeholder: fields[i].existingSecret
+                                ? "Unchanged (paste a new value to replace)"
+                                : "Paste or type the value"
                         )
 
                         if fields.count > 1 {
