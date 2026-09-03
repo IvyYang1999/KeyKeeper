@@ -10,6 +10,7 @@ struct CredentialDetailView: View {
     var onDelete: () -> String?
 
     @State private var showDeleteConfirmation = false
+    @State private var copiedFieldIndex: Int?
 
     init(
         credentialId: String,
@@ -125,16 +126,27 @@ struct CredentialDetailView: View {
 
                                 Button(action: {
                                     if let value = vm.copyFieldValue(field.name) {
-                                        NSPasteboard.general.clearContents()
-                                        NSPasteboard.general.setString(value, forType: .string)
+                                        let changeCount = SecretPasteboard.write(value)
+                                        SecretPasteboard.scheduleClear(after: changeCount)
+                                        copiedFieldIndex = index
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                            if copiedFieldIndex == index { copiedFieldIndex = nil }
+                                        }
                                     }
                                 }) {
-                                    Image(systemName: "doc.on.doc")
-                                        .foregroundColor(.secondary)
+                                    Image(systemName: copiedFieldIndex == index ? "checkmark" : "doc.on.doc")
+                                        .foregroundColor(copiedFieldIndex == index ? .green : .secondary)
                                         .frame(width: 18)
                                 }
                                 .buttonStyle(.plain)
+                                .help("Copy value (clipboard is cleared after \(Int(SecretPasteboard.clearDelay)) s)")
                             }
+                        }
+
+                        if copiedFieldIndex != nil {
+                            Text("Copied. The clipboard clears itself in \(Int(SecretPasteboard.clearDelay)) s unless you copy something else.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
                         }
                     }
                 }
