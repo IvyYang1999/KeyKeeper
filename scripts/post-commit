@@ -1,108 +1,31 @@
 #!/bin/bash
-# scripts/post-commit — commit → push → build → package → replace .app → restart
+# scripts/post-commit — commit → push → package once → replace CLI and app → restart
 
 set -euo pipefail
 PROJECT_DIR="$(git rev-parse --show-toplevel)"
 APP_NAME="KeyKeeper"
-
-echo "====== 自动发布 ======"
-
-# 1. Push
-echo "==> push..."
-cd "$PROJECT_DIR"
-git push 2>&1 || echo "WARNING: push failed, continuing with local build"
-
-# 2. Build release
-echo "==> 编译 (swift build -c release)..."
-swift build -c release
-
-# 3. Package .app (reuse build-app.sh logic, but skip dmg for speed)
-echo "==> 打包 .app..."
-BUILD_DIR="$(swift build -c release --show-bin-path)"
 APP_BUNDLE="$PROJECT_DIR/dist/dmg/${APP_NAME}.app"
 
-rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_BUNDLE/Contents/MacOS"
-mkdir -p "$APP_BUNDLE/Contents/Resources"
+echo "====== 自动发布 ======"
+echo "==> push..."
+git -C "$PROJECT_DIR" push 2>&1 || echo "WARNING: push failed, continuing with local build"
 
-cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>KeyKeeperApp</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.keykeeper.app</string>
-    <key>CFBundleName</key>
-    <string>KeyKeeper</string>
-    <key>CFBundleIconFile</key>
-    <string>KeyKeeper.icns</string>
-    <key>CFBundleVersion</key>
-    <string>0.2.0</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.2.0</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleURLName</key>
-            <string>KeyKeeper deep links</string>
-            <key>CFBundleURLSchemes</key>
-            <array>
-                <string>keykeeper</string>
-            </array>
-        </dict>
-    </array>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-</dict>
-</plist>
-PLIST
+"$PROJECT_DIR/scripts/build-app.sh" --skip-dmg
 
-echo -n "APPL????" > "$APP_BUNDLE/Contents/PkgInfo"
-cp "$BUILD_DIR/KeyKeeperApp" "$APP_BUNDLE/Contents/MacOS/KeyKeeperApp"
-cp "$BUILD_DIR/keykeeper" "$APP_BUNDLE/Contents/MacOS/keykeeper"
-[ -f "$PROJECT_DIR/skill/keykeeper.md" ] && cp "$PROJECT_DIR/skill/keykeeper.md" "$APP_BUNDLE/Contents/Resources/keykeeper.md"
-cp "$PROJECT_DIR/Assets/KeyKeeper.icns" \
-    "$APP_BUNDLE/Contents/Resources/KeyKeeper.icns"
-
-# 3.5 解析签名身份（与 build-app.sh 同一套规则：env → .signing-identity 文件 → ad-hoc）
-SIGN_IDENTITY="${KEYKEEPER_SIGN_IDENTITY:-}"
-if [ -z "$SIGN_IDENTITY" ] && [ -f "$PROJECT_DIR/.signing-identity" ]; then
-    SIGN_IDENTITY="$(cat "$PROJECT_DIR/.signing-identity")"
-fi
-SIGN_IDENTITY="${SIGN_IDENTITY:--}"
-
-# 4. 更新 CLI（先用稳定身份签名，与 App 同源），并在改动当前 App 前确认部署版本
-echo "==> 签名并更新 CLI (identity: ${SIGN_IDENTITY})..."
-codesign --force --sign "$SIGN_IDENTITY" "$BUILD_DIR/keykeeper"
+echo "==> 更新 CLI..."
 "$PROJECT_DIR/scripts/install-cli.sh" \
-    "$BUILD_DIR/keykeeper" \
+    "$APP_BUNDLE/Contents/MacOS/keykeeper" \
     "/opt/homebrew/bin/keykeeper"
 
-# 5. 退出当前运行的应用
 echo "==> 退出 ${APP_NAME}..."
 killall KeyKeeperApp 2>/dev/null || true
 sleep 1
 
-# 6. 替换 /Applications
 echo "==> 替换 /Applications/${APP_NAME}.app..."
 rm -rf "/Applications/${APP_NAME}.app"
-cp -R "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
+ditto "$APP_BUNDLE" "/Applications/${APP_NAME}.app"
+codesign --verify --deep --strict --verbose=2 "/Applications/${APP_NAME}.app"
 
-# 稳定身份签名 + 清 quarantine（防 LaunchServices kLSNoExecutableErr，2026-07-05/06 两次翻车）。
-# 稳定签名 = Keychain 条目 ACL 跨部署存活 = 重编译不再弹窗（2026-09-03 方案A）。
-xattr -cr "/Applications/${APP_NAME}.app" 2>/dev/null || true
-codesign --force --deep --sign "$SIGN_IDENTITY" "/Applications/${APP_NAME}.app"
-
-# 7. 重新启动
 echo "==> 启动 ${APP_NAME}..."
 open "/Applications/${APP_NAME}.app"
-
 echo "==> 完成"

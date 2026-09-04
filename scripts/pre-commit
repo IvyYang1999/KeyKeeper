@@ -7,7 +7,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_DIR"
 
 echo "==> 跑测试..."
-swift test 2>&1
+swift test --disable-keychain 2>&1
 if [ $? -ne 0 ]; then
   echo ""
   echo "❌ 测试不通过，commit 被拒绝"
@@ -16,7 +16,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "==> 编译检查..."
-swift build 2>&1
+swift build --disable-keychain 2>&1
 if [ $? -ne 0 ]; then
   echo ""
   echo "❌ 编译有错误，commit 被拒绝"

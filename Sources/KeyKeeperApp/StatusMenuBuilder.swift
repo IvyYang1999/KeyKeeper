@@ -5,6 +5,7 @@ import AppKit
 enum StatusMenuBuilder {
     enum Entry: Equatable {
         case open
+        case checkForUpdates
         case launchAtLogin(enabled: Bool, available: Bool)
         case settings
         case separator
@@ -14,6 +15,7 @@ enum StatusMenuBuilder {
     static func entries(launchAtLogin: Bool, launchAtLoginAvailable: Bool) -> [Entry] {
         [
             .open,
+            .checkForUpdates,
             .separator,
             .launchAtLogin(enabled: launchAtLogin, available: launchAtLoginAvailable),
             .settings,
@@ -24,6 +26,7 @@ enum StatusMenuBuilder {
 
     struct Actions {
         let open: Selector
+        let checkForUpdates: Selector
         let launchAtLogin: Selector
         let settings: Selector
         let quit: Selector
@@ -40,6 +43,8 @@ enum StatusMenuBuilder {
             switch entry {
             case .open:
                 menu.addItem(item("Open KeyKeeper", actions.open, target))
+            case .checkForUpdates:
+                menu.addItem(item("Check for Updates…", actions.checkForUpdates, target))
             case .launchAtLogin(let enabled, let available):
                 let launch = item("Launch at Login", actions.launchAtLogin, target)
                 launch.state = enabled ? .on : .off

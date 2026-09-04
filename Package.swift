@@ -10,6 +10,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6"),
     ],
     targets: [
         .target(
@@ -26,8 +27,17 @@ let package = Package(
         ),
         .executableTarget(
             name: "KeyKeeperApp",
-            dependencies: ["KeyKeeperCore"],
+            dependencies: [
+                "KeyKeeperCore",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             path: "Sources/KeyKeeperApp",
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-rpath",
+                    "-Xlinker", "@executable_path/../Frameworks",
+                ]),
+            ],
             plugins: ["GenerateVersionPlugin"]
         ),
         .testTarget(

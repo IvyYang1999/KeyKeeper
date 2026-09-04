@@ -101,6 +101,11 @@ In **Settings** you can require approval for new background callers ("Ask me bef
 script or agent uses a Background OK key") and turn on **Launch at Login** so the app is
 in the menu bar from the start (it also launches on demand either way).
 
+KeyKeeper checks once a day for signed updates. By default it tells you when a new
+version is available and waits for you to install it. Turn on **Install updates
+automatically** in Settings if you want verified updates installed in the background;
+you can also use **Check for Updates…** at any time.
+
 ## SDKs
 
 ```bash

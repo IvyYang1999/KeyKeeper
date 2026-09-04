@@ -3,6 +3,7 @@ import KeyKeeperCore
 
 /// Global switches that used to be scattered over the list footer and the setup screen.
 struct SettingsView: View {
+    @ObservedObject var updateController: UpdateController
     var onBack: () -> Void
     var onShowServiceGrants: () -> Void
     var onShowSetup: () -> Void
@@ -42,6 +43,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: DS.Spacing.md) {
                     backgroundAccessCard
                     startupCard
+                    updatesCard
                     cliCard
                     dataCard
                     Text("KeyKeeper \(BuildVersion.identifier)")
@@ -155,6 +157,32 @@ struct SettingsView: View {
         .dsCard(padding: DS.Spacing.md)
     }
 
+    private var updatesCard: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+            SectionLabel(text: "Updates")
+            Toggle(isOn: Binding(
+                get: { updateController.automaticallyInstallsUpdates },
+                set: { updateController.setAutomaticallyInstallsUpdates($0) }
+            )) {
+                Text("Install updates automatically")
+                    .font(.callout)
+            }
+            .disabled(!updateController.isAvailable)
+
+            Text(updateDescription)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Check for Updates…") {
+                updateController.checkForUpdates()
+            }
+            .font(.caption)
+            .disabled(!updateController.canCheckForUpdates)
+        }
+        .dsCard(padding: DS.Spacing.md)
+    }
+
     private var dataCard: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             SectionLabel(text: "Data")
@@ -178,6 +206,15 @@ struct SettingsView: View {
         case .stale: return "CLI is out of date"
         case .current: return "CLI up to date"
         }
+    }
+
+    private var updateDescription: String {
+        guard updateController.isAvailable else {
+            return "Updates are unavailable in this development build."
+        }
+        return updateController.automaticallyInstallsUpdates
+            ? "KeyKeeper checks daily and installs signed updates in the background."
+            : "KeyKeeper checks daily and tells you when a signed update is available."
     }
 
     private var cliDetail: String {
@@ -208,6 +245,7 @@ struct SettingsView: View {
         }
         launchAtLogin = LoginItemManager.isEnabled
         cliState = CLIInstallState.probe(appVersion: BuildVersion.identifier)
+        updateController.refresh()
     }
 
     private func save(_ enforced: Bool) {

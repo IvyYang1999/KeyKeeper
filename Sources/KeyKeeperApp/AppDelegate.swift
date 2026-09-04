@@ -13,6 +13,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables = Set<AnyCancellable>()
     private var terminationSignalSources: [DispatchSourceSignal] = []
     private var isTerminating = false
+    private let updateController = UpdateController()
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         signal(SIGPIPE, SIG_IGN)
@@ -57,7 +58,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // which is what you want while pasting several keys.
         popover.delegate = self
         popover.contentViewController = NSHostingController(
-            rootView: MainView(session: credentialService)
+            rootView: MainView(session: credentialService, updateController: updateController)
         )
 
         authWindowController = AuthorizationWindowController()
@@ -99,7 +100,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Open the popover only when the user has something to do in it (first run, or no
         // vault yet). A CLI `keykeeper unlock` from cron or a script also launches the app,
         // and must not pop a window onto the screen.
-        if Self.shouldShowPopoverOnLaunch(
+        if ProcessInfo.processInfo.environment["KEYKEEPER_UI_TEST_SETTINGS"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.showPopover()
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .keyKeeperOpenSettings, object: nil)
+                }
+            }
+        } else if Self.shouldShowPopoverOnLaunch(
             setupComplete: UserDefaults.standard.bool(forKey: "setupComplete")
         ) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -219,6 +227,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             target: self,
             actions: StatusMenuBuilder.Actions(
                 open: #selector(menuOpen),
+                checkForUpdates: #selector(menuCheckForUpdates),
                 launchAtLogin: #selector(menuToggleLaunchAtLogin),
                 settings: #selector(menuSettings),
                 quit: #selector(menuQuit)
@@ -233,6 +242,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func menuOpen() {
         if !popover.isShown { showPopover() }
+    }
+
+    @objc private func menuCheckForUpdates() {
+        updateController.checkForUpdates()
     }
 
     @objc private func menuToggleLaunchAtLogin() {

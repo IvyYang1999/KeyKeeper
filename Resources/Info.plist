@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>KeyKeeperApp</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.keykeeper.app</string>
+    <key>CFBundleName</key>
+    <string>KeyKeeper</string>
+    <key>CFBundleIconFile</key>
+    <string>KeyKeeper.icns</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>KeyKeeper deep links</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>keykeeper</string>
+            </array>
+        </dict>
+    </array>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>4YmHXn1y4/NOrCNGZS5JGDPowY5c7AGnTphLMdEKDkk=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
+    <key>SUAllowsAutomaticUpdates</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>SUVerifyUpdateBeforeExtraction</key>
+    <true/>
+    <key>SURequireSignedFeed</key>
+    <true/>
+</dict>
+</plist>

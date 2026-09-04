@@ -11,13 +11,16 @@ struct MainView: View {
     @State private var showServiceGrants = false
     @State private var serviceGrants: [ServiceGrant] = []
 
+    @ObservedObject private var updateController: UpdateController
+
     @State private var pendingDeleteId: String?
 
     private let serviceGrantStore = ServiceGrantStore.default
     private let session: any CredentialSessionManaging
 
-    init(session: any CredentialSessionManaging) {
+    init(session: any CredentialSessionManaging, updateController: UpdateController) {
         self.session = session
+        self.updateController = updateController
         _viewModel = StateObject(wrappedValue: CredentialListViewModel(session: session))
         _addVM = StateObject(wrappedValue: AddCredentialViewModel(session: session))
     }
@@ -75,6 +78,7 @@ struct MainView: View {
                 serviceGrantsView
             case .settings:
                 SettingsView(
+                    updateController: updateController,
                     onBack: { showSettings = false },
                     onShowServiceGrants: { showServiceGrants = true },
                     onShowSetup: {
