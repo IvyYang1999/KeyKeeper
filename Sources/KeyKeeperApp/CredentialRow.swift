@@ -12,7 +12,11 @@ struct CredentialRow: View {
                     .font(.body.weight(.semibold))
                     .lineLimit(1)
                 Spacer(minLength: DS.Spacing.sm)
-                SecurityBadge(level: credential.security)
+                // Only the exception is badged. When almost every row said "Background OK"
+                // the badge stopped informing and became noise; absence now means default.
+                if credential.security == .strict {
+                    SecurityBadge(level: credential.security)
+                }
             }
 
             let fieldNames = credential.fields.keys.sorted().joined(separator: ", ")
@@ -35,11 +39,8 @@ struct CredentialRow: View {
                     .lineLimit(1)
             }
 
-            Text("Updated \(credential.updated)")
-                .font(.caption2)
-                .foregroundColor(.secondary.opacity(0.4))
         }
-        .dsCard(padding: DS.Spacing.md)
+        .dsCard(padding: DS.Spacing.sm)
     }
 }
 
