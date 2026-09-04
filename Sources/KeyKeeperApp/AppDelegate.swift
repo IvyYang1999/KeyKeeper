@@ -97,15 +97,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
-        // Open the popover only when the user has something to do in it (first run, or no
-        // vault yet). A CLI `keykeeper unlock` from cron or a script also launches the app,
-        // and must not pop a window onto the screen.
+        // Open the popover only on first run. A CLI request from cron or a script also
+        // launches the app, and must not pop a window onto the user's screen.
         if ProcessInfo.processInfo.environment["KEYKEEPER_UI_TEST_SETTINGS"] == "1" {
+            UICommandInbox.shared.requestSettings()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.showPopover()
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: .keyKeeperOpenSettings, object: nil)
-                }
             }
         } else if Self.shouldShowPopoverOnLaunch(
             setupComplete: UserDefaults.standard.bool(forKey: "setupComplete")
@@ -120,10 +117,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             guard let link = DeepLink.parse(url) else { continue }
-            NotificationCenter.default.post(
-                name: .keyKeeperOpenAddCredential,
-                object: DeepLinkPayload(link: link)
-            )
+            UICommandInbox.shared.requestAddCredential(link)
         }
         if !popover.isShown { showPopover() }
     }
@@ -260,7 +254,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func menuSettings() {
-        NotificationCenter.default.post(name: .keyKeeperOpenSettings, object: nil)
+        UICommandInbox.shared.requestSettings()
         if !popover.isShown { showPopover() }
     }
 

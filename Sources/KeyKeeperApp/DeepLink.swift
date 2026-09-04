@@ -41,15 +41,3 @@ enum DeepLink: Equatable {
         return components.url
     }
 }
-
-/// Carries a deep link through NotificationCenter to the popover.
-final class DeepLinkPayload {
-    let link: DeepLink
-    init(link: DeepLink) { self.link = link }
-}
-
-extension Notification.Name {
-    static let keyKeeperOpenAddCredential = Notification.Name("com.keykeeper.ui.openAddCredential")
-    /// Asks the popover to switch to the settings page (from the status bar menu).
-    static let keyKeeperOpenSettings = Notification.Name("com.keykeeper.ui.openSettings")
-}

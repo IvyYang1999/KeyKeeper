@@ -15,6 +15,8 @@ struct MainView: View {
 
     @State private var pendingDeleteId: String?
 
+    @ObservedObject private var inbox = UICommandInbox.shared
+
     private let serviceGrantStore = ServiceGrantStore.default
     private let session: any CredentialSessionManaging
 
@@ -36,6 +38,7 @@ struct MainView: View {
     }
 
     var body: some View {
+        Group {
         if !setupComplete {
             SetupView(setupComplete: $setupComplete)
         } else {
@@ -88,6 +91,25 @@ struct MainView: View {
                     }
                 )
             }
+        }
+        }
+        // Handled on the outer body so every page responds, and so a request that arrived
+        // before the popover was ever rendered is still picked up on first render.
+        .onReceive(inbox.$pendingAddCredential.compactMap { $0 }) { link in
+            guard case .addCredential(let label, let fields, let notes) = link else { return }
+            addVM.prefill(label: label, fields: fields, notes: notes)
+            showServiceGrants = false
+            showSettings = false
+            selectedCredentialId = nil
+            showingAdd = true
+            DispatchQueue.main.async { inbox.clearAddCredential() }
+        }
+        .onReceive(inbox.$pendingSettings.filter { $0 }) { _ in
+            showServiceGrants = false
+            showingAdd = false
+            selectedCredentialId = nil
+            showSettings = true
+            DispatchQueue.main.async { inbox.clearSettings() }
         }
     }
 
@@ -247,20 +269,6 @@ struct MainView: View {
         }
         .onAppear {
             loadServiceGrants()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .keyKeeperOpenSettings)) { _ in
-            showServiceGrants = false
-            showingAdd = false
-            selectedCredentialId = nil
-            showSettings = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .keyKeeperOpenAddCredential)) { note in
-            guard let payload = note.object as? DeepLinkPayload,
-                  case .addCredential(let label, let fields, let notes) = payload.link else { return }
-            addVM.prefill(label: label, fields: fields, notes: notes)
-            showServiceGrants = false
-            selectedCredentialId = nil
-            showingAdd = true
         }
     }
 
