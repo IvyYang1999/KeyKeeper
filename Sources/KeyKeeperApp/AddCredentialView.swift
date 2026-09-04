@@ -35,10 +35,19 @@ struct AddCredentialView: View {
             .padding()
         }
         .frame(width: DS.Popover.width, height: DS.Popover.height)
-        .onAppear {
-            // A deep link may carry notes, and an edited draft may have changed the access
-            // mode — in both cases the collapsed section is hiding something the user set.
-            showMoreOptions = !vm.notes.isEmpty || vm.security != SecurityLevelPresentation.defaultLevel
+        // A deep link may carry notes, and a draft may have changed the access mode — in
+        // both cases the collapsed section would be hiding something that was set for the
+        // user. onAppear alone missed the case where a second deep link arrives while the
+        // form is already on screen, so changes are watched too.
+        .onAppear { expandMoreOptionsIfNeeded() }
+        .onChange(of: vm.notes) { expandMoreOptionsIfNeeded() }
+        .onChange(of: vm.security) { expandMoreOptionsIfNeeded() }
+    }
+
+    /// Only ever opens the section: collapsing is the user's decision to keep.
+    private func expandMoreOptionsIfNeeded() {
+        if !vm.notes.isEmpty || vm.security != SecurityLevelPresentation.defaultLevel {
+            showMoreOptions = true
         }
     }
 
@@ -225,6 +234,16 @@ struct KeyFieldsEditor: View {
                                 ? "Unchanged"
                                 : "Paste or type the value"
                         )
+
+                        if fields.count > 1 {
+                            Button(action: { fields.remove(at: i) }) {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundColor(.secondary.opacity(0.5))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Remove this key")
+                            .padding(.leading, 6)
+                        }
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -236,17 +255,6 @@ struct KeyFieldsEditor: View {
                         RoundedRectangle(cornerRadius: DS.Radius.sm)
                             .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                     )
-                    .overlay(alignment: .trailing) {
-                        if fields.count > 1 {
-                            Button(action: { fields.remove(at: i) }) {
-                                Image(systemName: "minus.circle.fill")
-                                    .foregroundColor(.secondary.opacity(0.5))
-                            }
-                            .buttonStyle(.plain)
-                            .help("Remove this key")
-                            .offset(x: 20)
-                        }
-                    }
 
                     // Rendered unconditionally: letting it appear and disappear made the
                     // whole form jump while the user was still typing the field name.
