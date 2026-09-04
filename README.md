@@ -1,92 +1,133 @@
-# KeyKeeper
+<p align="center">
+  <img src="docs/assets/banner.png" alt="KeyKeeper — Your AI sees the key's name. Never the value." width="800">
+</p>
 
-**Your API keys, usable by scripts and AI tools, never visible to them.**
+<p align="center">
+  <a href="https://keykeeper.dev"><img alt="Website" src="https://img.shields.io/badge/website-keykeeper.dev-0a7aff"></a>
+  <a href="https://github.com/IvyYang1999/KeyKeeper/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/IvyYang1999/KeyKeeper?color=6e6e73"></a>
+  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-1d1d1f?logo=apple&logoColor=white">
+  <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white">
+  <a href="https://github.com/IvyYang1999/KeyKeeper/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/IvyYang1999/KeyKeeper?style=flat&color=1d1d1f"></a>
+  <a href="https://github.com/IvyYang1999/KeyKeeper/commits/main"><img alt="Last commit" src="https://img.shields.io/github/last-commit/IvyYang1999/KeyKeeper?color=6e6e73"></a>
+</p>
 
-KeyKeeper is a macOS menu bar app plus a `keykeeper` CLI and thin Python/Node SDKs. Keys
-live in the macOS Keychain, encrypted by the OS. Scripts, cron jobs and AI coding
-assistants (Claude Code, Cursor, Copilot…) get them injected as environment variables at
-runtime and only ever see the key *names*. There is no master password, no vault to
-unlock, nothing to remember: logging into your Mac is the unlock.
+<p align="center">
+  <b>English</b> · <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-## The problem
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#why-not-just-env">Why not .env</a> ·
+  <a href="#ai-tools">AI tools</a> ·
+  <a href="#security-model">Security model</a> ·
+  <a href="https://keykeeper.dev">keykeeper.dev</a>
+</p>
 
-To let an AI tool call OpenAI, Stripe or your database you usually paste `sk-abc123…` into
-the chat or a `.env` file. From there the key ends up in conversation context, logs,
-screenshots and git history.
+---
 
-## How KeyKeeper works
+KeyKeeper is a small macOS menu bar app, a `keykeeper` CLI and two thin SDKs. API keys live in the **macOS Keychain**, and `keykeeper run` injects them into the one command that needs them. Claude Code, Cursor, Copilot, cron jobs and scripts only ever see the key's **name**.
 
-```
-┌──────────────────┐   IPC      ┌───────────────────┐   env vars    ┌──────────────┐
-│ KeyKeeper app    │◀───────────│ keykeeper run     │──────────────▶│ your command │
-│ (menu bar)       │            │ -c openai -- …    │               │ python, node │
-│ reads the        │───────────▶│                   │   stdout      │ curl, agent  │
-│ macOS Keychain   │   values   │ redacts secrets   │◀──────────────│              │
-└──────────────────┘            └───────────────────┘               └──────────────┘
-         │
-         ▼
- macOS Keychain (one encrypted item, unlocked by your login)
- + meta.json (names, notes, field names — no values)
-```
+There is no master password, no vault to unlock, no `.env` to leak into git or chat. Logging into your Mac is the unlock.
 
-- **Store**: add a key in the menu bar app (or open a prefilled form with a
-  `keykeeper://add?label=…&fields=…` link). Values go into a single Keychain item,
-  encrypted by macOS and synced to nothing.
-- **Use**: `keykeeper run -c <id> -- <command>` injects the secret fields as environment
-  variables. Any secret that shows up in the command's output is replaced with `[REDACTED]`.
-  The app starts automatically when a key is requested.
-- **Approve**: the first time a new terminal session, script or agent uses a key, KeyKeeper
-  asks you once in its own window. Approvals are listed on the credential's page and can
-  be revoked.
-- **After a reboot**: log in once, and everything — including cron jobs — works again.
-  No password prompts, ever, in day-to-day use.
+<p align="center">
+  <img src="docs/assets/screens.png" alt="KeyKeeper screenshots: credential list, authorization request, add a key" width="900">
+</p>
+
+## Contents
+
+- [Quick start](#quick-start)
+- [How it works](#how-it-works)
+- [Why not just .env?](#why-not-just-env)
+- [Everyday commands](#everyday-commands)
+- [Who can use a key](#who-can-use-a-key)
+- [AI tools](#ai-tools)
+- [SDKs](#sdks)
+- [Security model](#security-model)
+- [Troubleshooting](#troubleshooting)
+- [Project structure](#project-structure)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
 
 ## Quick start
 
-**Requirements:** macOS 14+.
+**Requirements:** macOS 14+ and the Xcode command line tools (`xcode-select --install`). Signed binaries and Homebrew are on the [roadmap](#roadmap); today you build from source, which takes about a minute.
 
-1. Build the app (or use a release DMG when available):
+```bash
+git clone https://github.com/IvyYang1999/KeyKeeper.git
+cd KeyKeeper
+./scripts/build-app.sh                       # dist/dmg/KeyKeeper.app + dist/KeyKeeper-<version>.dmg
+cp -R dist/dmg/KeyKeeper.app /Applications/
+open /Applications/KeyKeeper.app
+```
 
-   ```bash
-   git clone https://github.com/IvyYang1999/KeyKeeper.git
-   cd KeyKeeper
-   ./scripts/build-app.sh          # produces dist/KeyKeeper-<version>.dmg and dist/dmg/KeyKeeper.app
-   cp -R dist/dmg/KeyKeeper.app /Applications/
-   open /Applications/KeyKeeper.app
-   ```
-
-2. First run: the setup screen installs the `keykeeper` CLI (asks for your password once)
-   and shows the one-line prompt that installs the Claude Code skill.
-3. Click **+** to add a key group, e.g. name `OpenAI`, field `api-key`. The ID (`openai`)
-   and the environment variable name (`API_KEY`) are shown as you type.
-4. Use it:
+1. **First run** — the setup screen installs the `keykeeper` CLI (asks for your password once) and shows a one-line prompt that installs the Claude Code skill.
+2. **Add a key** — click **+** in the menu bar window, type a name such as `OpenAI`, paste the value into `api-key`. The ID (`openai`) and the environment variable (`API_KEY`) are shown as you type.
+3. **Use it** — run anything with the key injected into that process only:
 
    ```bash
    keykeeper run -c openai -- python script.py     # script reads os.environ["API_KEY"]
+   keykeeper run -c openai -- claude               # an AI tool that never sees the value
    ```
 
-That's the whole setup. No passphrase to choose, no recovery key to file away.
+That is the whole setup. No passphrase to choose, no recovery key to file away.
+
+## How it works
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant AI as AI tool / script
+    participant CLI as keykeeper run
+    participant App as KeyKeeper app
+    participant KC as macOS Keychain
+    participant P as your command
+
+    AI->>CLI: keykeeper run -c openai -- python app.py
+    CLI->>App: request values (Unix socket)
+    App->>App: who is asking? (pid, signature, parent chain)
+    App-->>AI: first time only: Allow / Don't Allow
+    App->>KC: read the one Keychain item
+    KC-->>App: values
+    App-->>CLI: values over the socket
+    CLI->>P: spawn with API_KEY in the environment
+    P-->>CLI: stdout / stderr
+    CLI-->>AI: output with any secret replaced by [REDACTED]
+```
+
+- **Store** — add a key in the app, or open a prefilled form with a `keykeeper://add?label=…&fields=…` link. Values go into a single Keychain item, encrypted by macOS and synced to nothing. Names, notes and field names stay in a plain `meta.json`.
+- **Use** — `keykeeper run -c <id> -- <command>` injects the secret fields as environment variables. Anything the command prints that contains a secret comes out as `[REDACTED]`. The app starts on demand.
+- **Approve** — the first time a new terminal session, script or agent asks for a key, KeyKeeper shows *who* is asking and lets you say yes once. Approvals are listed on the credential's page and can be revoked.
+- **Reboot** — log in once and everything, cron jobs included, works again. No prompts in day-to-day use.
+
+## Why not just .env?
+
+|  | `.env` file | 1Password `op run` | Cloud secret manager | **KeyKeeper** |
+|---|---|---|---|---|
+| Where the value lives | Plain text in the project | 1Password vault | Someone's cloud | macOS Keychain |
+| What the AI tool sees | The value | The value, via `op` | The value, via SDK | **The name only** |
+| Unlock | Nothing | Master password + subscription | Account + network | **Your Mac login** |
+| Who may ask | Anyone who can read the file | Any process with a service-account token | Any process with credentials | **Each calling process, approved once** |
+| Output redaction | No | No | No | **Yes** |
+| Offline / cron | Yes | Needs the agent unlocked | Needs network | **Yes, after login** |
+| Cost | Free | Paid | Paid | **Free, MIT** |
+
+The moat is the fourth row. Token-based tools hand out a reusable secret that any process can present; KeyKeeper derives identity from the calling process itself, so there is no token to copy around.
 
 ## Everyday commands
 
-```bash
-keykeeper list                 # IDs and labels
-keykeeper list --detail        # plus notes and field names (secrets shown as ********)
-keykeeper meta <id>            # one credential as JSON, no values
+| Command | What it does |
+|---|---|
+| `keykeeper list` | IDs and labels |
+| `keykeeper list --detail` | plus notes and field names (secrets shown as `********`) |
+| `keykeeper meta <id>` | one credential as JSON, no values |
+| `keykeeper run -c <id> [-c <id2>] [--prefix PREFIX_] [--verbose] [--tty] -- <command>` | run a command with the keys injected |
+| `keykeeper status` | is the app reachable (it starts on demand anyway) |
+| `keykeeper grants list` / `grants revoke <id>` | approved background callers |
+| `keykeeper requests list` | approval windows currently waiting |
+| `keykeeper get <id> <field>` | used by the SDKs; refuses to print to a terminal unless `--reveal` |
 
-keykeeper run -c <id> [-c <id2>] [--prefix PREFIX_] [--verbose] [--tty] -- <command>
-
-keykeeper status               # is the app reachable (it starts on demand anyway)
-
-keykeeper grants list          # approved background callers
-keykeeper grants revoke <id>
-keykeeper requests list        # approval windows currently waiting
-
-keykeeper get <id> <field>     # used by the SDKs; refuses to print to a terminal unless --reveal
-```
-
-`--tty` hands the command a real terminal (needed by editors, TUIs and interactive agents);
-output redaction is off in that mode.
+`--tty` hands the command a real terminal (editors, TUIs, interactive agents); output redaction is off in that mode.
 
 ## Who can use a key
 
@@ -97,14 +138,29 @@ Every key group has one of two access modes, shown as a badge in the list:
 | **Background OK** (default) | Scripts, cron jobs and agents can use the key after you approve each caller once. | Anything that runs unattended. |
 | **Ask every time** | Every new terminal session must be approved in the KeyKeeper window while you are at the Mac. | Keys you only use by hand. |
 
-In **Settings** you can require approval for new background callers ("Ask me before a new
-script or agent uses a Background OK key") and turn on **Launch at Login** so the app is
-in the menu bar from the start (it also launches on demand either way).
+In **Settings** you can require approval for new background callers and turn on **Launch at Login**. KeyKeeper checks once a day for signed updates and tells you when one is available; turn on **Install updates automatically** if you prefer.
 
-KeyKeeper checks once a day for signed updates. By default it tells you when a new
-version is available and waits for you to install it. Turn on **Install updates
-automatically** in Settings if you want verified updates installed in the background;
-you can also use **Check for Updates…** at any time.
+## AI tools
+
+### Claude Code
+
+The [skill](skill/keykeeper.md) teaches Claude Code to discover credentials with `keykeeper list --detail`, run code through `keykeeper run`, offer a prefilled `keykeeper://add?…` link when a key is missing, and never ask for or print values.
+
+```bash
+mkdir -p ~/.claude/skills/keykeeper
+curl -fsSL https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/keykeeper.md \
+  -o ~/.claude/skills/keykeeper/SKILL.md
+```
+
+Or paste the prompt shown on the setup screen into Claude Code and let it do this.
+
+### Any other tool
+
+Anything that can run a shell command can use KeyKeeper: `keykeeper run -c <id> -- <tool>`. When a key is missing, hand the user a link instead of asking them to retype names:
+
+```
+keykeeper://add?label=Stripe&fields=secret-key,publishable-key
+```
 
 ## SDKs
 
@@ -127,22 +183,6 @@ runWithSecrets("openai", ["node", "server.js"]);
 
 Both SDKs shell out to the `keykeeper` CLI; no native dependencies.
 
-## Claude Code integration
-
-The [skill](skill/keykeeper.md) teaches Claude Code to discover credentials with
-`keykeeper list --detail`, to run code through `keykeeper run`, to open a prefilled
-`keykeeper://add?…` form when a key is missing, and never to ask for or print values.
-
-Install it as a directory skill:
-
-```bash
-mkdir -p ~/.claude/skills/keykeeper
-curl -fsSL https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/keykeeper.md \
-  -o ~/.claude/skills/keykeeper/SKILL.md
-```
-
-(Or paste the prompt shown on the setup screen into Claude Code and let it do this.)
-
 ## Security model
 
 | Layer | What happens |
@@ -155,6 +195,8 @@ curl -fsSL https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/skill/ke
 | Other apps | The Keychain item's ACL trusts only KeyKeeper's signing identity; any other program that tries to read it triggers the macOS confirmation prompt. |
 | Clipboard | Copying a value from the app marks it concealed for clipboard managers and clears it after 30 s unless you copied something else. |
 | Backup | The item lives in your login keychain and is covered by your normal macOS backup/restore. An explicit encrypted-export command is on the roadmap. |
+
+**What KeyKeeper does not do:** a child process you approve still receives the value and can misuse, save or transmit it. Output redaction is a safety net, not a sandbox. Only run software you trust with production credentials.
 
 ## Troubleshooting
 
@@ -183,6 +225,15 @@ KeyKeeper/
 ├── Tests/               # XCTest suites (swift test)
 └── Package.swift
 ```
+
+## Roadmap
+
+- [ ] Signed, notarized DMG on GitHub Releases and a Homebrew cask
+- [ ] Encrypted export / import for moving keys between Macs
+- [ ] Chinese UI for the app (the website is already bilingual)
+- [x] Signed in-app updates
+- [x] Per-caller approval with process identity
+- [x] `keykeeper://add` deep links for AI tools
 
 ## Contributing
 
