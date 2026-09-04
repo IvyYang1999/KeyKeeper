@@ -36,6 +36,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLIST'
     <string>com.keykeeper.app</string>
     <key>CFBundleName</key>
     <string>KeyKeeper</string>
+    <key>CFBundleIconFile</key>
+    <string>KeyKeeper.icns</string>
     <key>CFBundleVersion</key>
     <string>0.2.0</string>
     <key>CFBundleShortVersionString</key>
@@ -67,6 +69,9 @@ echo -n "APPL????" > "$APP_BUNDLE/Contents/PkgInfo"
 cp "$BUILD_DIR/KeyKeeperApp" "$APP_BUNDLE/Contents/MacOS/KeyKeeperApp"
 cp "$BUILD_DIR/keykeeper" "$APP_BUNDLE/Contents/MacOS/keykeeper"
 [ -f "$PROJECT_DIR/skill/keykeeper.md" ] && cp "$PROJECT_DIR/skill/keykeeper.md" "$APP_BUNDLE/Contents/Resources/keykeeper.md"
+"$PROJECT_DIR/scripts/build-app-icon.sh" \
+    "$PROJECT_DIR/Assets/KeyKeeperIcon.png" \
+    "$APP_BUNDLE/Contents/Resources/KeyKeeper.icns"
 
 # 3.5 解析签名身份（与 build-app.sh 同一套规则：env → .signing-identity 文件 → ad-hoc）
 SIGN_IDENTITY="${KEYKEEPER_SIGN_IDENTITY:-}"

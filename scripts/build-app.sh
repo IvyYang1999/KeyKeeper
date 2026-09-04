@@ -50,6 +50,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLIST'
     <string>com.keykeeper.app</string>
     <key>CFBundleName</key>
     <string>KeyKeeper</string>
+    <key>CFBundleIconFile</key>
+    <string>KeyKeeper.icns</string>
     <key>CFBundleVersion</key>
     <string>0.1.0</string>
     <key>CFBundleShortVersionString</key>
@@ -89,6 +91,12 @@ if [ -f "$PROJECT_DIR/skill/keykeeper.md" ]; then
 else
     echo "WARNING: skill/keykeeper.md not found, skipping"
 fi
+
+# Step 5.5: Build the macOS app icon from the checked-in source artwork.
+echo "==> Building app icon..."
+"$PROJECT_DIR/scripts/build-app-icon.sh" \
+    "$PROJECT_DIR/Assets/KeyKeeperIcon.png" \
+    "$APP_BUNDLE/Contents/Resources/KeyKeeper.icns"
 
 # Step 6: Create PkgInfo
 echo -n "APPL????" > "$APP_BUNDLE/Contents/PkgInfo"
