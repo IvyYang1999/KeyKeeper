@@ -345,3 +345,67 @@ extension CredentialGUIDataTests {
         XCTAssertEqual(vm.label, "")
     }
 }
+
+extension CredentialGUIDataTests {
+    func test新表单预填默认字段名且不算草稿() {
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        XCTAssertEqual(vm.fields.map(\.name), [AddCredentialViewModel.defaultFieldName])
+        XCTAssertFalse(vm.hasDraft, "预填的默认字段名不该让列表显示草稿提示")
+
+        vm.label = "OpenAI"
+        XCTAssertTrue(vm.hasDraft)
+        vm.reset()
+        XCTAssertFalse(vm.hasDraft)
+        XCTAssertEqual(vm.fields.map(\.name), [AddCredentialViewModel.defaultFieldName])
+    }
+
+    func test改字段名或填值都算草稿() {
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        vm.fields = [FieldEntry(name: AddCredentialViewModel.defaultFieldName, value: "v")]
+        XCTAssertTrue(vm.hasDraft)
+
+        let renamed = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        renamed.fields = [FieldEntry(name: "token")]
+        XCTAssertTrue(renamed.hasDraft)
+
+        let extra = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        extra.fields = [FieldEntry(name: AddCredentialViewModel.defaultFieldName), FieldEntry()]
+        XCTAssertTrue(extra.hasDraft)
+    }
+
+    func testID摘要给出用户真正要敲的命令() {
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        XCTAssertEqual(vm.idSummary, "The ID is created from the name")
+        vm.label = "OpenAI"
+        vm.autoGenerateId()
+        XCTAssertEqual(vm.idSummary, "openai · keykeeper run -c openai")
+    }
+
+    func test重复ID既是冲突也仍然拦截保存() throws {
+        try store.save(MetaFile(credentials: [
+            "stripe": makeCredential(fields: ["token": CredentialField(secret: true)])
+        ]))
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        vm.label = "Stripe"
+        vm.autoGenerateId()
+        vm.fields = [FieldEntry(name: "token", value: "v")]
+
+        // 冲突单独暴露出来，好让界面给「打开它」而不是一段红字
+        XCTAssertEqual(vm.conflictingId, "stripe")
+        XCTAssertNil(vm.idFormatProblem)
+        XCTAssertFalse(vm.isValid)
+
+        vm.userEditedId("stripe-test")
+        XCTAssertNil(vm.conflictingId)
+        XCTAssertTrue(vm.isValid)
+    }
+
+    func test格式问题与冲突分开报告() {
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        vm.label = "!!! ???"
+        vm.autoGenerateId()
+        XCTAssertEqual(vm.credentialId, "")
+        XCTAssertNotNil(vm.idFormatProblem)
+        XCTAssertNil(vm.conflictingId)
+    }
+}

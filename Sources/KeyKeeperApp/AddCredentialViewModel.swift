@@ -14,7 +14,7 @@ class AddCredentialViewModel: ObservableObject {
     @Published var label = ""
     @Published var credentialId = ""
     @Published var notes = ""
-    @Published var fields: [FieldEntry] = [FieldEntry()]
+    @Published var fields: [FieldEntry] = [FieldEntry(name: AddCredentialViewModel.defaultFieldName)]
     @Published var security: SecurityLevel = SecurityLevelPresentation.defaultLevel
     @Published var errorMessage: String?
     /// IDs already in the metadata store, so a duplicate is caught before it overwrites.
@@ -29,14 +29,49 @@ class AddCredentialViewModel: ObservableObject {
         refreshExistingIds()
     }
 
+    /// Pre-filled for the first key: an overwhelming majority of credentials have exactly
+    /// one field called this, and asking for it is a decision the beginner cannot make yet.
+    static let defaultFieldName = "api-key"
+
     var isValid: Bool {
         !label.isEmpty
             && idProblem == nil
             && fields.contains { !$0.name.isEmpty && !$0.value.isEmpty }
     }
 
+    /// A pristine form is not a draft — the pre-filled default key name must not by itself
+    /// make the list show a "continue editing draft" chip.
     var hasDraft: Bool {
-        !label.isEmpty || fields.contains { !$0.name.isEmpty || !$0.value.isEmpty }
+        if !label.isEmpty || !notes.isEmpty { return true }
+        if fields.count > 1 { return true }
+        guard let only = fields.first else { return false }
+        if !only.value.isEmpty { return true }
+        return !only.name.isEmpty && only.name != Self.defaultFieldName
+    }
+
+    /// The gray line under the Name field: what scripts and AI tools will actually type.
+    var idSummary: String {
+        credentialId.isEmpty
+            ? "The ID is created from the name"
+            : "\(credentialId) \u{00B7} keykeeper run -c \(credentialId)"
+    }
+
+    /// Set when the derived ID is taken. Surfaced as an offer to open that credential
+    /// rather than as an error, because the user has not done anything wrong.
+    var conflictingId: String? {
+        guard !credentialId.isEmpty, existingIds.contains(credentialId) else { return nil }
+        return credentialId
+    }
+
+    /// Problems with the ID itself, as opposed to it already being taken.
+    var idFormatProblem: String? {
+        if credentialId.isEmpty {
+            return "Add letters or numbers to the name, or type an ID."
+        }
+        if credentialId != Self.sanitizeId(credentialId) {
+            return "IDs can only use lowercase letters, numbers and dashes."
+        }
+        return nil
     }
 
     /// Shown in the list's "continue draft" hint.
@@ -46,14 +81,9 @@ class AddCredentialViewModel: ObservableObject {
 
     /// Why the current ID can't be saved, or nil when it is fine.
     var idProblem: String? {
-        if credentialId.isEmpty {
-            return "Add letters or numbers to the name, or type an ID."
-        }
-        if credentialId != Self.sanitizeId(credentialId) {
-            return "IDs can only use lowercase letters, numbers and dashes."
-        }
-        if existingIds.contains(credentialId) {
-            return "A credential with ID \u{201C}\(credentialId)\u{201D} already exists. Pick another ID or edit the existing one."
+        if let idFormatProblem { return idFormatProblem }
+        if let conflictingId {
+            return "A credential with ID \u{201C}\(conflictingId)\u{201D} already exists. Pick another ID or edit the existing one."
         }
         return nil
     }
@@ -66,7 +96,7 @@ class AddCredentialViewModel: ObservableObject {
         label = ""
         credentialId = ""
         notes = ""
-        fields = [FieldEntry()]
+        fields = [FieldEntry(name: Self.defaultFieldName)]
         security = SecurityLevelPresentation.defaultLevel
         errorMessage = nil
         previousAutoId = ""
@@ -79,7 +109,9 @@ class AddCredentialViewModel: ObservableObject {
         reset()
         self.label = label ?? ""
         self.notes = notes ?? ""
-        self.fields = fieldNames.isEmpty ? [FieldEntry()] : fieldNames.map { FieldEntry(name: $0) }
+        self.fields = fieldNames.isEmpty
+            ? [FieldEntry(name: Self.defaultFieldName)]
+            : fieldNames.map { FieldEntry(name: $0) }
         autoGenerateId()
     }
 

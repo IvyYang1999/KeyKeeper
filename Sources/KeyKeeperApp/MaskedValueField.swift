@@ -59,7 +59,7 @@ struct MaskedValueField: View {
                         SecureField(placeholder, text: $value)
                     }
                 }
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
                 .textContentType(.none)
                 .font(.callout.monospaced())
                 .focused($isFocused)
@@ -68,14 +68,7 @@ struct MaskedValueField: View {
                     .font(.callout.monospaced())
                     .foregroundColor(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 5)
-                    .padding(.horizontal, 6)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .cornerRadius(DS.Radius.sm)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DS.Radius.sm)
-                            .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-                    )
+                    .contentShape(Rectangle())
                     .onTapGesture {
                         if editable {
                             visible = true

@@ -56,6 +56,11 @@ struct MainView: View {
                     onCancel: {
                         // Keep draft — just go back to list
                         showingAdd = false
+                    },
+                    onOpenExisting: { id in
+                        addVM.reset()
+                        showingAdd = false
+                        selectedCredentialId = id
                     }
                 )
             case .detail(let id):
@@ -180,8 +185,16 @@ struct MainView: View {
                         .font(.caption)
                     }
                 } else {
-                    Text("No credentials stored")
-                        .foregroundColor(.secondary)
+                    VStack(spacing: DS.Spacing.sm) {
+                        Text("No keys yet")
+                            .foregroundColor(.secondary)
+                        Text("Values are encrypted by the macOS Keychain. AI tools see only the names.")
+                            .font(.caption)
+                            .foregroundColor(.secondary.opacity(0.7))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, DS.Spacing.xl)
+                    }
                 }
                 Spacer()
             } else {
