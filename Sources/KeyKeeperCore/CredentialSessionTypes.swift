@@ -22,6 +22,8 @@ public enum SessionManagerError: Error, LocalizedError, Sendable {
 /// Secret CRUD surface shared by GUI data models and the process-wide store owner.
 public protocol CredentialSessionManaging: AnyObject {
     func status() -> SessionStatus
+    /// Check the pre-edit inventory before any value or metadata mutation begins.
+    func validateStorage() throws
     func retrieve(credentialId: String, fieldName: String) throws -> String
     func save(
         credentialId: String,
@@ -30,4 +32,9 @@ public protocol CredentialSessionManaging: AnyObject {
         security: SecurityLevel
     ) throws
     func delete(credentialId: String, fieldName: String) throws
+}
+
+extension CredentialSessionManaging {
+    // Legacy/test session providers have no split metadata/blob inventory.
+    public func validateStorage() throws {}
 }

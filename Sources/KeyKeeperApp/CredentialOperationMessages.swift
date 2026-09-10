@@ -1,6 +1,11 @@
 import KeyKeeperCore
 
 enum CredentialOperationMessages {
+    static func requireWritableStorage(_ session: any CredentialSessionManaging) throws {
+        try requireUnlocked(session)
+        try session.validateStorage()
+    }
+
     static func requireUnlocked(_ session: any CredentialSessionManaging) throws {
         guard case .unlocked = session.status() else {
             throw SessionManagerError.locked

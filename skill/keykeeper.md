@@ -93,3 +93,10 @@ Then continue once `keykeeper list` shows the new ID.
 5. ALWAYS read secrets from the environment (or the SDK) inside the code you write.
 6. Use `keykeeper list --detail` to find the exact credential ID and field names.
 7. If a credential doesn't exist, offer the `keykeeper://add?…` link above; the user adds it in the app.
+## Save without exposing a key to the model
+
+After the user authorizes saving a key, use the provider's Copy button. Do not reveal the key, read the clipboard, paste it into a tool call, pass it as an argument, or write it to a file.
+
+Run `keykeeper save -c <credential-id> --field <field-name> --from-clipboard` to restore an existing missing secret field. Add `--create` only for a new credential ID. KeyKeeper asks for one-time confirmation and reads the system clipboard inside the App; the CLI receives only success or a constant error. It never overwrites an existing value or grants read access. New credentials use strict protection. The user confirms real-key saves; do not auto-click approval without their explicit authorization for that save.
+
+The clipboard must stay unchanged until confirmation. On timeout/connection failure, check the credential metadata and App state before retrying; never blindly repeat a write with an uncertain outcome. Website login/2FA may still require the user. A wholly missing store remains blocked; this command does not reset or recreate it.

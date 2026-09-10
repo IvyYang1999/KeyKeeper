@@ -60,17 +60,20 @@ final class IPCServer: ObservableObject {
     private let metaStore: MetaStore
     private let grantStore: GrantStore
     private let serviceGrantStore: ServiceGrantStore
+    private let clipboardSaveController: ClipboardSaveController?
 
     init(
         session: SessionControlling,
         metaStore: MetaStore = .default,
         grantStore: GrantStore = .default,
-        serviceGrantStore: ServiceGrantStore = .default
+        serviceGrantStore: ServiceGrantStore = .default,
+        clipboardSaveController: ClipboardSaveController? = nil
     ) {
         self.session = session
         self.metaStore = metaStore
         self.grantStore = grantStore
         self.serviceGrantStore = serviceGrantStore
+        self.clipboardSaveController = clipboardSaveController
     }
 
     struct PendingAuthRequest {
@@ -139,6 +142,7 @@ final class IPCServer: ObservableObject {
     }
 
     func stop() {
+        clipboardSaveController?.cancel()
         guard let listener else { return }
 
         let source = listenSource
@@ -239,6 +243,20 @@ final class IPCServer: ObservableObject {
         }
 
         switch envelope {
+        case .clipboardSave(let request):
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let controller = self.clipboardSaveController else {
+                    Self.writeAndClose(.clipboardSave(.init(success: false, errorCode: .storageUnavailable)), clientFd: clientFd)
+                    return
+                }
+                guard self.pendingRequest == nil, self.pendingServiceRequest == nil else {
+                    self.send(.clipboardSave(.init(success: false, errorCode: .busy)), clientFd: clientFd)
+                    return
+                }
+                controller.receive(request, callerName: callerIdentity.displayName,
+                    isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
+                    completion: { response in self.send(.clipboardSave(response), clientFd: clientFd) })
+            }
         case .auth(let request):
             handleAuthRequest(request, clientFd: clientFd, callerIdentity: callerIdentity)
         case .value(let request):
@@ -319,6 +337,12 @@ final class IPCServer: ObservableObject {
         return true
     }
 
+    nonisolated static func isClientConnected(_ fd: Int32) -> Bool {
+        var byte: UInt8 = 0
+        let result = recv(fd, &byte, 1, MSG_PEEK | MSG_DONTWAIT)
+        return result > 0 || (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+    }
+
     private func handleAuthRequest(_ request: AuthRequest,
                                    clientFd: Int32,
                                    callerIdentity: CallerIdentity) {
@@ -328,6 +352,10 @@ final class IPCServer: ObservableObject {
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard self.clipboardSaveController?.isPending != true else {
+                self.send(.auth(.init(granted: false, error: ClipboardSaveError.busy.localizedDescription)), clientFd: clientFd)
+                return
+            }
             self.expirePendingIfNeeded()
 
             let now = Date()
@@ -508,6 +536,11 @@ final class IPCServer: ObservableObject {
                                        callerIdentity: CallerIdentity) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard self.clipboardSaveController?.isPending != true else {
+                self.send(.value(.init(success: false, error: ClipboardSaveError.busy.localizedDescription,
+                    errorCode: .noAuthorization)), clientFd: clientFd)
+                return
+            }
             self.expirePendingIfNeeded()
 
             let requestedFields = self.validRequestedFields(

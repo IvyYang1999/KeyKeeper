@@ -6,8 +6,8 @@ import Security
 public protocol KeychainBlobIO: AnyObject, Sendable {
     /// Returns the stored blob, or nil when no item exists yet.
     func readBlob() throws -> Data?
-    /// Creates or replaces the blob.
-    func writeBlob(_ data: Data) throws
+    /// Never create after a successful read, or overwrite an item created by another writer.
+    func writeBlob(_ data: Data, replacingExisting: Bool) throws
 }
 
 /// Real keychain IO: one generic-password item holds the whole credential store.
@@ -22,11 +22,23 @@ public final class SecItemBlobIO: KeychainBlobIO, @unchecked Sendable {
 
     private let service: String
     private let account = "keykeeper"
+    private let updateItem: (CFDictionary, CFDictionary) -> OSStatus
+    private let addItem: (CFDictionary) -> OSStatus
 
-    public init(service: String? = nil) {
-        self.service = service
+    public convenience init(service: String? = nil) {
+        self.init(service: service
             ?? ProcessInfo.processInfo.environment[Self.serviceEnvironmentKey]
-            ?? Self.defaultService
+            ?? Self.defaultService,
+                  updateItem: { SecItemUpdate($0, $1) },
+                  addItem: { SecItemAdd($0, nil) })
+    }
+
+    /// System-call seam for checking update/create failure paths without accessing Keychain.
+    init(service: String, updateItem: @escaping (CFDictionary, CFDictionary) -> OSStatus,
+         addItem: @escaping (CFDictionary) -> OSStatus) {
+        self.service = service
+        self.updateItem = updateItem
+        self.addItem = addItem
     }
 
     public func readBlob() throws -> Data? {
@@ -49,23 +61,24 @@ public final class SecItemBlobIO: KeychainBlobIO, @unchecked Sendable {
         }
     }
 
-    public func writeBlob(_ data: Data) throws {
+    public func writeBlob(_ data: Data, replacingExisting: Bool) throws {
         let match: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        // Update-in-place preserves the item's ACL (the identity that created it).
-        let update: [String: Any] = [kSecValueData as String: data]
-        let updateStatus = SecItemUpdate(match as CFDictionary, update as CFDictionary)
-        if updateStatus == errSecSuccess { return }
-        guard updateStatus == errSecItemNotFound else {
-            throw KeychainError.saveFailed(updateStatus)
+        if replacingExisting {
+            // Update-only: an item disappearing between read and write is an error.
+            let update: [String: Any] = [kSecValueData as String: data]
+            let updateStatus = updateItem(match as CFDictionary, update as CFDictionary)
+            guard updateStatus != errSecItemNotFound else { throw CredentialStorageError.missingStore }
+            guard updateStatus == errSecSuccess else { throw KeychainError.saveFailed(updateStatus) }
+            return
         }
 
         var add = match
         add[kSecValueData as String] = data
-        let addStatus = SecItemAdd(add as CFDictionary, nil)
+        let addStatus = addItem(add as CFDictionary)
         guard addStatus == errSecSuccess else {
             throw KeychainError.saveFailed(addStatus)
         }
@@ -87,9 +100,18 @@ public final class KeychainBlobStore: @unchecked Sendable {
 
     private let io: KeychainBlobIO
     private let mutex = NSLock()
+    private let loadMetadata: () throws -> MetaFile
+    private var hasObservedStore = false
 
-    public init(io: KeychainBlobIO = SecItemBlobIO()) {
+    /// Production wiring: metadata restored without its Keychain must never create an empty store.
+    public convenience init() {
+        self.init(io: SecItemBlobIO(), loadMetadata: { try MetaStore.default.load() })
+    }
+
+    /// Explicit IO injection for tests and the legacy migration that initializes the new store.
+    public init(io: KeychainBlobIO, loadMetadata: @escaping () throws -> MetaFile = { MetaFile() }) {
         self.io = io
+        self.loadMetadata = loadMetadata
     }
 
     public func retrieve(credentialId: String, fieldName: String) throws -> String {
@@ -104,6 +126,18 @@ public final class KeychainBlobStore: @unchecked Sendable {
     public func save(credentialId: String, fieldName: String, value: String) throws {
         try withLock {
             var blob = try loadBlob()
+            blob.credentials[credentialId, default: [:]][fieldName] = value
+            try store(blob)
+        }
+    }
+
+    /// Explicit recovery/import path: check and insert under the same lock, never replace.
+    public func saveMissing(credentialId: String, fieldName: String, value: String) throws {
+        try withLock {
+            var blob = try loadBlob()
+            guard blob.credentials[credentialId]?[fieldName] == nil else {
+                throw ClipboardSaveError.valueExists
+            }
             blob.credentials[credentialId, default: [:]][fieldName] = value
             try store(blob)
         }
@@ -130,10 +164,37 @@ public final class KeychainBlobStore: @unchecked Sendable {
         }
     }
 
+    /// Called once before a GUI mutation, while metadata still describes the pre-edit values.
+    /// Per-field deletion intentionally precedes metadata commits, so don't repeat this
+    /// inventory check halfway through a multi-field edit.
+    public func validateStorage() throws {
+        try withLock {
+            let blob = try loadBlob()
+            let meta = try loadMetadata()
+            for (id, credential) in meta.credentials {
+                for (field, metadata) in credential.fields where metadata.secret {
+                    guard blob.credentials[id]?[field] != nil else {
+                        throw CredentialStorageError.incompleteStore
+                    }
+                }
+            }
+        }
+    }
+
     private func loadBlob() throws -> Blob {
-        guard let data = try io.readBlob() else { return .empty }
+        guard let data = try io.readBlob() else {
+            let meta = try loadMetadata()
+            let expectsValues = meta.credentials.values.contains { credential in
+                credential.fields.values.contains { $0.secret }
+            }
+            guard !hasObservedStore && !expectsValues else { throw CredentialStorageError.missingStore }
+            return .empty
+        }
+        hasObservedStore = true
         do {
-            return try JSONDecoder().decode(Blob.self, from: data)
+            let blob = try JSONDecoder().decode(Blob.self, from: data)
+            guard blob.version == 1 else { throw KeychainError.unexpectedData }
+            return blob
         } catch {
             // A corrupt store must never masquerade as "empty": overwriting it from the
             // empty state would silently destroy every stored value.
@@ -150,7 +211,8 @@ public final class KeychainBlobStore: @unchecked Sendable {
         } catch {
             throw KeychainError.unexpectedData
         }
-        try io.writeBlob(data)
+        try io.writeBlob(data, replacingExisting: hasObservedStore)
+        hasObservedStore = true
     }
 
     private func withLock<T>(_ operation: () throws -> T) rethrows -> T {
@@ -172,6 +234,18 @@ public final class KeychainCredentialService: @unchecked Sendable {
 
     public func status() -> SessionStatus {
         .unlocked(expiresAt: nil)
+    }
+
+    public func validateStorage() throws {
+        try store.validateStorage()
+    }
+
+    public func fieldNamesByCredential() throws -> [String: Set<String>] {
+        try store.fieldNamesByCredential()
+    }
+
+    public func saveMissing(credentialId: String, fieldName: String, value: String) throws {
+        try store.saveMissing(credentialId: credentialId, fieldName: fieldName, value: value)
     }
 
     public func retrieve(credentialId: String, fieldName: String) throws -> String {

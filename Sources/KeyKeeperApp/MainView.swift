@@ -116,6 +116,9 @@ struct MainView: View {
             showSettings = true
             DispatchQueue.main.async { inbox.clearSettings() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .clipboardCredentialSaved)) { _ in
+            viewModel.load()
+        }
     }
 
     @ViewBuilder

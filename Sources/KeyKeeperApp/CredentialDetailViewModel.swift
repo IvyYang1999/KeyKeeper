@@ -92,7 +92,7 @@ final class CredentialDetailViewModel: ObservableObject {
     @discardableResult
     func saveChanges() -> Bool {
         do {
-            try CredentialOperationMessages.requireUnlocked(session)
+            try CredentialOperationMessages.requireWritableStorage(session)
             var meta = try store.load()
             let existingFields = meta.credentials[credentialId]?.fields ?? [:]
             let plan = CredentialEditPlan(

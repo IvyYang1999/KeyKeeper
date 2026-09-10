@@ -6,7 +6,7 @@ import XCTest
 private final class MemoryBlobIO: KeychainBlobIO, @unchecked Sendable {
     var blob: Data?
     func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data) throws { blob = data }
+    func writeBlob(_ data: Data, replacingExisting: Bool) throws { blob = data }
 }
 
 final class MigrateStorageCommandTests: XCTestCase {

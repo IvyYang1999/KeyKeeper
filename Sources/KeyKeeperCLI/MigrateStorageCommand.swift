@@ -41,7 +41,9 @@ struct MigrateStorageCommand: ParsableCommand {
                     requestedFieldNames: allFields
                 )
             },
-            store: KeychainBlobStore(),
+            // Explicit migration initializes a new store from legacy values; normal App
+            // writes use KeychainBlobStore() with the restored-metadata guard.
+            store: KeychainBlobStore(io: SecItemBlobIO()),
             deleteLegacyItem: { credentialId, fieldName in
                 try KeychainService().delete(credentialId: credentialId, fieldName: fieldName)
             },

@@ -12,7 +12,7 @@ import KeyKeeperCore
 enum IPCLaunchPolicy {
     static func shouldLaunchApp(for request: IPCRequest) -> Bool {
         switch request {
-        case .value, .auth:
+        case .value, .auth, .clipboardSave:
             return true
         case .sessionControl, .serviceRequests:
             return false
@@ -21,6 +21,27 @@ enum IPCLaunchPolicy {
 }
 
 enum IPCClient {
+    static func requestClipboardSave(_ request: ClipboardSaveRequest) throws -> ClipboardSaveResponse {
+        try request.validate()
+        let fd = try connectWithRetry(launchIfNeeded: true)
+        defer { close(fd) }
+        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout), tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        try IPCMessage.writeMessage(fd: fd, message: IPCRequest.clipboardSave(request))
+        guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else {
+            throw IPCError.appNotResponding
+        }
+        return try decodeClipboardSaveResponse(response)
+    }
+
+    static func decodeClipboardSaveResponse(_ response: IPCResponse) throws -> ClipboardSaveResponse {
+        switch response {
+        case .clipboardSave(let result): return result
+        case .value(let result) where result.errorCode == .invalidRequest: throw IPCError.appVersionTooOld
+        default: throw IPCError.appNotResponding
+        }
+    }
+
     /// Request authorization from the KeyKeeper app via Unix socket.
     static func requestAuthorization(_ request: AuthRequest) throws -> AuthResponse {
         let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: .auth(request)))

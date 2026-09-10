@@ -4,7 +4,19 @@ import Foundation
 
 public enum IPCConstants {
     public static var socketPath: String {
-        "/tmp/keykeeper-\(NSUserName()).sock"
+        resolveSocketPath(environment: ProcessInfo.processInfo.environment)
+    }
+
+    /// A separate socket is admitted only together with isolated data and a test Keychain service.
+    static func resolveSocketPath(environment: [String: String]) -> String {
+        if let candidate = environment["KEYKEEPER_TEST_SOCKET"],
+           candidate.hasPrefix("/tmp/keykeeper-test-"), candidate.utf8.count <= 103,
+           !candidate.dropFirst(5).contains("/"), !candidate.contains("\0"),
+           environment[KeyKeeperPaths.dataDirectoryEnvironmentKey]?.isEmpty == false,
+           environment[SecItemBlobIO.serviceEnvironmentKey]?.hasPrefix("com.keykeeper.test.") == true {
+            return candidate
+        }
+        return "/tmp/keykeeper-\(NSUserName()).sock"
     }
 
     /// Maximum time (seconds) CLI waits for authorization response
@@ -33,6 +45,7 @@ public enum KeychainReadTimeoutPolicy {
 // MARK: - Request / Response Envelopes
 
 public enum IPCRequest: Codable, Sendable {
+    case clipboardSave(ClipboardSaveRequest)
     case auth(AuthRequest)
     case value(ValueRequest)
     case serviceRequests(ServiceRequestsListRequest)
@@ -43,6 +56,9 @@ public enum IPCRequest: Codable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .clipboardSave(let r):
+            try c.encode("clipboardSave", forKey: .type)
+            try c.encode(r, forKey: .data)
         case .auth(let r):
             try c.encode("auth", forKey: .type)
             try c.encode(r, forKey: .data)
@@ -61,6 +77,7 @@ public enum IPCRequest: Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         switch try c.decode(String.self, forKey: .type) {
+        case "clipboardSave": self = .clipboardSave(try c.decode(ClipboardSaveRequest.self, forKey: .data))
         case "auth":  self = .auth(try c.decode(AuthRequest.self, forKey: .data))
         case "value": self = .value(try c.decode(ValueRequest.self, forKey: .data))
         case "serviceRequests": self = .serviceRequests(try c.decode(ServiceRequestsListRequest.self, forKey: .data))
@@ -73,6 +90,7 @@ public enum IPCRequest: Codable, Sendable {
 }
 
 public enum IPCResponse: Codable, Sendable {
+    case clipboardSave(ClipboardSaveResponse)
     case auth(AuthResponse)
     case value(ValueResponse)
     case serviceRequests(ServiceRequestsListResponse)
@@ -83,6 +101,9 @@ public enum IPCResponse: Codable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .clipboardSave(let r):
+            try c.encode("clipboardSave", forKey: .type)
+            try c.encode(r, forKey: .data)
         case .auth(let r):
             try c.encode("auth", forKey: .type)
             try c.encode(r, forKey: .data)
@@ -101,6 +122,7 @@ public enum IPCResponse: Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         switch try c.decode(String.self, forKey: .type) {
+        case "clipboardSave": self = .clipboardSave(try c.decode(ClipboardSaveResponse.self, forKey: .data))
         case "auth":  self = .auth(try c.decode(AuthResponse.self, forKey: .data))
         case "value": self = .value(try c.decode(ValueResponse.self, forKey: .data))
         case "serviceRequests": self = .serviceRequests(try c.decode(ServiceRequestsListResponse.self, forKey: .data))

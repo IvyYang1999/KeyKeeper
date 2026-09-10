@@ -194,7 +194,7 @@ Both SDKs shell out to the `keykeeper` CLI; no native dependencies.
 | Who may ask | Per-credential mode (Background OK / Ask every time) plus per-caller approvals, shown and revocable in the app. Concurrent requests queue up instead of failing. |
 | Other apps | The Keychain item's ACL trusts only KeyKeeper's signing identity; any other program that tries to read it triggers the macOS confirmation prompt. |
 | Clipboard | Copying a value from the app marks it concealed for clipboard managers and clears it after 30 s unless you copied something else. |
-| Backup | The item lives in your login keychain and is covered by your normal macOS backup/restore. An explicit encrypted-export command is on the roadmap. |
+| Backup | Preserve both the original login Keychain and KeyKeeper application data, and verify that the backup Keychain can be unlocked and its values read. Restoring the application folder alone does not restore keys. Encrypted export is not implemented; see [recovery guidance](docs/STORAGE-RECOVERY.md). |
 
 **What KeyKeeper does not do:** a child process you approve still receives the value and can misuse, save or transmit it. Output redaction is a safety net, not a sandbox. Only run software you trust with production credentials.
 

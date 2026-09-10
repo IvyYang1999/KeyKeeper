@@ -65,7 +65,7 @@ class CredentialListViewModel: ObservableObject {
     @discardableResult
     func delete(id: String) -> Bool {
         do {
-            try CredentialOperationMessages.requireUnlocked(session)
+            try CredentialOperationMessages.requireWritableStorage(session)
             var meta = try store.load()
             guard let credential = meta.credentials[id] else { return false }
 

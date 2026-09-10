@@ -28,7 +28,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
-        ipcServer = IPCServer(session: credentialService)
+        ipcServer = IPCServer(session: credentialService,
+            clipboardSaveController: ClipboardSaveController(service: credentialService))
         switch ipcServer.start() {
         case .started(let disposition):
             if disposition == .replacedStaleSocket {
