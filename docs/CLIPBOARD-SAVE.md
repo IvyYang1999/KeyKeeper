@@ -37,3 +37,12 @@ Confirm the exact ID and field in the KeyKeeper window. Click **Save once** or p
 An older App returns a version-mismatch error without saving. Update App and CLI together. Whole-store loss still requires recovery; this command does not reset a Keychain or turn a missing store into an empty one.
 
 The signed real-App smoke uses `KEYKEEPER_DATA_DIR`, a `com.keykeeper.test.*` Keychain service and a `/tmp/keykeeper-test-*` socket together. Production keeps its normal stores and socket; the test override is ignored unless all three isolation settings match the test constraints.
+
+## Verified 2026-09-11
+
+- 216 Swift tests, 4 skipped, 0 failures before integration. All 18 new focused tests passed.
+- Signed production App code ran beside the unchanged installed App using separate data, socket and Keychain item.
+- Real CLI save: Escape cancelled with no metadata; Command-Return saved a synthetic value; success cleared the system clipboard. Creating strict credentials did not grant reads (the read request still required independent authorization).
+- Using an isolated synthetic Background OK fixture, CLI readback exactly matched the inserted value. Restoring another missing field preserved the first value and the full metadata file digest.
+- Existing value rejected without a prompt; changed clipboard rejected after approval, with metadata digest unchanged. Normal and long-target windows visually checked; buttons, names, keyboard cancellation and approval remained usable. VoiceOver audio was not tested.
+- Important integration limit: Codex in-app browser's `tab.clipboard` is a browser-session clipboard, not necessarily the macOS clipboard. A browser-session-only write was safely rejected as empty. Use a provider Copy action that reaches the actual system clipboard (e.g. a normal browser); do not read its value into the model to bridge this gap.
