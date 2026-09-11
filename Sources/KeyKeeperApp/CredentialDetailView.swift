@@ -8,6 +8,8 @@ struct CredentialDetailView: View {
     var onUpdate: () -> Void
     /// Deletes the credential. Returns an error message, or nil when it succeeded.
     var onDelete: () -> String?
+    /// Called with the new group ID after a save renamed the credential.
+    var onRenamed: (String) -> Void = { _ in }
 
     @State private var showDeleteConfirmation = false
     @State private var showDiscardConfirmation = false
@@ -22,7 +24,8 @@ struct CredentialDetailView: View {
         session: any CredentialSessionManaging,
         onBack: @escaping () -> Void,
         onUpdate: @escaping () -> Void,
-        onDelete: @escaping () -> String?
+        onDelete: @escaping () -> String?,
+        onRenamed: @escaping (String) -> Void = { _ in }
     ) {
         self.credentialId = credentialId
         _vm = StateObject(wrappedValue: CredentialDetailViewModel(
@@ -33,6 +36,7 @@ struct CredentialDetailView: View {
         self.onBack = onBack
         self.onUpdate = onUpdate
         self.onDelete = onDelete
+        self.onRenamed = onRenamed
     }
 
     var body: some View {
@@ -85,6 +89,11 @@ struct CredentialDetailView: View {
                         SectionLabel(text: L("Name"))
                         TextField(L("Name"), text: $vm.credential.label)
                             .textFieldStyle(.roundedBorder)
+                        SectionLabel(text: L("Group ID"), hint: L("what keykeeper run -c uses; old IDs keep working"))
+                            .padding(.top, 6)
+                        TextField(L("Group ID"), text: $vm.groupIdDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.callout.monospaced())
                     }
                 } else if layout == .embedded {
                     HStack(alignment: .center, spacing: 14) {
@@ -100,6 +109,10 @@ struct CredentialDetailView: View {
                             }
                             .font(.callout)
                             .foregroundColor(.secondary)
+                            if let aliases = vm.credential.aliases, !aliases.isEmpty {
+                                Text(L("Also answers to \(aliases.joined(separator: ", ")) (old IDs keep working)"))
+                                    .font(.caption).foregroundColor(.secondary)
+                            }
                         }
                     }
                 } else {
@@ -122,6 +135,7 @@ struct CredentialDetailView: View {
                 if vm.isEditing {
                     KeyFieldsEditor(
                         fields: $vm.fields,
+                        showsDisplayName: true,
                         revealStoredValue: { entry in try vm.storedValue(for: entry) },
                         onRevealError: { vm.reportRevealFailure($0) }
                     )
@@ -156,6 +170,7 @@ struct CredentialDetailView: View {
                         Button(L("Save")) {
                             if vm.saveChanges() {
                                 onUpdate()
+                                if let renamed = vm.renamedGroupId { onRenamed(renamed) }
                             }
                         }
                         .buttonStyle(.borderedProminent)
@@ -269,13 +284,8 @@ struct CredentialDetailView: View {
 
     private func fieldRow(index: Int, field: FieldEntry) -> some View {
         HStack(spacing: 8) {
-            Text(field.name)
-                .font(.callout.monospaced())
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
+            FieldNameLabel(field: field, credential: vm.credential)
                 .frame(width: layout == .embedded ? 190 : 110, alignment: .leading)
-                .help(field.name)
 
             Text(field.visible && !field.value.isEmpty ? field.value : "••••••••••")
                 .font(.callout.monospaced())
@@ -417,5 +427,32 @@ private struct EmbeddedCard: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// The display name people wrote, with the machine name (and earlier names) under it; or just
+/// the machine name when there is no display name.
+struct FieldNameLabel: View {
+    let field: FieldEntry
+    let credential: Credential
+
+    var body: some View {
+        let display = field.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let aliases = credential.fields[field.name]?.aliases ?? []
+        VStack(alignment: .leading, spacing: 1) {
+            if display.isEmpty {
+                Text(field.name).font(.callout.monospaced())
+            } else {
+                Text(display).font(.callout)
+                Text(field.name).font(.caption.monospaced()).foregroundColor(.secondary)
+            }
+            if !aliases.isEmpty {
+                Text(L("was \(aliases.joined(separator: ", "))")).font(.caption2.monospaced()).foregroundColor(.secondary.opacity(0.8))
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .textSelection(.enabled)
+        .help(field.name)
     }
 }

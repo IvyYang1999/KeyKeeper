@@ -16,6 +16,9 @@ enum CredentialOperationMessages {
         if error is SessionManagerError {
             return L("Unlock KeyKeeper first to \(action).")
         }
+        if let edit = error as? MetadataEditError {
+            return MetadataEditCopy.message(edit)
+        }
         return "\(fallbackPrefix): \(AppL10n.text(error.localizedDescription))"
     }
 }

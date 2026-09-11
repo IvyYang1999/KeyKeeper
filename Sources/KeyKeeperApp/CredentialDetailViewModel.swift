@@ -9,6 +9,11 @@ final class CredentialDetailViewModel: ObservableObject {
     @Published var security: SecurityLevel
     @Published var isEditing = false
     @Published var errorMessage: String?
+    /// The group ID being edited. Saving a different one renames the credential; the old
+    /// ID keeps working as an alias.
+    @Published var groupIdDraft: String
+    /// Set after a save renamed the credential, so the window can follow it to the new ID.
+    @Published private(set) var renamedGroupId: String?
 
     private let session: any CredentialSessionManaging
     private let store: MetaStore
@@ -27,6 +32,7 @@ final class CredentialDetailViewModel: ObservableObject {
         security = credential.security
         originalLabel = credential.label
         fields = Self.fieldEntries(for: credential)
+        groupIdDraft = credentialId
     }
 
     func toggleFieldVisibility(at index: Int) {
@@ -104,6 +110,7 @@ final class CredentialDetailViewModel: ObservableObject {
             credential = storedCredential
             security = storedCredential.security
             fields = Self.fieldEntries(for: storedCredential)
+            groupIdDraft = credentialId
             errorMessage = nil
         } catch {
             errorMessage = L("Reload failed: \(error.localizedDescription)")
@@ -123,11 +130,31 @@ final class CredentialDetailViewModel: ObservableObject {
                     return false
                 }
             }
-            let plan = CredentialEditPlan(
+            // Check names before touching anything, so a bad one never leaves a half-saved edit.
+            let newGroupId = groupIdDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            if newGroupId != credentialId {
+                _ = try MetadataEditPlan.apply(MetadataEdit(newGroupId: newGroupId), to: meta, groupId: credentialId)
+            }
+            for entry in fields where !entry.name.isEmpty && entry.name != entry.originalName {
+                guard CredentialNames.isValidFieldName(entry.name) else {
+                    errorMessage = L("Field names can only use letters, digits, '-', '_' and '.', with no spaces. Put the wording you like in the display name.")
+                    return false
+                }
+            }
+            var plan = CredentialEditPlan(
                 inputFields: fields.map { .init(name: $0.name, value: $0.value, originalName: $0.originalName) },
                 existingFields: existingFields,
                 security: security
             )
+            var displayNamesChanged = false
+            for entry in fields where !entry.name.isEmpty {
+                let trimmed = entry.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let value = trimmed.isEmpty ? nil : trimmed
+                if plan.metadata.fields[entry.name] != nil, plan.metadata.fields[entry.name]?.displayName != value {
+                    plan.metadata.fields[entry.name]?.displayName = value
+                    displayNamesChanged = true
+                }
+            }
 
             // Renames first: the old value must be copied before deletions remove it.
             for rename in plan.valueRenames {
@@ -161,6 +188,7 @@ final class CredentialDetailViewModel: ObservableObject {
                 || security != meta.credentials[credentialId]?.security
                 || !plan.valueWrites.isEmpty
                 || !plan.valueRenames.isEmpty
+                || displayNamesChanged
 
             credential.fields = plan.metadata.fields
             credential.security = plan.metadata.security
@@ -170,6 +198,19 @@ final class CredentialDetailViewModel: ObservableObject {
 
             meta.credentials[credentialId] = credential
             try store.save(meta)
+
+            let directory = store.fileURL.deletingLastPathComponent()
+            if !plan.fieldRenames.isEmpty {
+                // Background approvals list field names; without this a rename silently voided them.
+                try? ServiceGrantStore(directory: directory).moveGrants(from: credentialId, to: credentialId, fieldMap: plan.fieldRenames)
+            }
+            if newGroupId != credentialId {
+                let editor = MetadataEditor(session: session, metaStore: store,
+                                            grantStore: GrantStore(directory: directory),
+                                            serviceGrantStore: ServiceGrantStore(directory: directory))
+                let result = try editor.apply(MetadataEdit(newGroupId: newGroupId), groupId: credentialId)
+                renamedGroupId = result.groupId
+            }
             isEditing = false
             errorMessage = nil
             originalLabel = credential.label
@@ -192,7 +233,8 @@ final class CredentialDetailViewModel: ObservableObject {
                 visible: false,
                 existingSecret: field.secret,
                 fileFormat: field.fileFormat,
-                originalName: name
+                originalName: name,
+                displayName: field.displayName ?? ""
             )
         }
     }

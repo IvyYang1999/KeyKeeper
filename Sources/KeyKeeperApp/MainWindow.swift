@@ -377,7 +377,7 @@ private struct KeysPage: View {
         if CredentialKind(credential) == .serviceAccountFile {
             return L("Service-account JSON file")
         }
-        return credential.fields.keys.sorted().joined(separator: " · ")
+        return credential.fieldSummary
     }
 
     private func label(for id: String?) -> String {
@@ -409,7 +409,8 @@ private struct KeysPage: View {
             .frame(maxWidth: 560, alignment: .leading)
             .padding(.horizontal, 12)
         } else if let id = router.selectedCredentialId,
-                  let item = listVM.credentials.first(where: { $0.id == id }) {
+                  let item = listVM.credentials.first(where: { $0.id == id })
+                    ?? listVM.credentials.first(where: { $0.credential.aliases?.contains(id) == true }) {
             CredentialDetailView(
                 credentialId: item.id,
                 credential: item.credential,
@@ -426,6 +427,11 @@ private struct KeysPage: View {
                     router.selectedCredentialId = nil
                     NotificationCenter.default.post(name: .credentialsChanged, object: nil)
                     return nil
+                },
+                onRenamed: { newId in
+                    listVM.load()
+                    router.selectedCredentialId = newId
+                    NotificationCenter.default.post(name: .credentialsChanged, object: nil)
                 }
             )
             .id(item.id)

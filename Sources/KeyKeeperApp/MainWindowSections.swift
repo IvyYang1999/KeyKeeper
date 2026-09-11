@@ -244,6 +244,7 @@ struct PermissiveModeBanner: View {
 struct AccessLogPage: View {
     let credentials: [(id: String, credential: Credential)]
     @State private var groups: [AccessLogGroup] = []
+    @State private var edits: [MetadataChangeRecord] = []
     @State private var permissive = false
     private let serviceGrantStore = ServiceGrantStore.default
 
@@ -259,6 +260,30 @@ struct AccessLogPage: View {
                         caption: L("Callers below will each be asked once, the next time they read."),
                         onEnforce: load
                     )
+                }
+                if !edits.isEmpty {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(L("Names and notes changed by agents")).font(.callout.weight(.semibold))
+                        VStack(spacing: 0) {
+                            ForEach(Array(edits.enumerated()), id: \.element.id) { index, record in
+                                HStack(alignment: .top, spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(MetadataEditCopy.headline(record)).lineLimit(1)
+                                        Text(record.changes.map(MetadataEditCopy.text).joined(separator: " · "))
+                                            .font(.caption).foregroundColor(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    Spacer()
+                                    Text(relative(record.timestamp)).font(.caption).foregroundColor(.secondary)
+                                }
+                                .font(.callout)
+                                .padding(.vertical, 9)
+                                if index < edits.count - 1 { GlassSeparator() }
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .glassCard()
+                    }
                 }
                 if groups.isEmpty {
                     EmptyGlassCard(
@@ -289,6 +314,7 @@ struct AccessLogPage: View {
 
     private func load() {
         permissive = PermissiveModeBanner.isPermissive
+        edits = Array(((try? MetadataChangeLog.default.records()) ?? []).suffix(20).reversed())
         groups = AccessLogBuilder.groups(AccessLogBuilder.entries(
             serviceGrants: (try? serviceGrantStore.grants()) ?? [],
             auditEvents: (try? serviceGrantStore.auditEvents()) ?? [],
@@ -329,7 +355,8 @@ struct AccessLogPage: View {
     }
 
     private func label(for id: String) -> String {
-        credentials.first { $0.id == id }?.credential.label ?? id
+        (credentials.first { $0.id == id } ?? credentials.first { $0.credential.aliases?.contains(id) == true })?
+            .credential.label ?? id
     }
 
     private func relative(_ date: Date) -> String {

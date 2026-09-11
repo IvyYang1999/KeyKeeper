@@ -19,6 +19,10 @@ final class AgentHandoffTests: XCTestCase {
         let en = AgentPromptCopy.prompt(credentialId: "openai", credential: cred, language: "en")
         XCTAssertTrue(en.contains("keykeeper run -c openai -- <command>"))
         XCTAssertTrue(en.contains("Never ask me for the value"))
+        // yyt 2026-09-11：名字不规范时 Agent 可以自己改，改完说一声。
+        XCTAssertTrue(zh.contains("keykeeper edit"))
+        XCTAssertTrue(zh.contains("告诉我"))
+        XCTAssertTrue(en.contains("keykeeper edit"))
     }
 
     func test有备注时提示词带上给Agent的备注() {

@@ -241,6 +241,75 @@ final class CredentialGUIDataTests: XCTestCase {
         XCTAssertEqual(vm.fields.first { $0.name == "json" }?.value, "", "文件内容不能进入界面字段")
     }
 
+    /// 新增时字段名随手起（"API Key "），存成机器名 api-key，原样的写法记成显示名。
+    func test新增时随手起的字段名变机器名并记成显示名() throws {
+        let session = FakeCredentialSession()
+        let vm = AddCredentialViewModel(session: session, store: store)
+        vm.label = "百度千帆"
+        vm.autoGenerateId()
+        XCTAssertEqual(vm.credentialId, "bai-du-qian-fan")
+        vm.fields = [FieldEntry(name: "API Key ", value: "v1"), FieldEntry(name: "region", value: "v2")]
+        XCTAssertEqual(AddCredentialViewModel.machineFieldName("API Key "), "api-key")
+        XCTAssertTrue(vm.save(), vm.errorMessage ?? "")
+        let credential = try XCTUnwrap(store.load().credentials["bai-du-qian-fan"])
+        XCTAssertEqual(credential.fields["api-key"]?.displayName, "API Key")
+        XCTAssertNil(credential.fields["region"]?.displayName)
+        XCTAssertEqual(session.values["bai-du-qian-fan.api-key"], "v1")
+
+        let clash = AddCredentialViewModel(session: session, store: store)
+        clash.label = "Clash"
+        clash.autoGenerateId()
+        clash.fields = [FieldEntry(name: "API Key", value: "a"), FieldEntry(name: "api-key", value: "b")]
+        XCTAssertFalse(clash.save(), "规整后撞名要拒绝")
+    }
+
+    /// 编辑时可以改显示名和组 ID；组 ID 改名走不丢值的三步，旧名进 aliases。
+    func test编辑时改显示名和组ID() throws {
+        let session = FakeCredentialSession(values: ["svc.token": "opaque"])
+        let credential = makeCredential(fields: ["token": CredentialField(secret: true)])
+        try store.save(.init(credentials: ["svc": credential]))
+        let vm = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store)
+        vm.isEditing = true
+        vm.fields[0].displayName = "Deploy token"
+        vm.groupIdDraft = "service"
+
+        XCTAssertTrue(vm.saveChanges(), vm.errorMessage ?? "")
+        XCTAssertEqual(vm.renamedGroupId, "service")
+        let saved = try XCTUnwrap(store.load().credentials["service"])
+        XCTAssertEqual(saved.aliases, ["svc"])
+        XCTAssertEqual(saved.fields["token"]?.displayName, "Deploy token")
+        XCTAssertEqual(session.values["service.token"], "opaque")
+        XCTAssertNil(try store.load().credentials["svc"])
+
+        let bad = CredentialDetailViewModel(credentialId: "service", credential: saved, session: session, store: store)
+        bad.isEditing = true
+        bad.groupIdDraft = "Not Valid"
+        XCTAssertFalse(bad.saveChanges())
+        XCTAssertNotNil(bad.errorMessage)
+    }
+
+    /// 界面改字段名：新名要合规则；改名后后台授权跟着新名走，不再悄悄失效。
+    func test编辑改字段名要合规则且后台授权跟着走() throws {
+        let session = FakeCredentialSession(values: ["svc.token": "opaque"])
+        let credential = makeCredential(fields: ["token": CredentialField(secret: true)])
+        try store.save(.init(credentials: ["svc": credential]))
+        let grants = ServiceGrantStore(directory: directory)
+        try grants.addGrant(ServiceGrant(credentialId: "svc", subjectFingerprint: "fp", subjectDisplayName: "cron",
+                                         fields: ["token"], duration: .always))
+
+        let invalid = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store)
+        invalid.isEditing = true
+        invalid.fields[0].name = "deploy token"
+        XCTAssertFalse(invalid.saveChanges())
+
+        let vm = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store)
+        vm.isEditing = true
+        vm.fields[0].name = "deploy-token"
+        XCTAssertTrue(vm.saveChanges(), vm.errorMessage ?? "")
+        XCTAssertEqual(try store.load().credentials["svc"]?.fields["deploy-token"]?.aliases, ["token"])
+        XCTAssertEqual(try grants.grants(credentialId: "svc").map(\.fields), [["deploy-token"]])
+    }
+
     private func makeCredential(fields: [String: CredentialField]) -> Credential {
         Credential(
             label: "Service",
@@ -355,6 +424,17 @@ private final class FakeCredentialSession: CredentialSessionManaging {
         }
     }
 
+    func copyValues(fromCredentialId: String, toCredentialId: String, fieldMap: [String: String]) throws {
+        for (key, value) in values where key.hasPrefix("\(fromCredentialId).") {
+            let field = String(key.dropFirst(fromCredentialId.count + 1))
+            values["\(toCredentialId).\(fieldMap[field] ?? field)"] = value
+        }
+    }
+
+    func dropValues(credentialId: String, fieldNames: [String]) throws {
+        for field in fieldNames { values.removeValue(forKey: "\(credentialId).\(field)") }
+    }
+
     func retrieve(credentialId: String, fieldName: String) throws -> String {
         guard case .unlocked = currentStatus else { throw SessionManagerError.locked }
         let operation = SessionOperation.retrieve(credentialId: credentialId, fieldName: fieldName)
@@ -430,7 +510,8 @@ extension CredentialGUIDataTests {
         let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
         vm.userEditedId("My Service 2")
         XCTAssertEqual(vm.credentialId, "my-service-2")
-        XCTAssertEqual(AddCredentialViewModel.sanitizeId("飞搜 API"), "飞搜-api")
+        // 组 ID 给机器用：中文转拼音，只留 ASCII（yyt 2026-09-11）。
+        XCTAssertEqual(AddCredentialViewModel.sanitizeId("飞搜 API"), "fei-sou-api")
     }
 
     func test草稿标题在未填名字时给出占位() {

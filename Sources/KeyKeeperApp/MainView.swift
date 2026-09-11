@@ -22,6 +22,9 @@ struct MainView: View {
     @ObservedObject private var inbox = UICommandInbox.shared
     @State private var page: Page = .home
     @FocusState private var searchFocused: Bool
+    /// The latest name/notes edit made by an agent or script, until dismissed.
+    @State private var latestChange: MetadataChangeRecord?
+    @AppStorage("lastSeenMetadataChange") private var lastSeenChange = ""
 
     private let session: any CredentialSessionManaging
     private var importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)?
@@ -67,15 +70,17 @@ struct MainView: View {
                         afterFilePicker: reopenPopover
                     )
                 case .detail(let id):
-                    if let item = viewModel.credentials.first(where: { $0.id == id }) {
+                    // An agent may have renamed it while it was open; old IDs still find it.
+                    if let item = viewModel.credentials.first(where: { $0.id == id })
+                        ?? viewModel.credentials.first(where: { $0.credential.aliases?.contains(id) == true }) {
                         PopoverKeyDetail(
-                            credentialId: id,
+                            credentialId: item.id,
                             credential: item.credential,
                             session: session,
                             onBack: { page = .home },
-                            onOpenWindow: { openMainWindow(.keys, id) }
+                            onOpenWindow: { openMainWindow(.keys, item.id) }
                         )
-                        .id(id)
+                        .id(item.id)
                     } else {
                         home
                     }
@@ -128,6 +133,10 @@ struct MainView: View {
                 waitingSection
             }
 
+            if let change = latestChange, change.id != lastSeenChange {
+                changeNotice(change)
+            }
+
             list
 
             footer
@@ -141,7 +150,32 @@ struct MainView: View {
             viewModel.load()
             addVM.refreshExistingIds()
             searchFocused = true
+            latestChange = (try? MetadataChangeLog.default.records())?.last
         }
+        .onReceive(NotificationCenter.default.publisher(for: .metadataEditedByCaller)) { note in
+            latestChange = note.object as? MetadataChangeRecord
+        }
+    }
+
+    /// No prompt when an agent renames or re-describes a key; it is said here instead.
+    private func changeNotice(_ record: MetadataChangeRecord) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "pencil.circle.fill").font(.system(size: 18)).foregroundColor(.accentColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(MetadataEditCopy.headline(record)).font(.callout.weight(.semibold)).lineLimit(1)
+                Text(record.changes.map(MetadataEditCopy.text).joined(separator: " · "))
+                    .font(.caption).foregroundColor(.secondary).lineLimit(2)
+            }
+            Spacer(minLength: 4)
+            Button { lastSeenChange = record.id } label: { Image(systemName: "xmark") }
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
+                .help(L("Dismiss"))
+        }
+        .padding(12)
+        .contentShape(Rectangle())
+        .onTapGesture { lastSeenChange = record.id; openMainWindow(.activity, nil) }
+        .surface(.card, radius: 14)
     }
 
     /// One grouped container with hairlines inset past the avatar, like the system list.
@@ -188,7 +222,7 @@ struct MainView: View {
         if CredentialKind(credential) == .serviceAccountFile {
             return L("Service-account JSON file")
         }
-        return credential.fields.keys.sorted().joined(separator: " · ")
+        return credential.fieldSummary
     }
 
     // MARK: Waiting for you
@@ -434,8 +468,14 @@ struct PopoverKeyDetail: View {
                     if field.fileFormat != nil {
                         fileRows(field)
                     } else {
-                        row(field.name, monospaced: true) { fieldValue(index: index, field: field) }
-                            .contextMenu { fieldMenu(index: index, field: field) }
+                        HStack(spacing: 10) {
+                            FieldNameLabel(field: field, credential: vm.credential)
+                            Spacer(minLength: 12)
+                            fieldValue(index: index, field: field)
+                        }
+                        .frame(minHeight: 40)
+                        .padding(.vertical, 2)
+                        .contextMenu { fieldMenu(index: index, field: field) }
                     }
                 }
                 if !vm.credential.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

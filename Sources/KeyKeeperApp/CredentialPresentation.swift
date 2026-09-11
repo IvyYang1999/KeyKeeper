@@ -29,3 +29,12 @@ enum NoteText {
         return result
     }
 }
+
+extension Credential {
+    /// Field names for list subtitles, using the display name people gave a field when there is one.
+    var fieldSummary: String {
+        fields.sorted { $0.key < $1.key }
+            .map { $0.value.displayName ?? $0.key }
+            .joined(separator: " · ")
+    }
+}

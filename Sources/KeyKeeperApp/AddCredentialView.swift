@@ -281,6 +281,10 @@ struct DescriptionEditor: View {
 
 struct KeyFieldsEditor: View {
     @Binding var fields: [FieldEntry]
+    /// Detail editor: the name column is the machine name and a separate display name is
+    /// editable. Add form: whatever is typed becomes the display name and a machine name is
+    /// derived from it.
+    var showsDisplayName = false
     /// Reads a field's stored value. Provided by the detail editor so the eye shows what is
     /// already saved; nil on the Add page, where nothing is stored yet.
     var revealStoredValue: ((FieldEntry) throws -> String)? = nil
@@ -303,6 +307,15 @@ struct KeyFieldsEditor: View {
             fields[index].value = try fetch(fields[index])
         }
         fields[index].visible = true
+    }
+
+    /// "→ API_KEY", or "→ api-key · API_KEY" when the typed name gets a plainer machine name.
+    private func namePreview(_ typed: String) -> String {
+        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return " " }
+        let machine = showsDisplayName ? trimmed : AddCredentialViewModel.machineFieldName(trimmed)
+        let variable = EnvironmentVariableName.from(fieldName: machine)
+        return machine == trimmed ? "\u{2192} \(variable)" : "\u{2192} \(machine) \u{00B7} \(variable)"
     }
 
     var body: some View {
@@ -351,11 +364,17 @@ struct KeyFieldsEditor: View {
                     .padding(.vertical, 6)
                     .surface(.inset, radius: DS.Radius.sm)
 
+                    if showsDisplayName {
+                        TextField(L("Display name (optional, for you and your agent)"), text: $fields[i].displayName)
+                            .textFieldStyle(.plain)
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .frame(height: 24)
+                            .surface(.inset, radius: DS.Radius.sm)
+                    }
                     // Rendered unconditionally: letting it appear and disappear made the
                     // whole form jump while the user was still typing the field name.
-                    Text(fields[i].name.isEmpty
-                         ? " "
-                         : "\u{2192} \(EnvironmentVariableName.from(fieldName: fields[i].name))")
+                    Text(namePreview(fields[i].name))
                         .font(.caption2.monospaced())
                         .foregroundColor(.secondary.opacity(0.7))
                 }
