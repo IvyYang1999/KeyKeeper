@@ -12,7 +12,7 @@ import KeyKeeperCore
 enum IPCLaunchPolicy {
     static func shouldLaunchApp(for request: IPCRequest) -> Bool {
         switch request {
-        case .value, .auth, .clipboardSave, .browserImport, .fileImport:
+        case .value, .auth, .clipboardSave, .browserImport, .fileImport, .browserSession:
             return true
         case .sessionControl, .serviceRequests:
             return false
@@ -21,6 +21,28 @@ enum IPCLaunchPolicy {
 }
 
 enum IPCClient {
+    static func requestBrowserSession(_ request: BrowserSessionRequest, disconnectOnInputClose: Bool = false) throws -> BrowserSessionResponse {
+        try request.validate()
+        let fd = try connectWithRetry(launchIfNeeded: true)
+        var inputMonitor: DispatchSourceRead?
+        if disconnectOnInputClose {
+            let monitorFD = dup(fd)
+            guard monitorFD >= 0 else { close(fd); throw IPCError.appNotResponding }
+            let monitor = DispatchSource.makeReadSource(fileDescriptor: STDIN_FILENO, queue: .global())
+            monitor.setEventHandler { shutdown(monitorFD, SHUT_RDWR); monitor.cancel() }
+            monitor.setCancelHandler { close(monitorFD) }
+            monitor.resume(); inputMonitor = monitor
+        }
+        defer { inputMonitor?.cancel(); close(fd) }
+        var timeout = timeval(tv_sec: 120, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        var sendTimeout = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &sendTimeout, socklen_t(MemoryLayout<timeval>.size))
+        try IPCMessage.writeMessage(fd: fd, message: IPCRequest.browserSession(request))
+        guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self),
+              case .browserSession(let result) = response else { throw IPCError.appNotResponding }
+        return result
+    }
     static func requestFileImport(_ request: FileImportRequest) throws -> ClipboardSaveResponse {
         try request.validate()
         let fd = try connectWithRetry(launchIfNeeded: true)

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-Hans">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>交给 KeyKeeper</title>
+<link rel="stylesheet" href="popup.css">
+<main>
+  <header><span class="mark" aria-hidden="true">⌘</span><span>KeyKeeper<span class="sub">网站登录态 · 预览版</span></span></header>
+  <h1>只交给它，<br>你选的这个网站。</h1>
+  <section aria-label="选择的网站"><p class="caption">当前 Chrome 资料中的网站</p><p id="site" class="site">正在确认网站…</p></section>
+  <label for="label">给这份登录态起个名字</label>
+  <input id="label" maxlength="100" autocomplete="off" placeholder="例如：工作账号" disabled>
+  <p class="hint">名称对 AI 可见，请不要填密码或账号隐私。</p>
+  <div class="boundaries">
+    <p>保存在这台 Mac 的钥匙串中，不向 AI 返回 Cookie 值。</p>
+    <p>AI 每次打开都要你确认，窗口最多保留 15 分钟。账号操作<strong>不是只读</strong>。</p>
+  </div>
+  <button id="import" disabled>请求保存到 KeyKeeper</button>
+  <p id="result" role="status" aria-live="polite">尚未读取登录态。点按钮后，Chrome 会询问这个网站的访问权限。</p>
+  <details><summary>如何收回？哪些网站可用？</summary>
+    <p>在 KeyKeeper 的「网站登录态」中停止窗口或删除快照。它不会退出原 Chrome 账号，也不会作废网站服务器的会话。</p>
+    <p>预览版只复制当前网站根路径下的非分区 Cookie，不包含浏览器本地存储；部分网站不能保持登录。含 SameSite=None 的快照暂不支持。原登录态始终保留。</p>
+    <p>请求完成后会尝试收回本次申请的网站读取权限。若中途关闭面板，请到 Chrome 的扩展设置核对并收回权限。</p>
+  </details>
+  <footer>保存时请保持此窗口打开，在 Mac 提示中确认。</footer>
+</main>
+<script type="module" src="popup.mjs"></script>
+</html>

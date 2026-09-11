@@ -7,6 +7,16 @@ final class UpdatePackagingContractTests: XCTestCase {
         .deletingLastPathComponent()
         .deletingLastPathComponent()
 
+    func testBrowserNativeHostAndExtensionAreBundledWithoutASeparateUnsignedBinary() throws {
+        let script = try String(contentsOf: repositoryRoot.appendingPathComponent("scripts/build-app.sh"), encoding: .utf8)
+        XCTAssertTrue(script.contains("Contents/Resources/browser-extension"))
+        XCTAssertTrue(script.contains("Contents/Resources/browser-native-host"))
+        let launcher = try String(contentsOf: repositoryRoot.appendingPathComponent("Resources/browser-native-host"), encoding: .utf8)
+        XCTAssertTrue(launcher.contains("../MacOS/keykeeper"))
+        XCTAssertTrue(launcher.contains("browser-native-host"))
+        XCTAssertFalse(launcher.contains("eval "))
+    }
+
     func test版本只有一个权威来源且可供Sparkle比较() throws {
         let version = try String(
             contentsOf: repositoryRoot.appendingPathComponent("VERSION"),

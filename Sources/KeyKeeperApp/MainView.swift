@@ -21,12 +21,15 @@ struct MainView: View {
     private let serviceGrantStore = ServiceGrantStore.default
     private let session: any CredentialSessionManaging
     private var importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)?
+    private var showBrowserSessions: (() -> Void)?
 
     init(session: any CredentialSessionManaging, updateController: UpdateController,
-         importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)? = nil) {
+         importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)? = nil,
+         showBrowserSessions: (() -> Void)? = nil) {
         self.session = session
         self.updateController = updateController
         self.importFile = importFile
+        self.showBrowserSessions = showBrowserSessions
         _viewModel = StateObject(wrappedValue: CredentialListViewModel(session: session))
         _addVM = StateObject(wrappedValue: AddCredentialViewModel(session: session))
     }
@@ -134,6 +137,10 @@ struct MainView: View {
                 Text("KeyKeeper")
                     .font(.title3.weight(.semibold))
                 Spacer()
+                if let showBrowserSessions {
+                    Button(action: showBrowserSessions) { Image(systemName: "globe") }
+                        .help(L("Website sessions"))
+                }
                 Button(action: { showSettings = true }) {
                     Image(systemName: "gearshape")
                 }

@@ -97,5 +97,5 @@ public struct BrowserSessionSummary: Codable, Sendable, Equatable, Identifiable 
 }
 
 public enum BrowserSessionError: String, Error, Codable, Sendable {
-    case invalidImport, unavailable, conflict, notFound, expired, capacity, denied, busy, disconnected
+    case invalidImport, unavailable, conflict, notFound, expired, capacity, denied, busy, disconnected, unsupported
 }

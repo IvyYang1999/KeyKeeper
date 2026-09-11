@@ -14,6 +14,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminationSignalSources: [DispatchSourceSignal] = []
     private var isTerminating = false
     private let updateController = UpdateController()
+    private let browserSessions = BrowserSessionFeature()
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         signal(SIGPIPE, SIG_IGN)
@@ -29,7 +30,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
         ipcServer = IPCServer(session: credentialService,
-            clipboardSaveController: ClipboardSaveController(service: credentialService))
+            clipboardSaveController: ClipboardSaveController(service: credentialService),
+            browserSessionController: browserSessions.controller)
         switch ipcServer.start() {
         case .started(let disposition):
             if disposition == .replacedStaleSocket {
@@ -63,7 +65,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 importFile: { [weak self] request, completion in
                     guard let self else { completion(.init(success: false, errorCode: .storageUnavailable)); return }
                     self.ipcServer.importFile(request, completion: completion)
-                })
+                }, showBrowserSessions: { [weak self] in self?.browserSessions.show() })
         )
 
         authWindowController = AuthorizationWindowController()

@@ -45,6 +45,7 @@ public enum KeychainReadTimeoutPolicy {
 // MARK: - Request / Response Envelopes
 
 public enum IPCRequest: Codable, Sendable {
+    case browserSession(BrowserSessionRequest)
     case fileImport(FileImportRequest)
     case browserImport(ClipboardSaveRequest)
     case clipboardSave(ClipboardSaveRequest)
@@ -58,6 +59,9 @@ public enum IPCRequest: Codable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .browserSession(let r):
+            try c.encode("browserSession", forKey: .type)
+            try c.encode(r, forKey: .data)
         case .fileImport(let r):
             try c.encode("fileImport", forKey: .type)
             try c.encode(r, forKey: .data)
@@ -85,6 +89,7 @@ public enum IPCRequest: Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         switch try c.decode(String.self, forKey: .type) {
+        case "browserSession": self = .browserSession(try c.decode(BrowserSessionRequest.self, forKey: .data))
         case "fileImport": self = .fileImport(try c.decode(FileImportRequest.self, forKey: .data))
         case "browserImport": self = .browserImport(try c.decode(ClipboardSaveRequest.self, forKey: .data))
         case "clipboardSave": self = .clipboardSave(try c.decode(ClipboardSaveRequest.self, forKey: .data))
@@ -100,6 +105,7 @@ public enum IPCRequest: Codable, Sendable {
 }
 
 public enum IPCResponse: Codable, Sendable {
+    case browserSession(BrowserSessionResponse)
     case browserImportReady(String)
     case clipboardSave(ClipboardSaveResponse)
     case auth(AuthResponse)
@@ -112,6 +118,9 @@ public enum IPCResponse: Codable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .browserSession(let r):
+            try c.encode("browserSession", forKey: .type)
+            try c.encode(r, forKey: .data)
         case .browserImportReady(let url):
             try c.encode("browserImportReady", forKey: .type)
             try c.encode(url, forKey: .data)
@@ -136,6 +145,7 @@ public enum IPCResponse: Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         switch try c.decode(String.self, forKey: .type) {
+        case "browserSession": self = .browserSession(try c.decode(BrowserSessionResponse.self, forKey: .data))
         case "browserImportReady": self = .browserImportReady(try c.decode(String.self, forKey: .data))
         case "clipboardSave": self = .clipboardSave(try c.decode(ClipboardSaveResponse.self, forKey: .data))
         case "auth":  self = .auth(try c.decode(AuthResponse.self, forKey: .data))

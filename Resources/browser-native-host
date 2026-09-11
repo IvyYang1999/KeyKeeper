@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+KK_RESOURCE_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec "$KK_RESOURCE_DIR/../MacOS/keykeeper" browser-native-host "$@"

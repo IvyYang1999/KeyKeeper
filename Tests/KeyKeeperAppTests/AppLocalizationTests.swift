@@ -3,6 +3,16 @@ import KeyKeeperCore
 @testable import KeyKeeperApp
 
 final class AppLocalizationTests: XCTestCase {
+    func testBrowserSessionStaticCopyHasChineseTranslation() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("Sources/KeyKeeperApp/BrowserSessionViews.swift"), encoding: .utf8)
+        let pattern = try NSRegularExpression(pattern: #"L\("([^"\\]*)"\)"#)
+        for match in pattern.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
+            let key = (source as NSString).substring(with: match.range(at: 1))
+            XCTAssertNotNil(AppL10n.chinese[key], key)
+        }
+        XCTAssertNotNil(AppL10n.chinese["Profile label: {0} · {1} Cookies"])
+    }
     func testStorageCreationAndRecoveryErrorsAreTranslatedWithoutSecretInterpolation() {
         let errors: [any LocalizedError] = [CredentialStorageError.missingStore, CredentialStorageError.incompleteStore,
             ClipboardSaveError.valueExists, ClipboardSaveError.invalidTarget, ClipboardSaveError.staleGrants,

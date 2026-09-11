@@ -13,3 +13,4 @@ node_modules/
 *.swiftdeps
 *.swiftdeps~
 .signing-identity
+.repo_memory/

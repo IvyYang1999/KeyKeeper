@@ -55,6 +55,9 @@ cp "$PROJECT_DIR/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 cp "$BUILD_DIR/KeyKeeperApp" "$APP_BUNDLE/Contents/MacOS/KeyKeeperApp"
 cp "$BUILD_DIR/keykeeper" "$APP_BUNDLE/Contents/MacOS/keykeeper"
 cp "$PROJECT_DIR/Assets/KeyKeeper.icns" "$APP_BUNDLE/Contents/Resources/KeyKeeper.icns"
+cp -R "$PROJECT_DIR/browser-extension" "$APP_BUNDLE/Contents/Resources/browser-extension"
+cp "$PROJECT_DIR/Resources/browser-native-host" "$APP_BUNDLE/Contents/Resources/browser-native-host"
+chmod 755 "$APP_BUNDLE/Contents/Resources/browser-native-host"
 if [ -f "$PROJECT_DIR/skill/keykeeper.md" ]; then
     cp "$PROJECT_DIR/skill/keykeeper.md" "$APP_BUNDLE/Contents/Resources/keykeeper.md"
 fi

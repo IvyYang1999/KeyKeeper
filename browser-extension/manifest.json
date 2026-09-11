@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "KeyKeeper · 网站登录态",
+  "version": "0.1.0",
+  "description": "只导入你选择的网站登录态。由 Mac 上的 KeyKeeper 确认、保管与收回。",
+  "minimum_chrome_version": "119",
+  "permissions": ["activeTab", "cookies", "nativeMessaging"],
+  "optional_host_permissions": ["https://*/*"],
+  "action": { "default_title": "交给 KeyKeeper" },
+  "background": { "service_worker": "launch.js" },
+  "incognito": "not_allowed"
+}
