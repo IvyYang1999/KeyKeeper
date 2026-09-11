@@ -21,6 +21,20 @@ final class AgentHandoffTests: XCTestCase {
         XCTAssertTrue(en.contains("Never ask me for the value"))
     }
 
+    func test有备注时提示词带上给Agent的备注() {
+        var cred = credential(["api-key": CredentialField(value: "should-not-appear", secret: true)])
+        cred.notes = "  只用于 staging 环境，额度每月 50 刀\n"
+        let zh = AgentPromptCopy.prompt(credentialId: "openai", credential: cred, language: "zh-Hans")
+        XCTAssertTrue(zh.contains("备注：只用于 staging 环境，额度每月 50 刀"))
+        XCTAssertFalse(zh.contains("should-not-appear"))
+
+        let en = AgentPromptCopy.prompt(credentialId: "openai", credential: cred, language: "en")
+        XCTAssertTrue(en.contains("Note: 只用于 staging 环境，额度每月 50 刀"))
+
+        cred.notes = "   "
+        XCTAssertFalse(AgentPromptCopy.prompt(credentialId: "openai", credential: cred, language: "zh-Hans").contains("备注"))
+    }
+
     func test服务账号文件的提示词带file映射() {
         let cred = credential(["credentials-json": CredentialField(secret: true, fileFormat: .serviceAccountJSON)])
         let zh = AgentPromptCopy.prompt(credentialId: "ga4", credential: cred, language: "zh-Hans")

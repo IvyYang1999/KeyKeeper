@@ -256,7 +256,7 @@ struct DescriptionEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-            SectionLabel(text: L("Description"), hint: L("visible to AI"))
+            SectionLabel(text: L("Note for your agent"), hint: L("goes into the prompt"))
             TextEditor(text: $text)
                 .font(.callout)
                 .frame(minHeight: 52, maxHeight: 88)
@@ -265,7 +265,7 @@ struct DescriptionEditor: View {
                 .surface(.inset, radius: DS.Radius.sm)
                 .overlay(alignment: .topLeading) {
                     if text.isEmpty {
-                        Text(L("When to use these keys, renewal links, notes to self\u{2026}"))
+                        Text(L("What it is for, limits, which environment\u{2026}"))
                             .font(.callout)
                             .foregroundColor(.secondary.opacity(0.5))
                             .padding(.horizontal, 10)

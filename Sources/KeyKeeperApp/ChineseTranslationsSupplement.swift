@@ -73,6 +73,17 @@ extension AppL10n {
         "Allow": "允许",
         "Deny": "拒绝",
         "{0} wants to use {1}": "{0} 想使用 {1}",
+        // Credential detail
+        "Note for your agent": "给 Agent 的备注",
+        "goes into the prompt": "会放进提示词",
+        "What it is for, limits, which environment\u{2026}": "用途、额度、用在哪个环境……",
+        "No note yet. Add what it is for, its limits or which environment to use; it goes into the prompt.": "还没写备注。写上用途、额度或该用哪个环境，会一起放进提示词。",
+        "Add a note\u{2026}": "写备注…",
+        "Run it yourself in a terminal": "自己在终端里用",
+        "Hide": "隐藏",
+        "added to the end of the prompt": "会附在提示词末尾",
+        "Show": "显示",
+        "Environment variables: {0}": "环境变量：{0}",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",
