@@ -256,7 +256,11 @@ struct MainView: View {
             Button { openMainWindow(.keys, id) } label: {
                 HStack(spacing: 6) {
                     Text(credential.label).font(.callout).lineLimit(1)
-                    Text(id).font(.caption.monospaced()).foregroundColor(.secondary).lineLimit(1)
+                    // The ID only adds information when it differs from the name.
+                    Text(credential.label.caseInsensitiveCompare(id) == .orderedSame
+                         ? credential.fields.keys.sorted().joined(separator: " · ")
+                         : id)
+                        .font(.caption.monospaced()).foregroundColor(.secondary).lineLimit(1)
                     Text("· \(RecentCredentials.dayLabel(for: credential.created))")
                         .font(.caption).foregroundColor(.secondary)
                     Spacer(minLength: 0)
