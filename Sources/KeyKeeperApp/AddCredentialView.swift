@@ -235,6 +235,29 @@ struct DescriptionEditor: View {
 
 struct KeyFieldsEditor: View {
     @Binding var fields: [FieldEntry]
+    /// Reads a field's stored value. Provided by the detail editor so the eye shows what is
+    /// already saved; nil on the Add page, where nothing is stored yet.
+    var revealStoredValue: ((FieldEntry) throws -> String)? = nil
+    var onRevealError: ((Error) -> Void)? = nil
+
+    /// Eye button behaviour, shared with the detail view. A stored value is fetched the
+    /// first time it is revealed; before this, the edit-mode eye only flipped `visible`
+    /// and showed an empty box, which read as "my key is gone".
+    static func toggleVisibility(
+        of fields: inout [FieldEntry],
+        at index: Int,
+        fetch: ((FieldEntry) throws -> String)?
+    ) throws {
+        guard fields.indices.contains(index), fields[index].fileFormat == nil else { return }
+        if fields[index].visible {
+            fields[index].visible = false
+            return
+        }
+        if let fetch, fields[index].existingSecret, fields[index].value.isEmpty {
+            fields[index].value = try fetch(fields[index])
+        }
+        fields[index].visible = true
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
@@ -264,7 +287,8 @@ struct KeyFieldsEditor: View {
                             visible: $fields[i].visible,
                             placeholder: fields[i].existingSecret
                                 ? L("Unchanged")
-                                : L("Paste or type the value")
+                                : L("Paste or type the value"),
+                            onToggleVisibility: { toggle(i) }
                         )
 
                         if fields.count > 1 {
@@ -305,6 +329,16 @@ struct KeyFieldsEditor: View {
             }
             .buttonStyle(.plain)
             .foregroundColor(.accentColor)
+        }
+    }
+}
+
+extension KeyFieldsEditor {
+    fileprivate func toggle(_ index: Int) {
+        do {
+            try Self.toggleVisibility(of: &fields, at: index, fetch: revealStoredValue)
+        } catch {
+            onRevealError?(error)
         }
     }
 }

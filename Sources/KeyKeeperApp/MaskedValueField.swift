@@ -37,6 +37,8 @@ struct MaskedValueField: View {
     var placeholder: String = L("Paste or type the value")
     var editable: Bool = true
     var onCopy: (() -> Void)?
+    /// Replaces the plain visible toggle, e.g. to fetch a stored value before revealing it.
+    var onToggleVisibility: (() -> Void)?
 
     @FocusState private var isFocused: Bool
 
@@ -79,7 +81,7 @@ struct MaskedValueField: View {
             }
 
             Button(action: {
-                visible.toggle()
+                if let onToggleVisibility { onToggleVisibility() } else { visible.toggle() }
                 if visible, editable {
                     // The control is swapped (SecureField → TextField); focus it once the new one exists.
                     DispatchQueue.main.async { isFocused = true }

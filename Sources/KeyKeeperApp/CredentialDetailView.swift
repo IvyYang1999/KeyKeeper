@@ -116,7 +116,11 @@ struct CredentialDetailView: View {
 
                 // Keys
                 if vm.isEditing {
-                    KeyFieldsEditor(fields: $vm.fields)
+                    KeyFieldsEditor(
+                        fields: $vm.fields,
+                        revealStoredValue: { entry in try vm.storedValue(for: entry) },
+                        onRevealError: { vm.reportRevealFailure($0) }
+                    )
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         SectionLabel(text: L("Keys"))

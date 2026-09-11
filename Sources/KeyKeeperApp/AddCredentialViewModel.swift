@@ -8,6 +8,8 @@ struct FieldEntry: Identifiable {
     var visible: Bool = false  // Hidden by default, click eye to reveal
     var existingSecret: Bool = false  // For detail view: whether this value already exists in the keychain store
     var fileFormat: CredentialFileFormat?
+    /// Name at the time editing started (detail view only), so a rename keeps the stored value.
+    var originalName: String?
 }
 
 @MainActor

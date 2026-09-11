@@ -39,13 +39,9 @@ final class CredentialDetailViewModel: ObservableObject {
 
         do {
             try CredentialOperationMessages.requireUnlocked(session)
-            if fields[index].existingSecret, fields[index].value.isEmpty {
-                fields[index].value = try session.retrieve(
-                    credentialId: credentialId,
-                    fieldName: fields[index].name
-                )
+            try KeyFieldsEditor.toggleVisibility(of: &fields, at: index) { entry in
+                try self.session.retrieve(credentialId: self.credentialId, fieldName: entry.originalName ?? entry.name)
             }
-            fields[index].visible = true
             errorMessage = nil
         } catch {
             fields[index].value = ""
@@ -56,6 +52,20 @@ final class CredentialDetailViewModel: ObservableObject {
                 error: error
             )
         }
+    }
+
+    /// Stored value for an editor row; used by the edit-mode eye.
+    func storedValue(for entry: FieldEntry) throws -> String {
+        try CredentialOperationMessages.requireUnlocked(session)
+        return try self.session.retrieve(credentialId: self.credentialId, fieldName: entry.originalName ?? entry.name)
+    }
+
+    func reportRevealFailure(_ error: Error) {
+        errorMessage = CredentialOperationMessages.failure(
+            action: L("reveal this secret"),
+            fallbackPrefix: L("Failed to read key"),
+            error: error
+        )
     }
 
     func copyFieldValue(_ fieldName: String) -> String? {
@@ -105,11 +115,21 @@ final class CredentialDetailViewModel: ObservableObject {
                 }
             }
             let plan = CredentialEditPlan(
-                inputFields: fields.map { .init(name: $0.name, value: $0.value) },
+                inputFields: fields.map { .init(name: $0.name, value: $0.value, originalName: $0.originalName) },
                 existingFields: existingFields,
                 security: security
             )
 
+            // Renames first: the old value must be copied before deletions remove it.
+            for rename in plan.valueRenames {
+                let value = try session.retrieve(credentialId: credentialId, fieldName: rename.from)
+                try session.save(
+                    credentialId: credentialId,
+                    fieldName: rename.to,
+                    value: value,
+                    security: plan.metadata.security
+                )
+            }
             for fieldName in plan.valueDeletions {
                 try session.delete(credentialId: credentialId, fieldName: fieldName)
             }
@@ -131,6 +151,7 @@ final class CredentialDetailViewModel: ObservableObject {
                     != meta.credentials[credentialId]?.fields.keys.sorted()
                 || security != meta.credentials[credentialId]?.security
                 || !plan.valueWrites.isEmpty
+                || !plan.valueRenames.isEmpty
 
             credential.fields = plan.metadata.fields
             credential.security = plan.metadata.security
@@ -161,7 +182,8 @@ final class CredentialDetailViewModel: ObservableObject {
                 value: "",
                 visible: false,
                 existingSecret: field.secret,
-                fileFormat: field.fileFormat
+                fileFormat: field.fileFormat,
+                originalName: name
             )
         }
     }
