@@ -58,6 +58,15 @@ final class MetadataEditPlanTests: XCTestCase {
         XCTAssertEqual(back.meta.credentials["baidu-qianfan"]?.aliases, ["百度千帆", "qianfan"])
     }
 
+    /// 【曾经的 bug】同一条命令里改字段名、再按新名字设显示名，报「没有这个字段」。
+    /// 文档里的示例 `--rename-field cc=api-key --field-label "api-key=..."` 就是这么写的。
+    func test曾经的Bug同一次编辑里可以按新字段名设显示名() throws {
+        let result = try MetadataEditPlan.apply(
+            MetadataEdit(fieldRenames: ["cc": "api-key"], fieldDisplayNames: ["api-key": "千帆 API Key"]),
+            to: meta(), groupId: "百度千帆")
+        XCTAssertEqual(result.meta.credentials["百度千帆"]?.fields["api-key"]?.displayName, "千帆 API Key")
+    }
+
     func test新名字不能撞上别人的现名或旧名() throws {
         XCTAssertThrowsError(try MetadataEditPlan.apply(MetadataEdit(newGroupId: "openai"), to: meta(), groupId: "百度千帆")) {
             XCTAssertEqual($0 as? MetadataEditError, .groupIdTaken("openai"))

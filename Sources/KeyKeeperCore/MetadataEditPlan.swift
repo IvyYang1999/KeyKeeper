@@ -107,10 +107,15 @@ public enum MetadataEditPlan {
             changes.append(.groupRenamed(from: groupId, to: newId))
         }
 
-        // Display names refer to fields by their names before any rename in the same edit.
+        // Display names may name a field by its current or old name, or by the new name it
+        // gets in this same edit; all are mapped to the name before the rename.
+        let renamedFrom = Dictionary(edit.fieldRenames.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
         var displayNames: [String: String] = [:]
         for (field, display) in edit.fieldDisplayNames {
-            guard let current = credential.resolveFieldName(field) else { throw MetadataEditError.fieldNotFound(field) }
+            guard let current = credential.resolveFieldName(field)
+                    ?? renamedFrom[field].flatMap({ credential.resolveFieldName($0) }) else {
+                throw MetadataEditError.fieldNotFound(field)
+            }
             displayNames[current] = display
         }
 
