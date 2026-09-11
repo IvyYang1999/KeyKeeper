@@ -61,6 +61,7 @@ final class IPCServer: ObservableObject {
     private let grantStore: GrantStore
     private let serviceGrantStore: ServiceGrantStore
     private let clipboardSaveController: ClipboardSaveController?
+    private var browserImportBridge: BrowserImportBridge?
 
     init(
         session: SessionControlling,
@@ -243,6 +244,30 @@ final class IPCServer: ObservableObject {
         }
 
         switch envelope {
+        case .browserImport(let request):
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let controller = self.clipboardSaveController else {
+                    Self.writeAndClose(.clipboardSave(.init(success: false, errorCode: .storageUnavailable)), clientFd: clientFd)
+                    return
+                }
+                guard self.pendingRequest == nil, self.pendingServiceRequest == nil, !controller.isPending else {
+                    self.send(.clipboardSave(.init(success: false, errorCode: .busy)), clientFd: clientFd)
+                    return
+                }
+                let bridge = BrowserImportBridge(controller: controller)
+                self.browserImportBridge = bridge
+                bridge.start(request, callerName: callerIdentity.displayName,
+                    isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
+                    ready: { url in
+                        self.queue.async {
+                            do { try IPCMessage.writeMessage(fd: clientFd, message: IPCResponse.browserImportReady(url)) }
+                            catch { DispatchQueue.main.async { bridge.cancel() } }
+                        }
+                    }, completion: { response in
+                        self.browserImportBridge = nil
+                        self.send(.clipboardSave(response), clientFd: clientFd)
+                    })
+            }
         case .clipboardSave(let request):
             DispatchQueue.main.async { [weak self] in
                 guard let self, let controller = self.clipboardSaveController else {

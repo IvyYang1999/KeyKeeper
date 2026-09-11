@@ -12,7 +12,7 @@ import KeyKeeperCore
 enum IPCLaunchPolicy {
     static func shouldLaunchApp(for request: IPCRequest) -> Bool {
         switch request {
-        case .value, .auth, .clipboardSave:
+        case .value, .auth, .clipboardSave, .browserImport:
             return true
         case .sessionControl, .serviceRequests:
             return false
@@ -21,15 +21,25 @@ enum IPCLaunchPolicy {
 }
 
 enum IPCClient {
-    static func requestClipboardSave(_ request: ClipboardSaveRequest) throws -> ClipboardSaveResponse {
+    static func requestClipboardSave(_ request: ClipboardSaveRequest, fromBrowser: Bool = false,
+                                     ready: (String) -> Void = { _ in }) throws -> ClipboardSaveResponse {
         try request.validate()
         let fd = try connectWithRetry(launchIfNeeded: true)
         defer { close(fd) }
         var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout), tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-        try IPCMessage.writeMessage(fd: fd, message: IPCRequest.clipboardSave(request))
+        try IPCMessage.writeMessage(fd: fd, message: fromBrowser ? IPCRequest.browserImport(request) : IPCRequest.clipboardSave(request))
         guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else {
             throw IPCError.appNotResponding
+        }
+        if fromBrowser, case .browserImportReady(let url) = response {
+            guard let parts = URLComponents(string: url), parts.scheme == "http", parts.host == "127.0.0.1",
+                  parts.port != nil, parts.path == "/", parts.query == nil, parts.user == nil,
+                  let ticket = parts.fragment, ticket.count == 64,
+                  ticket.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw IPCError.appNotResponding }
+            ready(url)
+            guard let final = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else { throw IPCError.appNotResponding }
+            return try decodeClipboardSaveResponse(final)
         }
         return try decodeClipboardSaveResponse(response)
     }

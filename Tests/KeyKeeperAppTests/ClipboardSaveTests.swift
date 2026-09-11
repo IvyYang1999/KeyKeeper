@@ -72,6 +72,31 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         controller.resolve(approved: true)
         XCTAssertEqual(io.writes, 1)
     }
+
+    func testBrowserSourceReservesTargetWithoutShowingOrReadingUntilPaste() throws {
+        var presentations = 0
+        controller = ClipboardSaveController(service: service, metaStore: meta, clipboard: clipboard,
+            now: { self.clock }, present: { info, _ in
+                XCTAssertTrue(info.fromBrowser); presentations += 1
+            }, dismiss: {})
+        let browserSource = SaveTestClipboard()
+        browserSource.text = "synthetic-browser"
+        controller.receive(.init(credentialId: "fixture", fieldName: "key", create: true), callerName: "Test",
+            isConnected: { self.connected }, source: browserSource, deferPresentation: true,
+            completion: { self.results.append($0) })
+        XCTAssertTrue(controller.isPending)
+        XCTAssertEqual(presentations, 0)
+        controller.resolve(approved: true)
+        XCTAssertEqual(io.writes, 0)
+        controller.presentPending()
+        controller.presentPending()
+        XCTAssertEqual(presentations, 1)
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.last, .init(success: true))
+        XCTAssertEqual(browserSource.clears, 1)
+        XCTAssertEqual(clipboard.reads, 0)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "synthetic-browser")
+    }
     func testCancelAndTimeoutNeverReadClipboardOrWrite() {
         request(); controller.resolve(approved: false)
         XCTAssertEqual(results.last?.errorCode, .denied)

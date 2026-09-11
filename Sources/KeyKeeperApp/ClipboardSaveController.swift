@@ -18,12 +18,14 @@ import KeyKeeperCore
     struct Presentation {
         let request: ClipboardSaveRequest
         let callerName: String
+        var fromBrowser = false
     }
     private struct Pending {
         let id: UUID
         let presentation: Presentation
         let metadata: Data
         let changeCount: Int
+        let source: ClipboardSaveSource
         let expiresAt: Date
         let isConnected: () -> Bool
         let completion: (ClipboardSaveResponse) -> Void
@@ -36,6 +38,7 @@ import KeyKeeperCore
     private let dismiss: () -> Void
     private var pending: Pending?
     private var timer: Timer?
+    private var isPresented = false
     var isPending: Bool { pending != nil }
 
     init(service: KeychainCredentialService, metaStore: MetaStore = .default,
@@ -51,6 +54,7 @@ import KeyKeeperCore
 
     func receive(_ request: ClipboardSaveRequest, callerName: String,
                  isConnected: @escaping () -> Bool,
+                 source: ClipboardSaveSource? = nil, deferPresentation: Bool = false,
                  completion: @escaping (ClipboardSaveResponse) -> Void) {
         guard pending == nil else { completion(.init(success: false, errorCode: .busy)); return }
         do {
@@ -58,20 +62,28 @@ import KeyKeeperCore
             guard isConnected() else { throw ClipboardSaveError.disconnected }
             let metadata = try metaStore.load()
             try validateTarget(request, metadata: metadata)
-            let info = Presentation(request: request, callerName: callerName)
+            let info = Presentation(request: request, callerName: callerName, fromBrowser: source != nil)
+            let source = source ?? clipboard
             let id = UUID()
             pending = Pending(id: id, presentation: info, metadata: try canonical(metadata),
-                changeCount: clipboard.changeCount, expiresAt: now().addingTimeInterval(90),
+                changeCount: source.changeCount, source: source, expiresAt: now().addingTimeInterval(90),
                 isConnected: isConnected, completion: completion)
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.expireIfNeeded() }
             }
-            present(info) { [weak self] approved in
-                guard self?.pending?.id == id else { return }
-                self?.resolve(approved: approved)
-            }
+            if !deferPresentation { presentPending() }
         } catch {
             completion(.init(success: false, errorCode: error as? ClipboardSaveError ?? .storageUnavailable))
+        }
+    }
+
+    func presentPending() {
+        expireIfNeeded()
+        guard let pending, !isPresented else { return }
+        isPresented = true
+        present(pending.presentation) { [weak self] approved in
+            guard self?.pending?.id == pending.id else { return }
+            self?.resolve(approved: approved)
         }
     }
 
@@ -85,9 +97,10 @@ import KeyKeeperCore
 
     func resolve(approved: Bool) {
         expireIfNeeded()
-        guard let pending else { return }
+        guard let pending, isPresented else { return }
         guard approved else { cancel(); return }
         do {
+            let clipboard = pending.source
             let request = pending.presentation.request
             var metadata = try metaStore.load()
             guard try canonical(metadata) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
@@ -151,7 +164,7 @@ import KeyKeeperCore
 
     private func finish(_ response: ClipboardSaveResponse) {
         guard let pending else { return }
-        self.pending = nil; timer?.invalidate(); timer = nil
+        self.pending = nil; isPresented = false; timer?.invalidate(); timer = nil
         dismiss()
         pending.completion(response)
     }
@@ -188,12 +201,14 @@ extension Notification.Name {
             stack.addArrangedSubview(label)
             label.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
-        label("Save clipboard to KeyKeeper?", font: .boldSystemFont(ofSize: 20))
+        label(info.fromBrowser ? "Save browser paste to KeyKeeper?" : "Save clipboard to KeyKeeper?", font: .boldSystemFont(ofSize: 20))
         let caller = String(info.callerName.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.prefix(80))
         label("Requested by: \(caller)")
         label("Credential ID: \(info.request.credentialId)\nField: \(info.request.fieldName)", font: .monospacedSystemFont(ofSize: 13, weight: .medium))
         label(info.request.create ? "Create a new credential with Ask every time protection." : "Restore this missing field. Keep its existing settings and permissions.")
-        label("The App will read your current clipboard. No value is shown to the caller. Nothing is overwritten and no read permission is granted. The clipboard is cleared after saving. This request expires in 90 seconds.")
+        label(info.fromBrowser
+            ? "Save the value just pasted into the local browser receiver. No value is shown to the caller. Nothing is overwritten and no read permission is granted. Website identity is not verified. This request expires in 90 seconds."
+            : "The App will read your current clipboard. No value is shown to the caller. Nothing is overwritten and no read permission is granted. The clipboard is cleared after saving. This request expires in 90 seconds.")
         let buttons = NSStackView(); buttons.orientation = .horizontal; buttons.spacing = 12
         let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelSave))
         cancel.bezelStyle = .rounded; cancel.keyEquivalent = "\r"; cancel.keyEquivalentModifierMask = []

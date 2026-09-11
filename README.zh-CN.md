@@ -200,6 +200,13 @@ runWithSecrets("openai", ["node", "server.js"]);
 
 ## 排错
 
+### 从 Agent 的浏览器导入密钥
+
+运行 `keykeeper save -c my-provider --field api_key --from-browser --create`。CLI 会给出一个一次性本机接收链接：在同一浏览器会话里打开、粘贴，再到 KeyKeeper 确认一次。密钥不放进命令参数，也不返回给 Agent。接收功能随 App 安装，在每位用户自己的 Mac 上运行，请求结束后关闭；不需要云服务器或浏览器扩展。
+
+去掉 `--create` 可补回已有凭据的缺失字段。不会覆盖已有值；新凭据默认每次询问，不授予读取权限。`--from-clipboard` 则读取 macOS 系统剪贴板——官网复制按钮和浏览器独立剪贴板可能使用不同来源。当前支持同一台 Mac 上的桌面 Agent，不支持远端云 Agent。详见[使用方法与限制](docs/BROWSER-IMPORT.md)。
+
+
 | 你看到 | 怎么办 |
 |---|---|
 | `The KeyKeeper app could not be started` | 从「应用程序」打开一次 KeyKeeper；检查是否被 Gatekeeper 拦住。 |

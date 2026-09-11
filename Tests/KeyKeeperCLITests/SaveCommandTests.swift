@@ -3,6 +3,18 @@ import XCTest
 import KeyKeeperCore
 
 final class SaveCommandTests: XCTestCase {
+    func testBrowserImportRequiresExactlyOneSourceAndMetadataOnlyIPC() throws {
+        let command = try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-browser", "--create"])
+        XCTAssertTrue(command.fromBrowser)
+        XCTAssertTrue(command.request.create)
+        XCTAssertThrowsError(try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-browser", "--from-clipboard"]))
+        let encoded = try JSONEncoder().encode(IPCRequest.browserImport(command.request))
+        guard case .browserImport(let decoded) = try JSONDecoder().decode(IPCRequest.self, from: encoded) else { return XCTFail() }
+        XCTAssertEqual(decoded, command.request)
+        let ready = IPCResponse.browserImportReady("http://127.0.0.1:12345/#synthetic-ticket")
+        guard case .browserImportReady(let url) = try JSONDecoder().decode(IPCResponse.self, from: JSONEncoder().encode(ready)) else { return XCTFail() }
+        XCTAssertEqual(url, "http://127.0.0.1:12345/#synthetic-ticket")
+    }
     func testNoValueArgumentAndExplicitClipboardRequired() throws {
         let command = try SaveCommand.parse(["-c", "硅基流动", "--field", "key", "--from-clipboard"])
         XCTAssertEqual(command.request, .init(credentialId: "硅基流动", fieldName: "key"))

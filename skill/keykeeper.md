@@ -101,4 +101,14 @@ Run `keykeeper save -c <credential-id> --field <field-name> --from-clipboard` to
 
 The clipboard must stay unchanged until confirmation. On timeout/connection failure, check the credential metadata and App state before retrying; never blindly repeat a write with an uncertain outcome. Website login/2FA may still require the user. A wholly missing store remains blocked; this command does not reset or recreate it.
 
-This command reads the macOS system clipboard. A tool's browser-session clipboard may be isolated; do not assume `tab.clipboard` reaches KeyKeeper. Use a normal browser's Copy action into the system clipboard, and never bridge an isolated clipboard by printing or returning its contents to the model.
+This command reads the macOS system clipboard. A tool's browser-session clipboard may be isolated; do not assume `tab.clipboard` reaches KeyKeeper.
+
+### Browser-session clipboard (Codex desktop)
+
+Use `keykeeper save -c <credential-id> --field <field-name> --from-browser` (plus `--create` for a fresh ID). Keep this CLI process running: it prints a single-use loopback receiver URL, then waits for the final result. The link authorizes one pending write proposal, never a read; do not share or persist it. No fixed port or machine-specific setup is needed.
+
+Open that exact URL in the **same browser session** holding the copied key. Focus the labeled paste area and use the browser's keyboard Paste action. Do not use clipboard `readText`, DOM extraction, `fill(secret)`, tool arguments, files or chat to transfer the value. The page consumes the paste event without placing the text in its input value. It then asks the user to confirm the exact ID/field in the native KeyKeeper window. Do not auto-approve real-key saves without explicit authorization for that save. Read the final CLI result; opening the page or seeing "waiting for confirmation" is not success.
+
+Website Copy buttons and the browser tool's clipboard may use different buffers. A failed/empty Paste does not justify reading either buffer into the model. Cancel the pending import first; use `--from-clipboard` only when the user/provider action put the intended value into the system clipboard. If the source cannot be established, stop and ask the user to copy through a supported path. Never silently fall back to another clipboard, which could save an unrelated secret. Website-specific compatibility is not universal.
+
+The import expires after 90 seconds. Closing a page during the submitted request or exiting the CLI cancels pending approval; cancellation after a completed save does not undo that save. The browser clipboard is **not** automatically cleared (the App cannot safely compare it); clear it through the browser's supported UI only if that will not replace newer user content. This is a same-Mac desktop workflow, not a cloud/remote-agent endpoint. Follow the browser tool's own permissions and user-confirmation requirements.

@@ -200,6 +200,13 @@ Both SDKs shell out to the `keykeeper` CLI; no native dependencies.
 
 ## Troubleshooting
 
+### Import a key from an Agent's browser
+
+Run `keykeeper save -c my-provider --field api_key --from-browser --create`. The CLI prints a one-time local receiver link: open it in the same browser session, paste, then confirm once in KeyKeeper. The key is not passed in command arguments or returned to the Agent. The receiver comes with the App, runs on each user's own Mac, and closes after the request; no hosted server or extension is needed.
+
+Omit `--create` to restore an existing missing field. Values are never overwritten, and new credentials are strict with no read grants. `--from-clipboard` uses the macOS clipboard instead: website Copy buttons and browser-session clipboards can differ. Desktop/same-Mac only; see [usage and limitations](docs/BROWSER-IMPORT.md).
+
+
 | You see | Do |
 |---|---|
 | `The KeyKeeper app could not be started` | Open KeyKeeper from Applications once; check it isn't blocked by Gatekeeper. |
