@@ -55,6 +55,10 @@ cp "$PROJECT_DIR/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 cp "$BUILD_DIR/KeyKeeperApp" "$APP_BUNDLE/Contents/MacOS/KeyKeeperApp"
 cp "$BUILD_DIR/keykeeper" "$APP_BUNDLE/Contents/MacOS/keykeeper"
 cp "$PROJECT_DIR/Assets/KeyKeeper.icns" "$APP_BUNDLE/Contents/Resources/KeyKeeper.icns"
+# macOS 26 draws icons from the compiled Icon Composer asset (CFBundleIconName); a legacy
+# .icns whose shape is not exactly the system squircle gets wrapped in a grey tile there.
+# KeyKeeper.icns stays as the fallback for macOS 14/15. Regenerate with scripts/compile-icon.sh.
+cp "$PROJECT_DIR/Assets/Compiled/Assets.car" "$APP_BUNDLE/Contents/Resources/Assets.car"
 cp -R "$PROJECT_DIR/browser-extension" "$APP_BUNDLE/Contents/Resources/browser-extension"
 cp "$PROJECT_DIR/Resources/browser-native-host" "$APP_BUNDLE/Contents/Resources/browser-native-host"
 chmod 755 "$APP_BUNDLE/Contents/Resources/browser-native-host"

@@ -1,0 +1,28 @@
+{
+  "fill": {
+    "automatic-gradient": "srgb:0.95000,0.95000,0.95000,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "keys.png",
+          "name": "keys",
+          "glass": false
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

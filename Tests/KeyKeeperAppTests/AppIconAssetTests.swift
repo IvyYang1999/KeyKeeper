@@ -96,4 +96,25 @@ final class AppIconAssetTests: XCTestCase {
         XCTAssertLessThanOrEqual(widthRatio, 0.85, "图标主体必须保留安全边距，实际宽度占比：\(widthRatio)")
         XCTAssertLessThanOrEqual(heightRatio, 0.85, "图标主体必须保留安全边距，实际高度占比：\(heightRatio)")
     }
+
+    /// 【曾经的 bug】macOS 26 上旧式 icns 的外形与系统模板不完全一致，Dock 会再套一层灰色底座，
+    /// 图标看起来是两层（yyt 2026-09-11）。必须同时提供 Icon Composer 编译出的 Assets.car。
+    func test曾经的Bug提供macOS26图标资源且Info声明CFBundleIconName() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let plistData = try Data(contentsOf: repositoryRoot.appendingPathComponent("Resources/Info.plist"))
+        let plist = try XCTUnwrap(PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any])
+        XCTAssertEqual(plist["CFBundleIconName"] as? String, "AppIcon")
+        XCTAssertNotNil(plist["CFBundleIconFile"], "旧系统仍需要 icns 后备")
+
+        let car = repositoryRoot.appendingPathComponent("Assets/Compiled/Assets.car")
+        let size = try XCTUnwrap(try FileManager.default.attributesOfItem(atPath: car.path)[.size] as? Int)
+        XCTAssertGreaterThan(size, 10_000)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: repositoryRoot.appendingPathComponent("Assets/AppIcon.icon/icon.json").path))
+
+        let buildScript = try String(contentsOf: repositoryRoot.appendingPathComponent("scripts/build-app.sh"), encoding: .utf8)
+        XCTAssertTrue(buildScript.contains("Assets/Compiled/Assets.car"), "打包脚本必须把 Assets.car 放进 App")
+    }
 }
