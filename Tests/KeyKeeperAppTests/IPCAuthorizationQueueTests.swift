@@ -100,6 +100,23 @@ final class IPCAuthorizationQueueTests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// 【曾经的 bug】请求方进程退出后授权窗不关，一直挂到 2 分钟超时；用户此时点「允许」是在批准一个已不存在的请求。
+    func test曾经的Bug请求方断开后待授权请求立即撤下() throws {
+        let server = makeServer()
+        let first = try sendValueRequest(server: server, caller: makeCaller("gone"))
+        let second = try sendValueRequest(server: server, caller: makeCaller("queued"))
+        defer { close(second) }
+        drainMainQueue()
+        XCTAssertEqual(server.pendingServiceRequest?.callerIdentity.displayName, "caller gone")
+
+        close(first)
+        RunLoop.main.run(until: Date().addingTimeInterval(IPCServer.connectionWatchInterval + 0.5))
+
+        XCTAssertEqual(server.pendingServiceRequest?.callerIdentity.displayName, "caller queued",
+                       "断开的请求撤下后，排队的下一个应顶上")
+        XCTAssertEqual(server.waitingCount, 0)
+    }
+
     private func makeServer() -> IPCServer {
         IPCServer(
             session: QueueSession(),

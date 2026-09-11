@@ -131,7 +131,7 @@ struct SettingsView: View {
                 }
             }
             Text(LoginItemManager.isAvailable
-                 ? L("After a restart the vault is locked until you unlock it, but the app is ready in the menu bar.")
+                 ? AppL10n.text(SettingsCopy.launchAtLoginDetail)
                  : L("Available when KeyKeeper runs from the .app in Applications."))
                 .font(.caption2)
                 .foregroundColor(.secondary)
@@ -273,4 +273,9 @@ struct SettingsView: View {
             serviceModeError = error.localizedDescription
         }
     }
+}
+
+enum SettingsCopy {
+    /// The Keychain unlocks with the Mac login; there is nothing for the user to unlock.
+    static let launchAtLoginDetail = "Starts with your Mac, so it is in the menu bar before any script asks for a key."
 }

@@ -203,7 +203,7 @@ struct AuthorizationView: View {
             infoRow(L("Keys"), value: prompt.fieldNames.joined(separator: ", "), monospaced: true)
 
             if let sessionLabel = prompt.sessionLabel {
-                infoRow(L("From"), value: sessionLabel)
+                infoRow(L("From"), value: AppL10n.text(sessionLabel))
             }
 
             if let caller = prompt.callerIdentity {
@@ -250,6 +250,7 @@ struct AuthorizationView: View {
                 }
             }
             .pickerStyle(.radioGroup)
+            .labelsHidden()
 
             if !prompt.hasTerminalSession {
                 Text(L("This caller has no terminal session (cron, IDE or SDK), so a per-session grant isn't available."))

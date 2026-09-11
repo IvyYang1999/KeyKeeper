@@ -42,6 +42,13 @@ final class IPCServer: ObservableObject {
             case .service(let pending): return pending.expiresAt
             }
         }
+
+        var clientFd: Int32 {
+            switch self {
+            case .auth(let pending): return pending.clientFd
+            case .service(let pending): return pending.clientFd
+            }
+        }
     }
 
     private var waiting: [WaitingAuthorization] = []
@@ -473,6 +480,7 @@ final class IPCServer: ObservableObject {
 
             self.pendingRequest = pending
             self.scheduleExpirationCheck()
+            self.scheduleConnectionWatch()
         }
     }
 
@@ -665,6 +673,7 @@ final class IPCServer: ObservableObject {
             }
 
             self.pendingServiceRequest = pending
+            self.scheduleConnectionWatch()
             self.scheduleExpirationCheck()
         }
     }
@@ -762,25 +771,60 @@ final class IPCServer: ObservableObject {
         return fields.sorted()
     }
 
+    /// How often an on-screen approval checks that its requester is still connected.
+    static let connectionWatchInterval: TimeInterval = 1
+
+    /// A request is over when it times out or when the process that asked has gone away.
+    /// Before the disconnect check, a prompt stayed on screen for the full two minutes after
+    /// the CLI exited, inviting the user to approve a request nobody was waiting for.
+    private func isFinished(_ item: WaitingAuthorization, now: Date) -> Bool {
+        now >= item.expiresAt || !Self.isClientConnected(item.clientFd)
+    }
+
+    /// Answers a timed-out request, or just closes the descriptor when nobody is listening
+    /// any more (writing to a closed socket would raise SIGPIPE).
+    private func finish(_ item: WaitingAuthorization) {
+        if Self.isClientConnected(item.clientFd) {
+            sendExpired(item)
+        } else {
+            let fd = item.clientFd
+            queue.async { close(fd) }
+        }
+    }
+
     private func expirePendingIfNeeded(now: Date = Date()) {
-        if let pending = pendingRequest, now >= pending.expiresAt {
+        if let pending = pendingRequest, isFinished(.auth(pending), now: now) {
             pendingRequest = nil
-            sendExpired(.auth(pending))
+            finish(.auth(pending))
         }
 
-        if let pending = pendingServiceRequest, now >= pending.expiresAt {
+        if let pending = pendingServiceRequest, isFinished(.service(pending), now: now) {
             pendingServiceRequest = nil
-            sendExpired(.service(pending))
+            finish(.service(pending))
         }
 
-        let expiredWaiting = waiting.filter { now >= $0.expiresAt }
+        let expiredWaiting = waiting.filter { isFinished($0, now: now) }
         if !expiredWaiting.isEmpty {
-            waiting.removeAll { now >= $0.expiresAt }
+            waiting.removeAll { isFinished($0, now: now) }
             waitingCount = waiting.count
-            expiredWaiting.forEach(sendExpired)
+            expiredWaiting.forEach(finish)
         }
 
         promoteNextWaiting(now: now)
+        scheduleConnectionWatch()
+    }
+
+    private var connectionWatchScheduled = false
+
+    private func scheduleConnectionWatch() {
+        guard !connectionWatchScheduled,
+              pendingRequest != nil || pendingServiceRequest != nil || !waiting.isEmpty else { return }
+        connectionWatchScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.connectionWatchInterval) { [weak self] in
+            guard let self else { return }
+            self.connectionWatchScheduled = false
+            self.expirePendingIfNeeded()
+        }
     }
 
     private func scheduleExpirationCheck(at date: Date? = nil) {

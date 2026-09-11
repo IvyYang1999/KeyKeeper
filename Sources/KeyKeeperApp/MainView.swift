@@ -455,7 +455,9 @@ private struct ServiceGrantGroup: Identifiable {
 }
 
 enum CredentialDeletionCopy {
+    static let template = "Its key values are removed from the macOS Keychain. This can't be undone, and anything running `keykeeper run -c {0}` will stop working."
+
     static func message(credentialId: String) -> String {
-        L("Its key values are erased from the vault. This can't be undone, and anything running `keykeeper run -c \(credentialId)` will stop working.")
+        AppL10n.render(template, arguments: [credentialId], language: AppL10n.language)
     }
 }
