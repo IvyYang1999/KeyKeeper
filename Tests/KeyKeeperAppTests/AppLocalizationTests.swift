@@ -57,8 +57,8 @@ final class AppLocalizationTests: XCTestCase {
         let chinese = BrowserImportPage.html(request: request, language: "zh-Hans")
         let english = BrowserImportPage.html(request: request, language: "en")
         XCTAssertTrue(chinese.contains("lang=\"zh-Hans\""))
-        XCTAssertTrue(chinese.contains("粘贴一次，在 Mac 上确认。"))
-        XCTAssertTrue(english.contains("Paste once. Confirm on your Mac."))
+        XCTAssertTrue(chinese.contains("导入一次，在 Mac 上确认。"))
+        XCTAssertTrue(english.contains("Import once. Confirm on your Mac."))
         for page in [chinese, english] {
             for invariant in ["fixture-id", "credentials-json", "type=\"password\"", "e.preventDefault()",
                               "history.replaceState", "65536", "90000", "X-KeyKeeper-Session", "credentials:'omit'"] {
