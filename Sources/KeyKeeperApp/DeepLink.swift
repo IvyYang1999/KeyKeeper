@@ -6,6 +6,9 @@ import Foundation
 /// prefilled, instead of saying "go add it in the app" and leaving them to retype names.
 enum DeepLink: Equatable {
     case addCredential(label: String?, fields: [String], notes: String?)
+    /// `keykeeper://open?section=keys&id=openai` — bring up the main window, optionally at a
+    /// section (`keys`, `sessions`, `access`, `activity`, `settings`) and a credential.
+    case openWindow(section: String?, credentialId: String?)
 
     static let scheme = "keykeeper"
 
@@ -24,6 +27,8 @@ enum DeepLink: Equatable {
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
             return .addCredential(label: value("label"), fields: fields, notes: value("notes"))
+        case "open":
+            return .openWindow(section: value("section"), credentialId: value("id"))
         default:
             return nil
         }

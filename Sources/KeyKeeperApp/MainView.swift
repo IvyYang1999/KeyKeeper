@@ -5,7 +5,7 @@ struct MainView: View {
     @AppStorage(AppL10n.preferenceName) private var interfaceLanguage = "system"
     @StateObject private var viewModel: CredentialListViewModel
     @StateObject private var addVM: AddCredentialViewModel
-    @State private var setupComplete = UserDefaults.standard.bool(forKey: "setupComplete")
+    @AppStorage("setupComplete") private var setupComplete = false
     @State private var selectedCredentialId: String?
     @State private var showingAdd = false
     @State private var showSettings = false
@@ -110,7 +110,10 @@ struct MainView: View {
         // Handled on the outer body so every page responds, and so a request that arrived
         // before the popover was ever rendered is still picked up on first render.
         .onReceive(inbox.$pendingAddCredential.compactMap { $0 }) { link in
-            guard case .addCredential(let label, let fields, let notes) = link else { return }
+            guard case .addCredential(let label, let fields, let notes) = link else {
+                DispatchQueue.main.async { inbox.clearAddCredential() }
+                return
+            }
             addVM.prefill(label: label, fields: fields, notes: notes)
             showServiceGrants = false
             showSettings = false

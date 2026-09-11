@@ -12,6 +12,8 @@ struct CredentialDetailView: View {
     @State private var showDeleteConfirmation = false
     @State private var showDiscardConfirmation = false
     @State private var copiedFieldIndex: Int?
+    @State private var copiedPrompt = false
+    @Environment(\.panelLayout) private var layout
 
     init(
         credentialId: String,
@@ -37,6 +39,7 @@ struct CredentialDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 // Header
                 HStack {
+                    if layout == .popover {
                     Button(action: {
                         if vm.isEditing {
                             showDiscardConfirmation = true
@@ -64,6 +67,7 @@ struct CredentialDetailView: View {
                         }
                         Button(L("Keep Editing"), role: .cancel) {}
                     }
+                    }
                     Spacer()
                     Button(vm.isEditing ? L("Cancel") : L("Edit")) {
                         if vm.isEditing {
@@ -81,6 +85,22 @@ struct CredentialDetailView: View {
                         TextField(L("Name"), text: $vm.credential.label)
                             .textFieldStyle(.roundedBorder)
                     }
+                } else if layout == .embedded {
+                    HStack(alignment: .center, spacing: 14) {
+                        Image(nsImage: NSApp.applicationIconImage)
+                            .resizable()
+                            .frame(width: 46, height: 46)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(vm.credential.label).font(.system(size: 23, weight: .bold))
+                            HStack(spacing: 6) {
+                                Text(L("ID \(credentialId)")).font(.callout.monospaced()).textSelection(.enabled)
+                                Text("·")
+                                Text(SecurityLevelPresentation.badge(vm.credential.security))
+                            }
+                            .font(.callout)
+                            .foregroundColor(.secondary)
+                        }
+                    }
                 } else {
                     VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                         Text(vm.credential.label).font(.headline)
@@ -95,6 +115,10 @@ struct CredentialDetailView: View {
                             .foregroundColor(.secondary)
                             .textSelection(.enabled)
                     }
+                }
+
+                if !vm.isEditing {
+                    agentHandoff
                 }
 
                 // Description
@@ -186,7 +210,8 @@ struct CredentialDetailView: View {
                 if !vm.isEditing {
                     VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                         SectionLabel(text: L("Use in terminal"), hint: L("text values or private file paths"))
-                        CopyableCommand(CredentialUsageCopy.runCommand(credentialId: credentialId, credential: vm.credential))
+                        CopyableCommand(CredentialUsageCopy.runCommand(credentialId: credentialId, credential: vm.credential)
+                            .replacingOccurrences(of: "<your command>", with: L("<your command>")))
                         let names = CredentialUsageCopy.environmentNames(for: vm.credential)
                         if !names.isEmpty {
                             Text(names.joined(separator: "  "))
@@ -228,9 +253,9 @@ struct CredentialDetailView: View {
                 // Metadata
                 if !vm.isEditing {
                     HStack {
-                        Text(L("Created \(vm.credential.created)"))
+                        Text(L("Created \(RecentCredentials.dayLabel(for: vm.credential.created))"))
                         Spacer()
-                        Text(L("Updated \(vm.credential.updated)"))
+                        Text(L("Updated \(RecentCredentials.dayLabel(for: vm.credential.updated))"))
                     }
                     .font(.caption2)
                     .foregroundColor(.secondary.opacity(0.4))
@@ -263,9 +288,38 @@ struct CredentialDetailView: View {
             }
             .padding()
         }
-        .frame(width: DS.Popover.width, height: DS.Popover.height)
+        .panelFrame()
     }
 
+    /// The one thing most people do with a stored key: tell their agent to use it.
+    private var agentHandoff: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+            SectionLabel(text: L("Hand it to your agent"), hint: L("names only, never the value"))
+            Text(AgentPromptCopy.prompt(credentialId: credentialId, credential: vm.credential))
+                .font(.callout)
+                .foregroundColor(.secondary)
+                .lineLimit(layout == .embedded ? 6 : 3)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            Button {
+                PlainPasteboard.copy(AgentPromptCopy.prompt(credentialId: credentialId, credential: vm.credential))
+                copiedPrompt = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { copiedPrompt = false }
+            } label: {
+                Label(copiedPrompt ? L("Copied") : L("Copy prompt for your agent"),
+                      systemImage: copiedPrompt ? "checkmark" : "doc.on.doc")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(layout == .embedded ? .large : .regular)
+        }
+        .padding(layout == .embedded ? 14 : 0)
+        .background {
+            if layout == .embedded {
+                RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous).fill(Glass.cardFill)
+                RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous).strokeBorder(Glass.cardStroke)
+            }
+        }
+    }
 }
 
 enum CredentialUsageCopy {

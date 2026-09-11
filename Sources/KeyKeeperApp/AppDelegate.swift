@@ -15,6 +15,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var isTerminating = false
     private let updateController = UpdateController()
     private let browserSessions = BrowserSessionFeature()
+    private var mainWindow: MainWindowController!
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         signal(SIGPIPE, SIG_IGN)
@@ -54,6 +55,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
+        mainWindow = MainWindowController { [weak self] in
+            guard let self else { return AnyView(EmptyView()) }
+            return AnyView(MainWindowView(
+                router: .shared,
+                updateController: self.updateController,
+                session: self.credentialService,
+                browserSessions: self.browserSessions.controller,
+                importFile: { [weak self] request, completion in
+                    guard let self else { completion(.init(success: false, errorCode: .storageUnavailable)); return }
+                    self.ipcServer.importFile(request, completion: completion)
+                },
+                onShowSetup: { [weak self] in
+                    UserDefaults.standard.set(false, forKey: "setupComplete")
+                    self?.showPopover()
+                }
+            ))
+        }
+
         popover = NSPopover()
         popover.contentSize = DS.Popover.size
         popover.behavior = .semitransient
@@ -65,7 +84,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 importFile: { [weak self] request, completion in
                     guard let self else { completion(.init(success: false, errorCode: .storageUnavailable)); return }
                     self.ipcServer.importFile(request, completion: completion)
-                }, showBrowserSessions: { [weak self] in self?.browserSessions.show() })
+                }, showBrowserSessions: { [weak self] in self?.showMainWindow(section: .sessions) })
         )
 
         authWindowController = AuthorizationWindowController()
@@ -122,11 +141,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// `keykeeper://` links registered in Info.plist (CFBundleURLTypes).
     func application(_ application: NSApplication, open urls: [URL]) {
+        var wantsPopover = false
         for url in urls {
-            guard let link = DeepLink.parse(url) else { continue }
-            UICommandInbox.shared.requestAddCredential(link)
+            switch DeepLink.parse(url) {
+            case .openWindow(let section, let credentialId):
+                showMainWindow(section: section.flatMap(MainWindowRouter.Section.init(rawValue:)) ?? (credentialId == nil ? nil : .keys),
+                               credentialId: credentialId)
+            case .some(let link):
+                UICommandInbox.shared.requestAddCredential(link)
+                wantsPopover = true
+            case nil:
+                wantsPopover = true
+            }
         }
-        if !popover.isShown { showPopover() }
+        if wantsPopover, !popover.isShown { showPopover() }
+    }
+
+    /// The Dock icon (while the main window is open) or a relaunch from Finder opens the window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showMainWindow()
+        return false
+    }
+
+    func showMainWindow(section: MainWindowRouter.Section? = nil, credentialId: String? = nil) {
+        if popover?.isShown == true { popover.performClose(nil) }
+        mainWindow?.show(section: section, credentialId: credentialId)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -199,7 +238,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         !setupComplete
     }
 
-    private func showPopover() {
+    func showPopover() {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         activatePopover()
@@ -242,7 +281,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func menuOpen() {
-        if !popover.isShown { showPopover() }
+        showMainWindow()
     }
 
     @objc private func menuCheckForUpdates() {
@@ -261,8 +300,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func menuSettings() {
-        UICommandInbox.shared.requestSettings()
-        if !popover.isShown { showPopover() }
+        showMainWindow(section: .settings)
     }
 
     /// Quitting is cheap now: the app relaunches automatically the next time the CLI

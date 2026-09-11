@@ -34,4 +34,13 @@ final class DeepLinkTests: XCTestCase {
             .addCredential(label: "Feishu Bot", fields: ["app-id", "app-secret"], notes: nil)
         )
     }
+
+    func test打开主窗口的深链可带分区和凭据() throws {
+        XCTAssertEqual(DeepLink.parse(try XCTUnwrap(URL(string: "keykeeper://open"))),
+                       .openWindow(section: nil, credentialId: nil))
+        XCTAssertEqual(DeepLink.parse(try XCTUnwrap(URL(string: "keykeeper://open?section=keys&id=openai"))),
+                       .openWindow(section: "keys", credentialId: "openai"))
+        XCTAssertEqual(DeepLink.parse(try XCTUnwrap(URL(string: "keykeeper://open?section=access"))),
+                       .openWindow(section: "access", credentialId: nil))
+    }
 }

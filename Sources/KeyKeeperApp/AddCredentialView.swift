@@ -19,20 +19,19 @@ struct AddCredentialView: View {
 
     @State private var showMoreOptions = false
     @State private var isEditingId = false
+    @State private var isImporting = false
+    @Environment(\.panelLayout) private var layout
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Spacing.lg) {
                 header
                 nameSection
-                if onImportFile != nil {
-                    Button(L("Import service-account JSON…")) { chooseFile() }
-                        .disabled(vm.idProblem != nil || vm.fields.contains { !$0.value.isEmpty })
-                    Text(L("Name this credential first and leave key values empty. File import creates a protected credentials-json field; other draft options are not used. The original file is retained."))
-                        .font(.caption2).foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                if let file = vm.sourceFile {
+                    fileRow(file)
+                } else {
+                    KeyFieldsEditor(fields: $vm.fields)
                 }
-                KeyFieldsEditor(fields: $vm.fields)
                 moreOptions
 
                 if let error = vm.errorMessage {
@@ -43,7 +42,7 @@ struct AddCredentialView: View {
             }
             .padding()
         }
-        .frame(width: DS.Popover.width, height: DS.Popover.height)
+        .panelFrame()
         // A deep link may carry notes, and a draft may have changed the access mode — in
         // both cases the collapsed section would be hiding something that was set for the
         // user. onAppear alone missed the case where a second deep link arrives while the
@@ -53,21 +52,64 @@ struct AddCredentialView: View {
         .onChange(of: vm.security) { expandMoreOptionsIfNeeded() }
     }
 
-    private func chooseFile() {
+    /// Shared with the menu bar's "From file" tile.
+    static func pickServiceAccountFile(_ completion: @escaping (URL) -> Void) {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.title = L("Choose a service-account JSON file")
         panel.message = L("KeyKeeper will ask before reading and saving. The original file is not deleted.")
+        NSApp.activate(ignoringOtherApps: true)
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            let request = FileImportRequest(target: .init(credentialId: vm.credentialId,
-                fieldName: "credentials-json", create: true), filePath: url.path)
-            onImportFile?(request) { result in
-                if result.success { onSave() }
-                else { vm.errorMessage = result.errorCode?.localizedDescription ?? L("File import failed.") }
+            completion(url)
+        }
+    }
+
+    private func fileRow(_ file: URL) -> some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+            SectionLabel(text: L("Key"), hint: L("stored in macOS Keychain"))
+            HStack(spacing: 10) {
+                Image(systemName: "doc.badge.gearshape").foregroundColor(.accentColor)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(file.lastPathComponent).font(.callout.monospaced()).lineLimit(1).truncationMode(.middle)
+                    Text(L("Service-account JSON · read only after you confirm")).font(.caption2).foregroundColor(.secondary)
+                }
+                .help(file.path)
+                Spacer()
+                Button(L("Remove")) { vm.sourceFile = nil }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundColor(.accentColor)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: DS.Radius.sm))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.sm).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+        }
+    }
+
+    private func save() {
+        guard let file = vm.sourceFile else {
+            if vm.save() {
+                if let count = vm.clipboardChangeCount {
+                    SecretPasteboard.clearIfUnchanged(since: count)
+                }
+                onSave()
+            }
+            return
+        }
+        guard let onImportFile else { return }
+        isImporting = true
+        let request = FileImportRequest(
+            target: .init(credentialId: vm.credentialId, fieldName: "credentials-json", create: true),
+            filePath: file.path
+        )
+        onImportFile(request) { result in
+            isImporting = false
+            if result.success { onSave() }
+            else { vm.errorMessage = result.errorCode?.localizedDescription ?? L("File import failed.") }
         }
     }
 
@@ -80,6 +122,7 @@ struct AddCredentialView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.md) {
+            if layout == .popover {
             HStack {
                 Button(action: onCancel) {
                     HStack(spacing: 4) {
@@ -92,7 +135,8 @@ struct AddCredentialView: View {
                 .foregroundColor(.accentColor)
                 Spacer()
             }
-            Text(L("Add a key")).font(.headline)
+            }
+            Text(L("Add a key")).font(layout == .embedded ? .system(size: 22, weight: .bold) : .headline)
         }
     }
 
@@ -168,6 +212,14 @@ struct AddCredentialView: View {
             VStack(alignment: .leading, spacing: DS.Spacing.lg) {
                 DescriptionEditor(text: $vm.notes)
                 AdvancedSecuritySection(security: $vm.security)
+                if onImportFile != nil, vm.sourceFile == nil {
+                    Button(L("Import a service-account JSON file instead…")) {
+                        Self.pickServiceAccountFile { vm.useFile($0) }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundColor(.accentColor)
+                }
             }
             .padding(.top, DS.Spacing.sm)
         } label: {
@@ -190,10 +242,8 @@ struct AddCredentialView: View {
                 .foregroundColor(.secondary)
             }
             Spacer()
-            Button(L("Save")) {
-                if vm.save() { onSave() }
-            }
-            .disabled(!vm.isValid)
+            Button(L("Save")) { save() }
+            .disabled(!vm.isValid || isImporting)
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
         }

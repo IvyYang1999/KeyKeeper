@@ -20,6 +20,11 @@ class AddCredentialViewModel: ObservableObject {
     @Published var fields: [FieldEntry] = [FieldEntry(name: AddCredentialViewModel.defaultFieldName)]
     @Published var security: SecurityLevel = SecurityLevelPresentation.defaultLevel
     @Published var errorMessage: String?
+    /// A service-account JSON chosen instead of typed values. Saved through the confirmed
+    /// file import (the App reads it only after approval), never read by this form.
+    @Published var sourceFile: URL?
+    /// Set when the first value came from the clipboard, so a successful save can clear it.
+    @Published var clipboardChangeCount: Int?
     /// IDs already in the metadata store, so a duplicate is caught before it overwrites.
     @Published private(set) var existingIds: Set<String> = []
 
@@ -37,7 +42,8 @@ class AddCredentialViewModel: ObservableObject {
     static let defaultFieldName = "api-key"
 
     var isValid: Bool {
-        !label.isEmpty
+        if sourceFile != nil { return !label.isEmpty && idProblem == nil }
+        return !label.isEmpty
             && idProblem == nil
             && fields.contains { !$0.name.isEmpty && !$0.value.isEmpty }
     }
@@ -45,7 +51,7 @@ class AddCredentialViewModel: ObservableObject {
     /// A pristine form is not a draft — the pre-filled default key name must not by itself
     /// make the list show a "continue editing draft" chip.
     var hasDraft: Bool {
-        if !label.isEmpty || !notes.isEmpty { return true }
+        if !label.isEmpty || !notes.isEmpty || sourceFile != nil { return true }
         if fields.count > 1 { return true }
         guard let only = fields.first else { return false }
         if !only.value.isEmpty { return true }
@@ -102,8 +108,28 @@ class AddCredentialViewModel: ObservableObject {
         fields = [FieldEntry(name: Self.defaultFieldName)]
         security = SecurityLevelPresentation.defaultLevel
         errorMessage = nil
+        sourceFile = nil
+        clipboardChangeCount = nil
         previousAutoId = ""
         refreshExistingIds()
+    }
+
+    /// "From clipboard" in the menu bar: the user asked for this, so the text is read now
+    /// and put into the first value box (still masked). The name is the only thing left to type.
+    func prefillFromClipboard(_ value: String, changeCount: Int) {
+        reset()
+        fields = [FieldEntry(name: Self.defaultFieldName, value: value)]
+        clipboardChangeCount = changeCount
+    }
+
+    /// "From file": remember the file and suggest a name from it; the contents are not read here.
+    func useFile(_ url: URL) {
+        sourceFile = url
+        fields = [FieldEntry(name: Self.defaultFieldName)]
+        if label.isEmpty {
+            label = url.deletingPathExtension().lastPathComponent
+        }
+        autoGenerateId()
     }
 
     /// Fills the form from a `keykeeper://add` link. Replaces any draft: the link is a

@@ -30,7 +30,6 @@ enum BrowserSessionCopy {
 @MainActor final class BrowserSessionFeature {
     let controller: BrowserSessionController?
     private let approval = BrowserSessionApprovalWindow()
-    private var manager: NSWindow?
     init() {
         let approval = self.approval
         if let store = try? BrowserSessionStore.production() {
@@ -38,67 +37,72 @@ enum BrowserSessionCopy {
                 present: { approval.show($0, decide: $1) }, dismiss: { approval.dismiss() })
         } else { controller = nil }
     }
-    func show() {
-        guard let controller else { return }
-        controller.refresh()
-        if let manager { manager.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 540),
-            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-        window.title = L("Website sessions"); window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 600, height: 440)
-        let hosting = NSHostingView(rootView: BrowserSessionManagerView(controller: controller))
-        hosting.sizingOptions = []
-        window.contentView = hosting
-        window.setContentSize(NSSize(width: 720, height: 540))
-        manager = window; window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
-    }
 }
 
-private struct BrowserSessionManagerView: View {
+/// The main window's "Website sessions" page. It used to be its own 720×540 window opened
+/// from a globe button in the menu bar; now it is a page beside the keys it relates to.
+struct BrowserSessionManagerView: View {
     @ObservedObject var controller: BrowserSessionController
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text(L("Website sessions")).font(.title2.weight(.semibold))
-                Spacer()
-                Button(L("Refresh")) { controller.refresh() }
-                Button(L("Stop all windows")) { controller.stopAll() }
-            }
-            Text(L("Import only a website you select in the Chrome extension. Each open needs your confirmation and ends after 15 minutes. Account actions are NOT read-only."))
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            if controller.sessions.isEmpty {
-                Spacer()
-                Text(L("No website sessions yet")).font(.headline)
-                Text(L("Open the intended website in Chrome, then use the KeyKeeper extension to request an import. Keep your original browser login."))
-                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Spacer()
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .firstTextBaseline) {
+                    MainPageHeader(
+                        title: L("Website sessions"),
+                        subtitle: L("Import only a website you select in the Chrome extension. Each open needs your confirmation and ends after 15 minutes. Account actions are NOT read-only.")
+                    )
+                    Spacer()
+                    if !controller.sessions.isEmpty {
+                        Button(L("Stop all windows")) { controller.stopAll() }
+                    }
+                }
+                if controller.sessions.isEmpty {
+                    EmptyGlassCard(
+                        symbol: "globe",
+                        title: L("No website sessions yet"),
+                        text: L("Open the intended website in Chrome, then use the KeyKeeper extension to request an import. Keep your original browser login.")
+                    )
+                } else {
+                    VStack(spacing: 10) {
                         ForEach(controller.sessions) { item in
                             VStack(alignment: .leading, spacing: 8) {
-                                Text(item.label).font(.headline)
-                                Text(item.origin).textSelection(.enabled)
-                                Text("keykeeper browser open \(item.id)").font(.caption.monospaced()).textSelection(.enabled)
                                 HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.label).font(.callout.weight(.semibold))
+                                        Text(item.origin).font(.caption.monospaced()).foregroundColor(.secondary)
+                                            .textSelection(.enabled)
+                                    }
+                                    Spacer()
                                     Button(L("Open isolated window")) { send(.open, id: item.id) }
                                     Button(L("Stop window")) { send(.stop, id: item.id) }
-                                    Spacer()
                                     Button(L("Remove snapshot…")) { send(.delete, id: item.id) }
-                                }.buttonStyle(.bordered)
-                            }.padding(.vertical, 8)
+                                        .foregroundColor(.red)
+                                }
+                                Text("keykeeper browser open \(item.id)")
+                                    .font(.caption.monospaced())
+                                    .foregroundColor(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                            .padding(14)
+                            .glassCard()
                         }
                     }
                 }
+                if let error = controller.errorCode {
+                    Text(BrowserSessionCopy.error(error)).font(.callout).foregroundColor(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text(L("Stopping or removing a snapshot does not log out Chrome or revoke the website's server-side session."))
+                    .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            if let error = controller.errorCode {
-                Text(BrowserSessionCopy.error(error)).font(.callout).foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Text(L("Stopping or removing a snapshot does not log out Chrome or revoke the website's server-side session."))
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }.padding(24)
+            .padding(.horizontal, 28)
+            .padding(.bottom, 24)
+            .frame(maxWidth: 720, alignment: .leading)
+        }
+        .onAppear { controller.refresh() }
     }
+
     private func send(_ action: BrowserSessionRequest.Action, id: String) {
         controller.receive(.init(action: action, id: id), caller: "KeyKeeper") { _ in }
     }

@@ -18,9 +18,11 @@ struct SettingsView: View {
     @State private var cliError: String?
 
     private let serviceGrantStore = ServiceGrantStore.default
+    @Environment(\.panelLayout) private var layout
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if layout == .popover {
             HStack {
                 Button(action: onBack) {
                     HStack(spacing: 4) {
@@ -34,9 +36,10 @@ struct SettingsView: View {
                 Spacer()
             }
             .padding()
+            }
 
             Text(L("Settings"))
-                .font(.title3.weight(.semibold))
+                .font(layout == .embedded ? .system(size: 22, weight: .bold) : .title3.weight(.semibold))
                 .padding(.horizontal)
                 .padding(.bottom, DS.Spacing.sm)
 
@@ -57,7 +60,7 @@ struct SettingsView: View {
                 .padding(.bottom, DS.Spacing.md)
             }
         }
-        .frame(width: DS.Popover.width, height: DS.Popover.height)
+        .panelFrame()
         .onAppear(perform: load)
     }
 
