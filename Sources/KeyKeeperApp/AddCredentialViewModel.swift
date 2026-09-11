@@ -53,7 +53,7 @@ class AddCredentialViewModel: ObservableObject {
     /// The gray line under the Name field: what scripts and AI tools will actually type.
     var idSummary: String {
         credentialId.isEmpty
-            ? "The ID is created from the name"
+            ? L("The ID is created from the name")
             : "\(credentialId) \u{00B7} keykeeper run -c \(credentialId)"
     }
 
@@ -67,24 +67,24 @@ class AddCredentialViewModel: ObservableObject {
     /// Problems with the ID itself, as opposed to it already being taken.
     var idFormatProblem: String? {
         if credentialId.isEmpty {
-            return "Add letters or numbers to the name, or type an ID."
+            return L("Add letters or numbers to the name, or type an ID.")
         }
         if credentialId != Self.sanitizeId(credentialId) {
-            return "IDs can only use lowercase letters, numbers and dashes."
+            return L("IDs can only use lowercase letters, numbers and dashes.")
         }
         return nil
     }
 
     /// Shown in the list's "continue draft" hint.
     var draftTitle: String {
-        label.isEmpty ? "(untitled)" : label
+        label.isEmpty ? L("(untitled)") : label
     }
 
     /// Why the current ID can't be saved, or nil when it is fine.
     var idProblem: String? {
         if let idFormatProblem { return idFormatProblem }
         if let conflictingId {
-            return "A credential with ID \u{201C}\(conflictingId)\u{201D} already exists. Pick another ID or edit the existing one."
+            return L("A credential with ID \u{201C}\(conflictingId)\u{201D} already exists. Pick another ID or edit the existing one.")
         }
         return nil
     }
@@ -181,8 +181,8 @@ class AddCredentialViewModel: ObservableObject {
             return true
         } catch {
             errorMessage = CredentialOperationMessages.failure(
-                action: "save this credential",
-                fallbackPrefix: "Save failed",
+                action: L("save this credential"),
+                fallbackPrefix: L("Save failed"),
                 error: error
             )
             return false

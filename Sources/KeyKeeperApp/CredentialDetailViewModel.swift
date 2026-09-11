@@ -51,8 +51,8 @@ final class CredentialDetailViewModel: ObservableObject {
             fields[index].value = ""
             fields[index].visible = false
             errorMessage = CredentialOperationMessages.failure(
-                action: "reveal this secret",
-                fallbackPrefix: "Failed to read key",
+                action: L("reveal this secret"),
+                fallbackPrefix: L("Failed to read key"),
                 error: error
             )
         }
@@ -70,8 +70,8 @@ final class CredentialDetailViewModel: ObservableObject {
             return value
         } catch {
             errorMessage = CredentialOperationMessages.failure(
-                action: "copy this secret",
-                fallbackPrefix: "Copy failed",
+                action: L("copy this secret"),
+                fallbackPrefix: L("Copy failed"),
                 error: error
             )
             return nil
@@ -87,7 +87,7 @@ final class CredentialDetailViewModel: ObservableObject {
             fields = Self.fieldEntries(for: storedCredential)
             errorMessage = nil
         } catch {
-            errorMessage = "Reload failed: \(error.localizedDescription)"
+            errorMessage = L("Reload failed: \(error.localizedDescription)")
         }
     }
 
@@ -100,7 +100,7 @@ final class CredentialDetailViewModel: ObservableObject {
             for (name, field) in existingFields where field.fileFormat != nil {
                 let matching = fields.filter { $0.name == name }
                 guard matching.count == 1, matching[0].value.isEmpty, matching[0].fileFormat == field.fileFormat else {
-                    errorMessage = "File contents cannot be changed in the text editor. Import a new credential ID instead."
+                    errorMessage = L("File contents cannot be changed in the text editor. Import a new credential ID instead.")
                     return false
                 }
             }
@@ -146,8 +146,8 @@ final class CredentialDetailViewModel: ObservableObject {
             return true
         } catch {
             errorMessage = CredentialOperationMessages.failure(
-                action: "save these changes",
-                fallbackPrefix: "Save failed",
+                action: L("save these changes"),
+                fallbackPrefix: L("Save failed"),
                 error: error
             )
             return false

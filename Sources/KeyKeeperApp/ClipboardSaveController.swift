@@ -196,7 +196,7 @@ extension Notification.Name {
         self.decide = decide
         let panel = ClipboardSavePanel(contentRect: NSRect(x: 0, y: 0, width: 500, height: 420),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        panel.title = "KeyKeeper — Save once"
+        panel.title = L("KeyKeeper — Save once")
         panel.isReleasedWhenClosed = false; panel.hidesOnDeactivate = false
         panel.level = .floating; panel.delegate = self
         panel.onCancel = { [weak self] in self?.decide?(false) }
@@ -215,24 +215,24 @@ extension Notification.Name {
             stack.addArrangedSubview(label)
             label.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
-        label(info.filePath != nil ? "Save credential file to KeyKeeper?" : (info.fromBrowser ? "Save browser paste to KeyKeeper?" : "Save clipboard to KeyKeeper?"), font: .boldSystemFont(ofSize: 20))
+        label(info.filePath != nil ? L("Save credential file to KeyKeeper?") : (info.fromBrowser ? L("Save browser paste to KeyKeeper?") : L("Save clipboard to KeyKeeper?")), font: .boldSystemFont(ofSize: 20))
         let caller = String(info.callerName.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.prefix(80))
-        label("Requested by: \(caller)")
-        label("Credential ID: \(info.request.credentialId)\nField: \(info.request.fieldName)", font: .monospacedSystemFont(ofSize: 13, weight: .medium))
+        label(L("Requested by: \(caller)"))
+        label(L("Credential ID: \(info.request.credentialId)\nField: \(info.request.fieldName)"), font: .monospacedSystemFont(ofSize: 13, weight: .medium))
         if let filePath = info.filePath {
-            label("Source: \(filePath)")
-            label("Service-account JSON · up to 64 KiB. The App reads this file only after approval. The original file is NOT deleted. File contents are not shown here; provider access is not verified.")
+            label(L("Source: \(filePath)"))
+            label(L("Service-account JSON · up to 64 KiB. The App reads this file only after approval. The original file is NOT deleted. File contents are not shown here; provider access is not verified."))
         }
-        label(info.request.create ? "Create a new credential with Ask every time protection." : "Restore this missing field. Keep its existing settings and permissions.")
+        label(info.request.create ? L("Create a new credential with Ask every time protection.") : L("Restore this missing field. Keep its existing settings and permissions."))
         label(info.filePath != nil
-            ? "Nothing is overwritten and no read permission is granted. If the file changes, this save is refused. This request expires in 90 seconds."
+            ? L("Nothing is overwritten and no read permission is granted. If the file changes, this save is refused. This request expires in 90 seconds.")
             : info.fromBrowser
-            ? "Save the value just pasted into the local browser receiver. No value is shown to the caller. Nothing is overwritten and no read permission is granted. Website identity is not verified. This request expires in 90 seconds."
-            : "The App will read your current clipboard. No value is shown to the caller. Nothing is overwritten and no read permission is granted. The clipboard is cleared after saving. This request expires in 90 seconds.")
+            ? L("Save the value just pasted into the local browser receiver. No value is shown to the caller. Nothing is overwritten and no read permission is granted. Website identity is not verified. This request expires in 90 seconds.")
+            : L("The App will read your current clipboard. No value is shown to the caller. Nothing is overwritten and no read permission is granted. The clipboard is cleared after saving. This request expires in 90 seconds."))
         let buttons = NSStackView(); buttons.orientation = .horizontal; buttons.spacing = 12
-        let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelSave))
+        let cancel = NSButton(title: L("Cancel"), target: self, action: #selector(cancelSave))
         cancel.bezelStyle = .rounded; cancel.keyEquivalent = "\r"; cancel.keyEquivalentModifierMask = []
-        let save = NSButton(title: "Save once", target: self, action: #selector(approveSave))
+        let save = NSButton(title: L("Save once"), target: self, action: #selector(approveSave))
         save.bezelStyle = .rounded
         save.keyEquivalent = "\r"; save.keyEquivalentModifierMask = .command
         buttons.addArrangedSubview(cancel); buttons.addArrangedSubview(save); stack.addArrangedSubview(buttons)

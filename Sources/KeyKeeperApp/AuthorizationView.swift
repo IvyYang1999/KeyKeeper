@@ -9,9 +9,9 @@ enum AuthorizationPrompt {
     var title: String {
         switch self {
         case .strict:
-            return "Authorization Request"
+            return L("Authorization Request")
         case .service:
-            return "Service Authorization Request"
+            return L("Service Authorization Request")
         }
     }
 
@@ -199,15 +199,15 @@ struct AuthorizationView: View {
 
     private var requestInfo: some View {
         VStack(alignment: .leading, spacing: 8) {
-            infoRow("Credential", value: prompt.credentialLabel, bold: true)
-            infoRow("Keys", value: prompt.fieldNames.joined(separator: ", "), monospaced: true)
+            infoRow(L("Credential"), value: prompt.credentialLabel, bold: true)
+            infoRow(L("Keys"), value: prompt.fieldNames.joined(separator: ", "), monospaced: true)
 
             if let sessionLabel = prompt.sessionLabel {
-                infoRow("From", value: sessionLabel)
+                infoRow(L("From"), value: sessionLabel)
             }
 
             if let caller = prompt.callerIdentity {
-                infoRow("Caller", value: caller.displayName)
+                infoRow(L("Caller"), value: caller.displayName)
             }
             // Subject fingerprint, PID and the process chain are diagnostics; they live
             // in the collapsible "Caller Details" section below.
@@ -241,18 +241,18 @@ struct AuthorizationView: View {
 
     private var strictDurationPicker: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Grant access for:")
+            Text(L("Grant access for:"))
                 .font(.subheadline.bold())
 
-            Picker("Duration", selection: $selectedDuration) {
+            Picker(L("Duration"), selection: $selectedDuration) {
                 ForEach(DurationOption.available(hasTerminalSession: prompt.hasTerminalSession), id: \.self) { option in
-                    Text(option.rawValue).tag(option)
+                    Text(AppL10n.text(option.rawValue)).tag(option)
                 }
             }
             .pickerStyle(.radioGroup)
 
             if !prompt.hasTerminalSession {
-                Text("This caller has no terminal session (cron, IDE or SDK), so a per-session grant isn't available.")
+                Text(L("This caller has no terminal session (cron, IDE or SDK), so a per-session grant isn't available."))
                     .font(.caption2)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -262,7 +262,7 @@ struct AuthorizationView: View {
 
     private var strictButtons: some View {
         HStack(spacing: 12) {
-            Button("Deny") {
+            Button(L("Deny")) {
                 onDeny()
             }
             .keyboardShortcut(.escape)
@@ -279,7 +279,7 @@ struct AuthorizationView: View {
                     } else {
                         Image(systemName: authenticationMethod.symbolName)
                     }
-                    Text("Authorize")
+                    Text(L("Authorize"))
                 }
             }
             .buttonStyle(.borderedProminent)
@@ -294,12 +294,12 @@ struct AuthorizationView: View {
         VStack(spacing: DS.Spacing.sm) {
             callerKindIcon
 
-            Text(prompt.callerIdentity?.displayName ?? "Unknown Caller")
+            Text(prompt.callerIdentity?.displayName ?? L("Unknown Caller"))
                 .font(.headline)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            Text("requests access to")
+            Text(L("requests access to"))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
@@ -339,8 +339,8 @@ struct AuthorizationView: View {
 
     private var serviceRequestCard: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            infoRow("Credential", value: prompt.credentialLabel, bold: true)
-            infoRow("Keys", value: prompt.fieldNames.joined(separator: ", "), monospaced: true)
+            infoRow(L("Credential"), value: prompt.credentialLabel, bold: true)
+            infoRow(L("Keys"), value: prompt.fieldNames.joined(separator: ", "), monospaced: true)
         }
         .padding()
         .background(DS.Fill.card)
@@ -353,23 +353,23 @@ struct AuthorizationView: View {
             DisclosureGroup(isExpanded: $showCallerDetails) {
                 VStack(alignment: .leading, spacing: DS.Spacing.sm) {
                     if let path = caller.executablePath {
-                        detailRow("Path", value: path)
+                        detailRow(L("Path"), value: path)
                     }
                     if let bundle = caller.bundleIdentifier {
-                        detailRow("Bundle", value: bundle)
+                        detailRow(L("Bundle"), value: bundle)
                     }
                     if let team = caller.teamIdentifier {
-                        detailRow("Team ID", value: team)
+                        detailRow(L("Team ID"), value: team)
                     }
                     if let signing = caller.signingIdentifier {
-                        detailRow("Signing", value: signing)
+                        detailRow(L("Signing"), value: signing)
                     }
-                    detailRow("Subject", value: shortFingerprint(caller.subjectFingerprint))
+                    detailRow(L("Subject"), value: shortFingerprint(caller.subjectFingerprint))
                     detailRow("PID", value: "\(caller.peerPID)")
 
                     if caller.parentChain.count > 1 {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Process Chain")
+                            Text(L("Process Chain"))
                                 .font(.caption2)
                                 .foregroundColor(.secondary.opacity(0.8))
                             Text(processChainText(caller.parentChain))
@@ -381,7 +381,7 @@ struct AuthorizationView: View {
                 }
                 .padding(.top, DS.Spacing.xs)
             } label: {
-                Label("Caller Details", systemImage: "info.circle")
+                Label(L("Caller Details"), systemImage: "info.circle")
             }
             .font(.caption)
             .foregroundColor(.secondary)
@@ -404,7 +404,7 @@ struct AuthorizationView: View {
 
     private var serviceButtons: some View {
         VStack(spacing: DS.Spacing.md) {
-            Text("Grant this caller access for:")
+            Text(L("Grant this caller access for:"))
                 .font(.subheadline.bold())
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -412,7 +412,7 @@ struct AuthorizationView: View {
                 Button(role: .destructive) {
                     onDeny()
                 } label: {
-                    Text("Deny")
+                    Text(L("Deny"))
                 }
                 .buttonStyle(.bordered)
                 .keyboardShortcut(.escape)
@@ -420,14 +420,14 @@ struct AuthorizationView: View {
                 Spacer()
 
                 HStack(spacing: DS.Spacing.sm) {
-                    Button("Once") {
+                    Button(L("Once")) {
                         authenticate {
                             try onAuthorizeService?(.once)
                         }
                     }
                     .disabled(isAuthenticating)
 
-                    Button("1 Hour") {
+                    Button(L("1 Hour")) {
                         authenticate {
                             try onAuthorizeService?(.timed(Date().addingTimeInterval(3600)))
                         }
@@ -446,7 +446,7 @@ struct AuthorizationView: View {
                             } else {
                                 Image(systemName: authenticationMethod.symbolName)
                             }
-                            Text("Always")
+                            Text(L("Always"))
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -479,7 +479,7 @@ struct AuthorizationView: View {
 
         let context = LAContext()
         context.evaluatePolicy(policy,
-                               localizedReason: "Authorize access to \"\(prompt.credentialLabel)\"") { success, authError in
+                               localizedReason: L("Authorize access to \"\(prompt.credentialLabel)\"")) { success, authError in
             DispatchQueue.main.async {
                 isAuthenticating = false
                 if success {
@@ -489,9 +489,9 @@ struct AuthorizationView: View {
                     // User chose password or biometry unavailable — authorize from UI
                     finishAuthorization(completion)
                 } else if (authError as? LAError)?.code == .userCancel {
-                    errorMessage = "Cancelled"
+                    errorMessage = L("Cancelled")
                 } else {
-                    errorMessage = authError?.localizedDescription ?? "Authentication failed"
+                    errorMessage = authError?.localizedDescription ?? L("Authentication failed")
                 }
             }
         }

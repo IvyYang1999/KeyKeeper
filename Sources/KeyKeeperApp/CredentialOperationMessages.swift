@@ -14,8 +14,8 @@ enum CredentialOperationMessages {
 
     static func failure(action: String, fallbackPrefix: String, error: Error) -> String {
         if error is SessionManagerError {
-            return "Unlock KeyKeeper first to \(action)."
+            return L("Unlock KeyKeeper first to \(action).")
         }
-        return "\(fallbackPrefix): \(error.localizedDescription)"
+        return "\(fallbackPrefix): \(AppL10n.text(error.localizedDescription))"
     }
 }

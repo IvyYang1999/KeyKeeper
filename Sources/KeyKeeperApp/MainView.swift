@@ -2,6 +2,7 @@ import SwiftUI
 import KeyKeeperCore
 
 struct MainView: View {
+    @AppStorage(AppL10n.preferenceName) private var interfaceLanguage = "system"
     @StateObject private var viewModel: CredentialListViewModel
     @StateObject private var addVM: AddCredentialViewModel
     @State private var setupComplete = UserDefaults.standard.bool(forKey: "setupComplete")
@@ -77,7 +78,7 @@ struct MainView: View {
                         onUpdate: { viewModel.load() },
                         onDelete: {
                             guard viewModel.delete(id: item.id) else {
-                                return viewModel.errorMessage ?? "Delete failed"
+                                return viewModel.errorMessage ?? L("Delete failed")
                             }
                             selectedCredentialId = nil
                             return nil
@@ -102,6 +103,7 @@ struct MainView: View {
             }
         }
         }
+        .environment(\.locale, AppL10n.locale(preference: interfaceLanguage))
         // Handled on the outer body so every page responds, and so a request that arrived
         // before the popover was ever rendered is still picked up on first render.
         .onReceive(inbox.$pendingAddCredential.compactMap { $0 }) { link in
@@ -135,25 +137,25 @@ struct MainView: View {
                 Button(action: { showSettings = true }) {
                     Image(systemName: "gearshape")
                 }
-                .help("Settings")
+                .help(L("Settings"))
                 Button(action: { showingAdd = true }) {
                     Image(systemName: "plus")
                 }
-                .help("New key group")
+                .help(L("New key group"))
             }
             .padding()
 
-            TextField("Search...", text: $viewModel.searchText)
+            TextField(L("Search..."), text: $viewModel.searchText)
                 .textFieldStyle(.roundedBorder)
                 .padding(.horizontal)
 
             if let failure = viewModel.loadFailure {
                 Spacer()
                 VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-                    Label("Couldn't read your credential list", systemImage: "exclamationmark.triangle.fill")
+                    Label(L("Couldn't read your credential list"), systemImage: "exclamationmark.triangle.fill")
                         .font(.callout.weight(.semibold))
                         .foregroundColor(.red)
-                    Text("Your key values are safe in the macOS Keychain; only the list file failed to load. Nothing has been deleted.")
+                    Text(L("Your key values are safe in the macOS Keychain; only the list file failed to load. Nothing has been deleted."))
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -169,11 +171,11 @@ struct MainView: View {
                         .lineLimit(2)
                         .truncationMode(.middle)
                     HStack {
-                        Button("Show in Finder") {
+                        Button(L("Show in Finder")) {
                             NSWorkspace.shared.activateFileViewerSelecting([failure.fileURL])
                         }
                         .font(.caption)
-                        Button("Try again") { viewModel.load() }
+                        Button(L("Try again")) { viewModel.load() }
                             .font(.caption)
                     }
                 }
@@ -184,18 +186,18 @@ struct MainView: View {
                 Spacer()
                 if addVM.hasDraft {
                     VStack(spacing: 8) {
-                        Text("No credentials stored")
+                        Text(L("No credentials stored"))
                             .foregroundColor(.secondary)
-                        Button("Continue editing draft") {
+                        Button(L("Continue editing draft")) {
                             showingAdd = true
                         }
                         .font(.caption)
                     }
                 } else {
                     VStack(spacing: DS.Spacing.sm) {
-                        Text("No keys yet")
+                        Text(L("No keys yet"))
                             .foregroundColor(.secondary)
-                        Text("Values are encrypted by the macOS Keychain. AI tools see only the names.")
+                        Text(L("Values are encrypted by the macOS Keychain. AI tools see only the names."))
                             .font(.caption)
                             .foregroundColor(.secondary.opacity(0.7))
                             .multilineTextAlignment(.center)
@@ -212,10 +214,10 @@ struct MainView: View {
                             Button(action: { showingAdd = true }) {
                                 HStack {
                                     Image(systemName: "doc.badge.ellipsis")
-                                    Text("Draft: \(addVM.draftTitle)")
+                                    Text(L("Draft: \(addVM.draftTitle)"))
                                         .lineLimit(1)
                                     Spacer()
-                                    Text("Continue")
+                                    Text(L("Continue"))
                                         .foregroundColor(.accentColor)
                                 }
                                 .font(.caption)
@@ -232,7 +234,7 @@ struct MainView: View {
                                     selectedCredentialId = item.id
                                 }
                                 .contextMenu {
-                                    Button("Delete\u{2026}", role: .destructive) {
+                                    Button(L("Delete\u{2026}"), role: .destructive) {
                                         pendingDeleteId = item.id
                                     }
                                 }
@@ -242,20 +244,20 @@ struct MainView: View {
                     .padding(.top, DS.Spacing.md)
                 }
                 .confirmationDialog(
-                    "Delete \"\(credentialLabel(for: pendingDeleteId ?? ""))\"?",
+                    L("Delete \"\(credentialLabel(for: pendingDeleteId ?? ""))\"?"),
                     isPresented: Binding(
                         get: { pendingDeleteId != nil },
                         set: { if !$0 { pendingDeleteId = nil } }
                     ),
                     titleVisibility: .visible
                 ) {
-                    Button("Delete", role: .destructive) {
+                    Button(L("Delete"), role: .destructive) {
                         if let id = pendingDeleteId {
                             viewModel.delete(id: id)
                         }
                         pendingDeleteId = nil
                     }
-                    Button("Cancel", role: .cancel) { pendingDeleteId = nil }
+                    Button(L("Cancel"), role: .cancel) { pendingDeleteId = nil }
                 } message: {
                     Text(CredentialDeletionCopy.message(credentialId: pendingDeleteId ?? ""))
                 }
@@ -274,12 +276,12 @@ struct MainView: View {
 
                 HStack {
                     Button(action: { NSApplication.shared.terminate(nil) }) {
-                        Label("Quit KeyKeeper", systemImage: "power")
+                        Label(L("Quit KeyKeeper"), systemImage: "power")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("KeyKeeper starts again automatically the next time a key is requested.")
+                    .help(L("KeyKeeper starts again automatically the next time a key is requested."))
                     Spacer()
                 }
             }
@@ -316,7 +318,7 @@ struct MainView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
-                        Text("Back")
+                        Text(L("Back"))
                     }
                     .font(.caption)
                 }
@@ -326,7 +328,7 @@ struct MainView: View {
             }
             .padding()
 
-            Text("Approved background callers")
+            Text(L("Approved background callers"))
                 .font(.title3.weight(.semibold))
                 .padding(.horizontal)
                 .padding(.bottom, DS.Spacing.sm)
@@ -337,7 +339,7 @@ struct MainView: View {
                     Image(systemName: "checkmark.shield")
                         .font(.system(size: 24))
                         .foregroundColor(.secondary)
-                    Text("No background callers approved yet")
+                    Text(L("No background callers approved yet"))
                         .font(.callout)
                         .foregroundColor(.secondary)
                 }
@@ -394,7 +396,7 @@ struct MainView: View {
 
             Spacer()
 
-            Button("Revoke") {
+            Button(L("Revoke")) {
                 revokeServiceGrant(grant.id)
             }
             .font(.caption)
@@ -413,27 +415,29 @@ struct MainView: View {
     private func serviceDurationLabel(_ duration: ServiceGrantDuration) -> String {
         switch duration {
         case .once:
-            return "Once"
+            return L("Once")
         case .timed(let date):
             if date > Date() {
                 let formatter = RelativeDateTimeFormatter()
+                formatter.locale = AppL10n.locale
                 formatter.unitsStyle = .abbreviated
-                return "Expires \(formatter.localizedString(for: date, relativeTo: Date()))"
+                return L("Expires \(formatter.localizedString(for: date, relativeTo: Date()))")
             } else {
-                return "Expired"
+                return L("Expired")
             }
         case .always:
-            return "Always"
+            return L("Always")
         }
     }
 
     private func serviceGrantTimeLabel(_ grant: ServiceGrant) -> String {
         let formatter = RelativeDateTimeFormatter()
+        formatter.locale = AppL10n.locale
         formatter.unitsStyle = .abbreviated
         if let lastUsed = grant.lastUsedAt {
-            return "Used \(formatter.localizedString(for: lastUsed, relativeTo: Date()))"
+            return L("Used \(formatter.localizedString(for: lastUsed, relativeTo: Date()))")
         }
-        return "Created \(formatter.localizedString(for: grant.createdAt, relativeTo: Date()))"
+        return L("Created \(formatter.localizedString(for: grant.createdAt, relativeTo: Date()))")
     }
 }
 
@@ -445,6 +449,6 @@ private struct ServiceGrantGroup: Identifiable {
 
 enum CredentialDeletionCopy {
     static func message(credentialId: String) -> String {
-        "Its key values are erased from the vault. This can't be undone, and anything running `keykeeper run -c \(credentialId)` will stop working."
+        L("Its key values are erased from the vault. This can't be undone, and anything running `keykeeper run -c \(credentialId)` will stop working.")
     }
 }

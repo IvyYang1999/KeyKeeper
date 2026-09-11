@@ -42,23 +42,23 @@ enum StatusMenuBuilder {
         for entry in entries(launchAtLogin: launchAtLogin, launchAtLoginAvailable: launchAtLoginAvailable) {
             switch entry {
             case .open:
-                menu.addItem(item("Open KeyKeeper", actions.open, target))
+                menu.addItem(item(L("Open KeyKeeper"), actions.open, target))
             case .checkForUpdates:
-                menu.addItem(item("Check for Updates…", actions.checkForUpdates, target))
+                menu.addItem(item(L("Check for Updates…"), actions.checkForUpdates, target))
             case .launchAtLogin(let enabled, let available):
-                let launch = item("Launch at Login", actions.launchAtLogin, target)
+                let launch = item(L("Launch at Login"), actions.launchAtLogin, target)
                 launch.state = enabled ? .on : .off
                 launch.isEnabled = available
                 if !available {
-                    launch.toolTip = "Available when KeyKeeper runs from an .app bundle."
+                    launch.toolTip = L("Available when KeyKeeper runs from an .app bundle.")
                 }
                 menu.addItem(launch)
             case .settings:
-                menu.addItem(item("Settings\u{2026}", actions.settings, target))
+                menu.addItem(item(L("Settings\u{2026}"), actions.settings, target))
             case .separator:
                 menu.addItem(.separator())
             case .quit:
-                menu.addItem(item("Quit KeyKeeper", actions.quit, target))
+                menu.addItem(item(L("Quit KeyKeeper"), actions.quit, target))
             }
         }
         return menu

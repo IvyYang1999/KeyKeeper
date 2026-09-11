@@ -34,7 +34,7 @@ enum AccessEntryBuilder {
                 kind: .terminalSession,
                 who: sessionLabel(grant),
                 scope: scopeLabel(grant.duration, now: now),
-                activity: "Approved \(relative(grant.createdAt, now: now))",
+                activity: L("Approved \(relative(grant.createdAt, now: now))"),
                 isActive: isActive(grant, now: now),
                 sortDate: grant.createdAt
             )
@@ -45,8 +45,8 @@ enum AccessEntryBuilder {
                 kind: .backgroundCaller,
                 who: grant.subjectDisplayName,
                 scope: scopeLabel(grant.duration, fields: grant.fields, now: now),
-                activity: grant.lastUsedAt.map { "Used \(relative($0, now: now))" }
-                    ?? "Approved \(relative(grant.createdAt, now: now))",
+                activity: grant.lastUsedAt.map { L("Used \(relative($0, now: now))") }
+                    ?? L("Approved \(relative(grant.createdAt, now: now))"),
                 isActive: isActive(grant, now: now),
                 sortDate: grant.lastUsedAt ?? grant.createdAt
             )
@@ -56,29 +56,29 @@ enum AccessEntryBuilder {
 
     static func sessionLabel(_ grant: Grant) -> String {
         if case .session(let id) = grant.duration, !id.isEmpty {
-            return "Terminal session \(id.prefix(8))"
+            return L("Terminal session \(id.prefix(8))")
         }
         if let sessionId = grant.sessionId, !sessionId.isEmpty {
-            return "Terminal session \(sessionId.prefix(8))"
+            return L("Terminal session \(sessionId.prefix(8))")
         }
-        return "Any terminal"
+        return L("Any terminal")
     }
 
     static func scopeLabel(_ duration: GrantDuration, now: Date) -> String {
         switch duration {
-        case .once: return "Once"
-        case .session: return "While that session is open"
-        case .timed(let date): return date > now ? "Until \(relative(date, now: now))" : "Expired"
-        case .always: return "Always"
+        case .once: return L("Once")
+        case .session: return L("While that session is open")
+        case .timed(let date): return date > now ? L("Until \(relative(date, now: now))") : L("Expired")
+        case .always: return L("Always")
         }
     }
 
     static func scopeLabel(_ duration: ServiceGrantDuration, fields: [String], now: Date) -> String {
         let base: String
         switch duration {
-        case .once: base = "Once"
-        case .timed(let date): base = date > now ? "Until \(relative(date, now: now))" : "Expired"
-        case .always: base = "Always"
+        case .once: base = L("Once")
+        case .timed(let date): base = date > now ? L("Until \(relative(date, now: now))") : L("Expired")
+        case .always: base = L("Always")
         }
         return fields.isEmpty ? base : "\(base) · \(fields.joined(separator: ", "))"
     }
@@ -99,6 +99,7 @@ enum AccessEntryBuilder {
 
     private static func relative(_ date: Date, now: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
+        formatter.locale = AppL10n.locale
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: now)
     }
@@ -115,7 +116,7 @@ struct AccessSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(text: "Who is approved", hint: security == .strict ? "per terminal session" : "per caller")
+            SectionLabel(text: L("Who is approved"), hint: security == .strict ? L("per terminal session") : L("per caller"))
 
             if entries.isEmpty {
                 Text(emptyText)
@@ -146,7 +147,7 @@ struct AccessSection: View {
                             Circle().fill(.green).frame(width: 6, height: 6)
                                 .padding(.top, 6)
                         }
-                        Button("Revoke") { revoke(entry) }
+                        Button(L("Revoke")) { revoke(entry) }
                             .font(.caption)
                             .foregroundColor(.red)
                             .buttonStyle(.plain)
@@ -169,9 +170,9 @@ struct AccessSection: View {
     private var emptyText: String {
         switch security {
         case .strict:
-            return "No one is approved yet. Each new terminal session that runs `keykeeper run -c \(credentialId)` will ask you."
+            return L("No one is approved yet. Each new terminal session that runs `keykeeper run -c \(credentialId)` will ask you.")
         case .standard:
-            return "No one is approved yet. The first script or agent that runs `keykeeper run -c \(credentialId)` will ask you once."
+            return L("No one is approved yet. The first script or agent that runs `keykeeper run -c \(credentialId)` will ask you once.")
         }
     }
 

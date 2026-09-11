@@ -34,7 +34,7 @@ enum MaskedFieldPresentation {
 struct MaskedValueField: View {
     @Binding var value: String
     @Binding var visible: Bool
-    var placeholder: String = "Paste or type the value"
+    var placeholder: String = L("Paste or type the value")
     var editable: Bool = true
     var onCopy: (() -> Void)?
 
@@ -75,7 +75,7 @@ struct MaskedValueField: View {
                             isFocused = true
                         }
                     }
-                    .help(editable ? "Click to edit" : "")
+                    .help(editable ? L("Click to edit") : "")
             }
 
             Button(action: {
@@ -90,7 +90,7 @@ struct MaskedValueField: View {
                     .frame(width: 18)
             }
             .buttonStyle(.plain)
-            .help(visible ? "Hide value" : "Show value")
+            .help(visible ? L("Hide value") : L("Show value"))
 
             if onCopy != nil {
                 Button(action: { onCopy?() }) {
@@ -99,7 +99,7 @@ struct MaskedValueField: View {
                         .frame(width: 18)
                 }
                 .buttonStyle(.plain)
-                .help("Copy value")
+                .help(L("Copy value"))
             }
         }
     }

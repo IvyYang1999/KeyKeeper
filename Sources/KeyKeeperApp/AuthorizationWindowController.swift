@@ -51,7 +51,7 @@ final class AuthorizationWindowController {
     }
 
     static func windowTitle(waiting: Int) -> String {
-        waiting > 0 ? "KeyKeeper Authorization (\(waiting) more waiting)" : "KeyKeeper Authorization"
+        waiting > 0 ? L("KeyKeeper Authorization (\(waiting) more waiting)") : L("KeyKeeper Authorization")
     }
 
     private func show(prompt: AuthorizationPrompt,

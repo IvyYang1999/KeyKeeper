@@ -26,9 +26,9 @@ struct AddCredentialView: View {
                 header
                 nameSection
                 if onImportFile != nil {
-                    Button("Import service-account JSON…") { chooseFile() }
+                    Button(L("Import service-account JSON…")) { chooseFile() }
                         .disabled(vm.idProblem != nil || vm.fields.contains { !$0.value.isEmpty })
-                    Text("Name this credential first and leave key values empty. File import creates a protected credentials-json field; other draft options are not used. The original file is retained.")
+                    Text(L("Name this credential first and leave key values empty. File import creates a protected credentials-json field; other draft options are not used. The original file is retained."))
                         .font(.caption2).foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -58,15 +58,15 @@ struct AddCredentialView: View {
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.title = "Choose a service-account JSON file"
-        panel.message = "KeyKeeper will ask before reading and saving. The original file is not deleted."
+        panel.title = L("Choose a service-account JSON file")
+        panel.message = L("KeyKeeper will ask before reading and saving. The original file is not deleted.")
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             let request = FileImportRequest(target: .init(credentialId: vm.credentialId,
                 fieldName: "credentials-json", create: true), filePath: url.path)
             onImportFile?(request) { result in
                 if result.success { onSave() }
-                else { vm.errorMessage = result.errorCode?.localizedDescription ?? "File import failed." }
+                else { vm.errorMessage = result.errorCode?.localizedDescription ?? L("File import failed.") }
             }
         }
     }
@@ -84,7 +84,7 @@ struct AddCredentialView: View {
                 Button(action: onCancel) {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
-                        Text("Back")
+                        Text(L("Back"))
                     }
                     .font(.caption)
                 }
@@ -92,13 +92,13 @@ struct AddCredentialView: View {
                 .foregroundColor(.accentColor)
                 Spacer()
             }
-            Text("Add a key").font(.headline)
+            Text(L("Add a key")).font(.headline)
         }
     }
 
     private var nameSection: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-            SectionLabel(text: "Name")
+            SectionLabel(text: L("Name"))
             TextField("OpenAI", text: $vm.label)
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: vm.label) { vm.autoGenerateId() }
@@ -124,15 +124,15 @@ struct AddCredentialView: View {
                 Image(systemName: "exclamationmark.circle")
                     .font(.caption2)
                     .foregroundColor(.orange)
-                Text("\(conflict) already exists")
+                Text(L("\(conflict) already exists"))
                     .font(.caption2)
                     .foregroundColor(.secondary)
-                Button("Open it") { onOpenExisting(conflict) }
+                Button(L("Open it")) { onOpenExisting(conflict) }
                     .buttonStyle(.plain)
                     .font(.caption2)
                     .foregroundColor(.accentColor)
                 if !isEditingId {
-                    Button("Use another ID") { isEditingId = true }
+                    Button(L("Use another ID")) { isEditingId = true }
                         .buttonStyle(.plain)
                         .font(.caption2)
                         .foregroundColor(.accentColor)
@@ -159,7 +159,7 @@ struct AddCredentialView: View {
                 }
             }
             .buttonStyle(.plain)
-            .help("Edit the ID that scripts and AI tools pass to keykeeper run -c")
+            .help(L("Edit the ID that scripts and AI tools pass to keykeeper run -c"))
         }
     }
 
@@ -171,7 +171,7 @@ struct AddCredentialView: View {
             }
             .padding(.top, DS.Spacing.sm)
         } label: {
-            Text("More options")
+            Text(L("More options"))
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -180,7 +180,7 @@ struct AddCredentialView: View {
     private var actions: some View {
         HStack {
             if vm.hasDraft {
-                Button("Discard") {
+                Button(L("Discard")) {
                     vm.reset()
                     isEditingId = false
                     onCancel()
@@ -190,7 +190,7 @@ struct AddCredentialView: View {
                 .foregroundColor(.secondary)
             }
             Spacer()
-            Button("Save") {
+            Button(L("Save")) {
                 if vm.save() { onSave() }
             }
             .disabled(!vm.isValid)
@@ -207,7 +207,7 @@ struct DescriptionEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-            SectionLabel(text: "Description", hint: "visible to AI")
+            SectionLabel(text: L("Description"), hint: L("visible to AI"))
             TextEditor(text: $text)
                 .font(.callout)
                 .frame(minHeight: 52, maxHeight: 88)
@@ -221,7 +221,7 @@ struct DescriptionEditor: View {
                 )
                 .overlay(alignment: .topLeading) {
                     if text.isEmpty {
-                        Text("When to use these keys, renewal links, notes to self\u{2026}")
+                        Text(L("When to use these keys, renewal links, notes to self\u{2026}"))
                             .font(.callout)
                             .foregroundColor(.secondary.opacity(0.5))
                             .padding(.horizontal, 10)
@@ -238,11 +238,11 @@ struct KeyFieldsEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            SectionLabel(text: fields.count > 1 ? "Keys" : "Key", hint: "stored in macOS Keychain")
+            SectionLabel(text: fields.count > 1 ? L("Keys") : L("Key"), hint: L("stored in macOS Keychain"))
 
             ForEach(fields.indices, id: \.self) { i in
                 if fields[i].fileFormat != nil {
-                    Label("\(fields[i].name) · Service-account JSON (contents hidden)", systemImage: "doc.badge.gearshape")
+                    Label(L("\(fields[i].name) · Service-account JSON (contents hidden)"), systemImage: "doc.badge.gearshape")
                         .font(.caption).foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
@@ -250,7 +250,7 @@ struct KeyFieldsEditor: View {
                     // Name and value share one bordered container so the pair reads as one
                     // control, and the eye lives inside it rather than floating alongside.
                     HStack(spacing: 0) {
-                        TextField("Name", text: $fields[i].name)
+                        TextField(L("Name"), text: $fields[i].name)
                             .textFieldStyle(.plain)
                             .font(.callout)
                             .frame(width: 92)
@@ -263,8 +263,8 @@ struct KeyFieldsEditor: View {
                             value: $fields[i].value,
                             visible: $fields[i].visible,
                             placeholder: fields[i].existingSecret
-                                ? "Unchanged"
-                                : "Paste or type the value"
+                                ? L("Unchanged")
+                                : L("Paste or type the value")
                         )
 
                         if fields.count > 1 {
@@ -273,7 +273,7 @@ struct KeyFieldsEditor: View {
                                     .foregroundColor(.secondary.opacity(0.5))
                             }
                             .buttonStyle(.plain)
-                            .help("Remove this key")
+                            .help(L("Remove this key"))
                             .padding(.leading, 6)
                         }
                     }
@@ -300,7 +300,7 @@ struct KeyFieldsEditor: View {
             }
 
             Button(action: { fields.append(FieldEntry()) }) {
-                Label("Add another key", systemImage: "plus.circle")
+                Label(L("Add another key"), systemImage: "plus.circle")
                     .font(.caption)
             }
             .buttonStyle(.plain)

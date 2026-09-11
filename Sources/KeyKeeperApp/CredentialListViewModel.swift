@@ -84,8 +84,8 @@ class CredentialListViewModel: ObservableObject {
             return true
         } catch {
             errorMessage = CredentialOperationMessages.failure(
-                action: "delete this credential",
-                fallbackPrefix: "Delete failed",
+                action: L("delete this credential"),
+                fallbackPrefix: L("Delete failed"),
                 error: error
             )
             return false

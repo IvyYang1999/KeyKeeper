@@ -3,6 +3,7 @@ import KeyKeeperCore
 
 /// Global switches that used to be scattered over the list footer and the setup screen.
 struct SettingsView: View {
+    @AppStorage(AppL10n.preferenceName) private var interfaceLanguage = "system"
     @ObservedObject var updateController: UpdateController
     var onBack: () -> Void
     var onShowServiceGrants: () -> Void
@@ -24,7 +25,7 @@ struct SettingsView: View {
                 Button(action: onBack) {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
-                        Text("Back")
+                        Text(L("Back"))
                     }
                     .font(.caption)
                 }
@@ -34,13 +35,14 @@ struct SettingsView: View {
             }
             .padding()
 
-            Text("Settings")
+            Text(L("Settings"))
                 .font(.title3.weight(.semibold))
                 .padding(.horizontal)
                 .padding(.bottom, DS.Spacing.sm)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Spacing.md) {
+                    languageCard
                     backgroundAccessCard
                     startupCard
                     updatesCard
@@ -61,17 +63,32 @@ struct SettingsView: View {
 
     // MARK: - Cards
 
+    private var languageCard: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+            SectionLabel(text: L("Language"))
+            Picker(L("Language"), selection: $interfaceLanguage) {
+                Text(L("Follow system")).tag("system")
+                Text("简体中文").tag("zh-Hans")
+                Text("English").tag("en")
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .dsCard(padding: DS.Spacing.md)
+    }
+
     private var backgroundAccessCard: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            SectionLabel(text: "Background access")
+            SectionLabel(text: L("Background access"))
             Toggle(isOn: $enforceServiceGrants) {
-                Text("Ask me before a new script or agent uses a \"Background OK\" key")
+                Text(L("Ask me before a new script or agent uses a \"Background OK\" key"))
                     .font(.callout)
             }
             .onChange(of: enforceServiceGrants) { _, value in save(value) }
             Text(enforceServiceGrants
-                 ? "Each new caller (a cron job, an IDE, an agent) is shown once in an approval window. Approved callers keep working unattended."
-                 : "Any process on this Mac can read \"Background OK\" keys without asking. Turn this on before running untrusted tools.")
+                 ? L("Each new caller (a cron job, an IDE, an agent) is shown once in an approval window. Approved callers keep working unattended.")
+                 : L("Any process on this Mac can read \"Background OK\" keys without asking. Turn this on before running untrusted tools."))
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -80,7 +97,7 @@ struct SettingsView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "checkmark.shield").font(.caption)
-                    Text(serviceGrantCount == 1 ? "1 approved caller" : "\(serviceGrantCount) approved callers")
+                    Text(serviceGrantCount == 1 ? L("1 approved caller") : L("\(serviceGrantCount) approved callers"))
                         .font(.caption)
                     Spacer()
                     Image(systemName: "chevron.right").font(.caption2)
@@ -97,9 +114,9 @@ struct SettingsView: View {
 
     private var startupCard: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            SectionLabel(text: "Startup")
+            SectionLabel(text: L("Startup"))
             Toggle(isOn: $launchAtLogin) {
-                Text("Launch KeyKeeper at login")
+                Text(L("Launch KeyKeeper at login"))
                     .font(.callout)
             }
             .disabled(!LoginItemManager.isAvailable)
@@ -114,8 +131,8 @@ struct SettingsView: View {
                 }
             }
             Text(LoginItemManager.isAvailable
-                 ? "After a restart the vault is locked until you unlock it, but the app is ready in the menu bar."
-                 : "Available when KeyKeeper runs from the .app in Applications.")
+                 ? L("After a restart the vault is locked until you unlock it, but the app is ready in the menu bar.")
+                 : L("Available when KeyKeeper runs from the .app in Applications."))
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -128,7 +145,7 @@ struct SettingsView: View {
 
     private var cliCard: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            SectionLabel(text: "Command line")
+            SectionLabel(text: L("Command line"))
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(cliTitle).font(.callout)
@@ -149,7 +166,7 @@ struct SettingsView: View {
             if let cliError {
                 Text(cliError).font(.caption2).foregroundColor(.red)
             }
-            Button("Show setup again") { onShowSetup() }
+            Button(L("Show setup again")) { onShowSetup() }
                 .buttonStyle(.plain)
                 .font(.caption)
                 .foregroundColor(.accentColor)
@@ -159,12 +176,12 @@ struct SettingsView: View {
 
     private var updatesCard: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            SectionLabel(text: "Updates")
+            SectionLabel(text: L("Updates"))
             Toggle(isOn: Binding(
                 get: { updateController.automaticallyInstallsUpdates },
                 set: { updateController.setAutomaticallyInstallsUpdates($0) }
             )) {
-                Text("Install updates automatically")
+                Text(L("Install updates automatically"))
                     .font(.callout)
             }
             .disabled(!updateController.isAvailable)
@@ -174,7 +191,7 @@ struct SettingsView: View {
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Button("Check for Updates…") {
+            Button(L("Check for Updates…")) {
                 updateController.checkForUpdates()
             }
             .font(.caption)
@@ -185,12 +202,12 @@ struct SettingsView: View {
 
     private var dataCard: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            SectionLabel(text: "Data")
-            Text("Key values live in the macOS Keychain (covered by your normal macOS backup). This folder holds names, notes and approvals — no secret values.")
+            SectionLabel(text: L("Data"))
+            Text(L("Key values live in the macOS Keychain (covered by your normal macOS backup). This folder holds names, notes and approvals — no secret values."))
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Show data folder in Finder") {
+            Button(L("Show data folder in Finder")) {
                 NSWorkspace.shared.activateFileViewerSelecting([KeyKeeperPaths.applicationSupportDirectory])
             }
             .buttonStyle(.plain)
@@ -202,33 +219,33 @@ struct SettingsView: View {
 
     private var cliTitle: String {
         switch cliState {
-        case .missing: return "CLI not installed"
-        case .stale: return "CLI is out of date"
-        case .current: return "CLI up to date"
+        case .missing: return L("CLI not installed")
+        case .stale: return L("CLI is out of date")
+        case .current: return L("CLI up to date")
         }
     }
 
     private var updateDescription: String {
         guard updateController.isAvailable else {
-            return "Updates are unavailable in this development build."
+            return L("Updates are unavailable in this development build.")
         }
         return updateController.automaticallyInstallsUpdates
-            ? "KeyKeeper checks daily and installs signed updates in the background."
-            : "KeyKeeper checks daily and tells you when a signed update is available."
+            ? L("KeyKeeper checks daily and installs signed updates in the background.")
+            : L("KeyKeeper checks daily and tells you when a signed update is available.")
     }
 
     private var cliDetail: String {
         switch cliState {
-        case .missing: return "Scripts and AI tools need `keykeeper` on the PATH."
-        case .stale(let installed): return "\(installed) vs app \(BuildVersion.identifier)"
+        case .missing: return L("Scripts and AI tools need `keykeeper` on the PATH.")
+        case .stale(let installed): return L("\(installed) vs app \(BuildVersion.identifier)")
         case .current(let installed): return installed
         }
     }
 
     private var cliActionLabel: String? {
         switch cliState {
-        case .missing: return "Install"
-        case .stale: return "Update"
+        case .missing: return L("Install")
+        case .stale: return L("Update")
         case .current: return nil
         }
     }

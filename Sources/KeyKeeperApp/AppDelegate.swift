@@ -252,8 +252,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             try LoginItemManager.setEnabled(!LoginItemManager.isEnabled)
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Couldn't change Launch at Login"
-            alert.informativeText = error.localizedDescription + "\n\nYou can also add KeyKeeper under System Settings › General › Login Items."
+            alert.messageText = L("Couldn't change Launch at Login")
+            alert.informativeText = error.localizedDescription + L("\n\nYou can also add KeyKeeper under System Settings › General › Login Items.")
             alert.runModal()
         }
     }

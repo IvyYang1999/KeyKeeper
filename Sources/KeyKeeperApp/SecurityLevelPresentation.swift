@@ -10,15 +10,15 @@ enum SecurityLevelPresentation {
     /// per-caller approval flow, so this is the right default for automation-first users.
     static let defaultLevel: SecurityLevel = .standard
 
-    static let sectionTitle = "Who can use these keys"
+    static var sectionTitle: String { L("Who can use these keys") }
 
     /// Label for the toggle that switches a credential to `strict`.
-    static let strictToggleLabel = "Ask me every time a new terminal session uses these keys"
+    static var strictToggleLabel: String { L("Ask me every time a new terminal session uses these keys") }
 
     static func badge(_ level: SecurityLevel) -> String {
         switch level {
-        case .standard: return "Background OK"
-        case .strict: return "Ask every time"
+        case .standard: return L("Background OK")
+        case .strict: return L("Ask every time")
         }
     }
 
@@ -31,17 +31,17 @@ enum SecurityLevelPresentation {
 
     static func title(_ level: SecurityLevel) -> String {
         switch level {
-        case .standard: return "Approve each caller once"
-        case .strict: return "Approve every terminal session"
+        case .standard: return L("Approve each caller once")
+        case .strict: return L("Approve every terminal session")
         }
     }
 
     static func detail(_ level: SecurityLevel) -> String {
         switch level {
         case .standard:
-            return "Scripts, cron jobs and AI agents can use these keys after you approve them once in KeyKeeper. Choose this for anything that runs in the background."
+            return L("Scripts, cron jobs and AI agents can use these keys after you approve them once in KeyKeeper. Choose this for anything that runs in the background.")
         case .strict:
-            return "Every new terminal session has to be approved in the KeyKeeper window while you are at the Mac. Not suitable for cron jobs or unattended agents."
+            return L("Every new terminal session has to be approved in the KeyKeeper window while you are at the Mac. Not suitable for cron jobs or unattended agents.")
         }
     }
 }

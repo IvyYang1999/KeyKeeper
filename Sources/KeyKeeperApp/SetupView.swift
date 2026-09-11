@@ -20,10 +20,10 @@ struct SetupView: View {
                     .foregroundColor(.accentColor)
                     .padding(.top, 16)
 
-                Text("Welcome to KeyKeeper")
+                Text(L("Welcome to KeyKeeper"))
                     .font(.title2.bold())
 
-                Text("Securely manage your API keys.\nAI tools use them without seeing the values.")
+                Text(L("Securely manage your API keys.\nAI tools use them without seeing the values."))
                     .multilineTextAlignment(.center)
                     .foregroundColor(.secondary)
                     .font(.callout)
@@ -53,7 +53,7 @@ struct SetupView: View {
             StepCard(
                 step: 1,
                 done: cliState.isCurrent,
-                title: "Install CLI Tool",
+                title: L("Install CLI Tool"),
                 detail: cliDetail,
                 actionLabel: cliActionLabel,
                 isLoading: isInstallingCLI,
@@ -70,11 +70,11 @@ struct SetupView: View {
             StepCard(
                 step: 2,
                 done: skillInstalled,
-                title: "Set Up Claude Code",
+                title: L("Set Up Claude Code"),
                 detail: skillInstalled
-                    ? "The KeyKeeper skill is installed. Claude Code will use `keykeeper run` instead of asking you for key values."
-                    : "Copy the message below and paste it into Claude Code. It installs the KeyKeeper skill; this card turns green once ~/.claude/skills/keykeeper/SKILL.md exists.",
-                actionLabel: skillInstalled ? nil : "Check again",
+                    ? L("The KeyKeeper skill is installed. Claude Code will use `keykeeper run` instead of asking you for key values.")
+                    : L("Copy the message below and paste it into Claude Code. It installs the KeyKeeper skill; this card turns green once ~/.claude/skills/keykeeper/SKILL.md exists."),
+                actionLabel: skillInstalled ? nil : L("Check again"),
                 action: checkCLI
             )
 
@@ -84,22 +84,22 @@ struct SetupView: View {
 
             VStack(spacing: DS.Spacing.sm) {
                 if cliInstalled {
-                    Button("Get Started") { finishSetup() }
+                    Button(L("Get Started")) { finishSetup() }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
                         .frame(maxWidth: .infinity)
-                        .help("You can finish the Claude Code step later.")
+                        .help(L("You can finish the Claude Code step later."))
                 }
 
-                Button("Skip for now") { finishSetup() }
+                Button(L("Skip for now")) { finishSetup() }
                     .buttonStyle(.plain)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .help("Open this screen again from Settings whenever you want.")
+                    .help(L("Open this screen again from Settings whenever you want."))
             }
         }
 
-        Button("I prefer to install everything manually") {
+        Button(L("I prefer to install everything manually")) {
             withAnimation { showManual = true }
         }
         .buttonStyle(.plain)
@@ -110,18 +110,18 @@ struct SetupView: View {
     private var cliDetail: String {
         switch cliState {
         case .missing:
-            return "Installs the `keykeeper` binary to /usr/local/bin so scripts, cron jobs and AI tools can read keys from the macOS Keychain at runtime."
+            return L("Installs the `keykeeper` binary to /usr/local/bin so scripts, cron jobs and AI tools can read keys from the macOS Keychain at runtime.")
         case .stale(let installed):
-            return "The installed CLI (\(installed)) was built from a different version than this app (\(BuildVersion.identifier)). Update it so the two agree."
+            return L("The installed CLI (\(installed)) was built from a different version than this app (\(BuildVersion.identifier)). Update it so the two agree.")
         case .current(let installed):
-            return "Installed: \(installed)."
+            return L("Installed: \(installed).")
         }
     }
 
     private var cliActionLabel: String? {
         switch cliState {
-        case .missing: return "Install CLI"
-        case .stale: return "Update CLI"
+        case .missing: return L("Install CLI")
+        case .stale: return L("Update CLI")
         case .current: return nil
         }
     }
@@ -136,23 +136,23 @@ struct SetupView: View {
     @ViewBuilder
     private var manualSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Manual Installation")
+            Text(L("Manual Installation"))
                 .font(.headline)
 
-            Text("Step 1: Install CLI").font(.subheadline.bold())
+            Text(L("Step 1: Install CLI")).font(.subheadline.bold())
             CopyableCommand("sudo cp /Applications/KeyKeeper.app/Contents/MacOS/keykeeper /usr/local/bin/keykeeper && sudo chmod +x /usr/local/bin/keykeeper")
 
             Divider()
 
-            Text("Step 2: Install Claude Code Skill").font(.subheadline.bold())
-            Text("Paste this into Claude Code and let it handle the rest:")
+            Text(L("Step 2: Install Claude Code Skill")).font(.subheadline.bold())
+            Text(L("Paste this into Claude Code and let it handle the rest:"))
                 .font(.caption).foregroundColor(.secondary)
             CopyableCommand(Self.skillInstallPrompt)
 
             Divider()
 
             HStack {
-                Button("Back") {
+                Button(L("Back")) {
                     withAnimation { showManual = false }
                 }
                 .buttonStyle(.plain)
@@ -160,7 +160,7 @@ struct SetupView: View {
 
                 Spacer()
 
-                Button("Check again") {
+                Button(L("Check again")) {
                     checkCLI()
                 }
                 .font(.caption)

@@ -46,26 +46,26 @@ struct CredentialDetailView: View {
                     }) {
                         HStack(spacing: 4) {
                             Image(systemName: "chevron.left")
-                            Text("Back")
+                            Text(L("Back"))
                         }
                         .font(.caption)
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.accentColor)
                     .confirmationDialog(
-                        "Discard unsaved changes?",
+                        L("Discard unsaved changes?"),
                         isPresented: $showDiscardConfirmation,
                         titleVisibility: .visible
                     ) {
-                        Button("Discard Changes", role: .destructive) {
+                        Button(L("Discard Changes"), role: .destructive) {
                             vm.reloadCredential()
                             vm.isEditing = false
                             onBack()
                         }
-                        Button("Keep Editing", role: .cancel) {}
+                        Button(L("Keep Editing"), role: .cancel) {}
                     }
                     Spacer()
-                    Button(vm.isEditing ? "Cancel" : "Edit") {
+                    Button(vm.isEditing ? L("Cancel") : L("Edit")) {
                         if vm.isEditing {
                             vm.reloadCredential()
                         }
@@ -77,8 +77,8 @@ struct CredentialDetailView: View {
                 // Name
                 if vm.isEditing {
                     VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-                        SectionLabel(text: "Name")
-                        TextField("Name", text: $vm.credential.label)
+                        SectionLabel(text: L("Name"))
+                        TextField(L("Name"), text: $vm.credential.label)
                             .textFieldStyle(.roundedBorder)
                     }
                 } else {
@@ -90,7 +90,7 @@ struct CredentialDetailView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
-                        Text("ID \(credentialId)")
+                        Text(L("ID \(credentialId)"))
                             .font(.caption.monospaced())
                             .foregroundColor(.secondary)
                             .textSelection(.enabled)
@@ -102,9 +102,9 @@ struct CredentialDetailView: View {
                     DescriptionEditor(text: $vm.credential.notes)
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
-                        SectionLabel(text: "Description", hint: "visible to AI")
+                        SectionLabel(text: L("Description"), hint: L("visible to AI"))
                         if vm.credential.notes.isEmpty {
-                            Text("No description")
+                            Text(L("No description"))
                                 .font(.callout).foregroundColor(.secondary)
                         } else {
                             Text(vm.credential.notes)
@@ -119,13 +119,13 @@ struct CredentialDetailView: View {
                     KeyFieldsEditor(fields: $vm.fields)
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
-                        SectionLabel(text: "Keys")
+                        SectionLabel(text: L("Keys"))
 
                         ForEach(Array(vm.fields.enumerated()), id: \.offset) { index, field in
                             if field.fileFormat != nil {
-                                Label("\(field.name) · Service-account JSON", systemImage: "doc.badge.gearshape")
+                                Label(L("\(field.name) · Service-account JSON"), systemImage: "doc.badge.gearshape")
                                     .font(.callout).fixedSize(horizontal: false, vertical: true)
-                                Text("Contents hidden. Used through a private temporary file; the downloaded original is not managed or deleted.")
+                                Text(L("Contents hidden. Used through a private temporary file; the downloaded original is not managed or deleted."))
                                     .font(.caption2).foregroundColor(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
                             } else {
@@ -165,13 +165,13 @@ struct CredentialDetailView: View {
                                         .frame(width: 18)
                                 }
                                 .buttonStyle(.plain)
-                                .help("Copy value (clipboard is cleared after \(Int(SecretPasteboard.clearDelay)) s)")
+                                .help(L("Copy value (clipboard is cleared after \(Int(SecretPasteboard.clearDelay)) s)"))
                             }
                             }
                         }
 
                         if copiedFieldIndex != nil {
-                            Text("Copied. The clipboard clears itself in \(Int(SecretPasteboard.clearDelay)) s unless you copy something else.")
+                            Text(L("Copied. The clipboard clears itself in \(Int(SecretPasteboard.clearDelay)) s unless you copy something else."))
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                         }
@@ -181,7 +181,7 @@ struct CredentialDetailView: View {
                 // How to use it (view mode)
                 if !vm.isEditing {
                     VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-                        SectionLabel(text: "Use in terminal", hint: "text values or private file paths")
+                        SectionLabel(text: L("Use in terminal"), hint: L("text values or private file paths"))
                         CopyableCommand(CredentialUsageCopy.runCommand(credentialId: credentialId, credential: vm.credential))
                         let names = CredentialUsageCopy.environmentNames(for: vm.credential)
                         if !names.isEmpty {
@@ -212,7 +212,7 @@ struct CredentialDetailView: View {
                 if vm.isEditing {
                     HStack {
                         Spacer()
-                        Button("Save") {
+                        Button(L("Save")) {
                             if vm.saveChanges() {
                                 onUpdate()
                             }
@@ -224,9 +224,9 @@ struct CredentialDetailView: View {
                 // Metadata
                 if !vm.isEditing {
                     HStack {
-                        Text("Created \(vm.credential.created)")
+                        Text(L("Created \(vm.credential.created)"))
                         Spacer()
-                        Text("Updated \(vm.credential.updated)")
+                        Text(L("Updated \(vm.credential.updated)"))
                     }
                     .font(.caption2)
                     .foregroundColor(.secondary.opacity(0.4))
@@ -236,22 +236,22 @@ struct CredentialDetailView: View {
                     Button {
                         showDeleteConfirmation = true
                     } label: {
-                        Label("Delete this credential\u{2026}", systemImage: "trash")
+                        Label(L("Delete this credential\u{2026}"), systemImage: "trash")
                             .font(.caption)
                             .foregroundColor(.red)
                     }
                     .buttonStyle(.plain)
                     .confirmationDialog(
-                        "Delete \"\(vm.credential.label)\"?",
+                        L("Delete \"\(vm.credential.label)\"?"),
                         isPresented: $showDeleteConfirmation,
                         titleVisibility: .visible
                     ) {
-                        Button("Delete", role: .destructive) {
+                        Button(L("Delete"), role: .destructive) {
                             if let problem = onDelete() {
                                 vm.errorMessage = problem
                             }
                         }
-                        Button("Cancel", role: .cancel) {}
+                        Button(L("Cancel"), role: .cancel) {}
                     } message: {
                         Text(CredentialDeletionCopy.message(credentialId: credentialId))
                     }
