@@ -94,6 +94,9 @@ extension AppL10n {
         "Read without asking": "未询问即读取",
         "Background access is set to not ask, so this read went through without a prompt.": "后台访问设为不询问，所以这次读取没有弹窗就通过了。",
         "Terminal sessions you approve show up here. Background callers only appear once asking is turned on.": "你批准过的终端会话会列在这里。后台调用方要在打开「先问我」之后才会出现。",
+        // Menu bar (Passwords-style)
+        "No keys yet. Press + to store your first one.": "还没有 key，点右上角 + 存第一把。",
+        "No key matches \"{0}\".": "没有匹配「{0}」的 key。",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",

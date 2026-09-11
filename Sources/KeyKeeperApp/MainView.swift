@@ -1,22 +1,27 @@
 import SwiftUI
 import KeyKeeperCore
 
-/// The menu bar popover: the "right now" half of KeyKeeper.
+/// The menu bar popover, modelled on the macOS 26 Passwords menu bar extra (yyt: "just copy
+/// this"). It does two things: find a key and store one. The header holds + (store) and a
+/// button that opens the main window; everything else lives in the main window.
 ///
-/// It holds what comes to you — requests waiting for a yes or no — and what you are about
-/// to do with a key in hand: store it, then hand its name to your agent. Browsing, editing,
-/// approvals history, website sessions and settings live in the main window. The rule that
-/// decides where something goes: did someone come to me, or am I going to do something?
+/// Requests waiting for a yes or no still appear above the list, but only while one is
+/// actually waiting.
 struct MainView: View {
+    enum Page: Equatable {
+        case home
+        case add
+        case detail(String)
+    }
+
     @AppStorage(AppL10n.preferenceName) private var interfaceLanguage = "system"
     @AppStorage("setupComplete") private var setupComplete = false
     @StateObject private var viewModel: CredentialListViewModel
     @StateObject private var addVM: AddCredentialViewModel
     @ObservedObject private var approvals = ApprovalCenter.shared
     @ObservedObject private var inbox = UICommandInbox.shared
-    @State private var showingAdd = false
-    @State private var copiedPromptId: String?
-    @State private var clipboardNotice: String?
+    @State private var page: Page = .home
+    @FocusState private var searchFocused: Bool
 
     private let session: any CredentialSessionManaging
     private var importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)?
@@ -39,26 +44,42 @@ struct MainView: View {
         Group {
             if !setupComplete {
                 SetupView(setupComplete: $setupComplete)
-            } else if showingAdd {
-                AddCredentialView(
-                    vm: addVM,
-                    onSave: {
-                        viewModel.load()
-                        addVM.reset()
-                        showingAdd = false
-                        NotificationCenter.default.post(name: .credentialsChanged, object: nil)
-                    },
-                    onCancel: { showingAdd = false },
-                    onOpenExisting: { id in
-                        addVM.reset()
-                        showingAdd = false
-                        openMainWindow(.keys, id)
-                    },
-                    onImportFile: importFile
-                )
-                .background(GlassSurface(intensity: 0.7))
             } else {
-                home
+                switch page {
+                case .home:
+                    home
+                case .add:
+                    AddCredentialView(
+                        vm: addVM,
+                        onSave: {
+                            let id = addVM.credentialId
+                            viewModel.load()
+                            addVM.reset()
+                            page = .detail(id)
+                            NotificationCenter.default.post(name: .credentialsChanged, object: nil)
+                        },
+                        onCancel: { page = .home },
+                        onOpenExisting: { id in
+                            addVM.reset()
+                            page = .detail(id)
+                        },
+                        onImportFile: importFile,
+                        afterFilePicker: reopenPopover
+                    )
+                case .detail(let id):
+                    if let item = viewModel.credentials.first(where: { $0.id == id }) {
+                        PopoverKeyDetail(
+                            credentialId: id,
+                            credential: item.credential,
+                            session: session,
+                            onBack: { page = .home },
+                            onOpenWindow: { openMainWindow(.keys, id) }
+                        )
+                        .id(id)
+                    } else {
+                        home
+                    }
+                }
             }
         }
         .environment(\.locale, AppL10n.locale(preference: interfaceLanguage))
@@ -67,7 +88,7 @@ struct MainView: View {
         .onReceive(inbox.$pendingAddCredential.compactMap { $0 }) { link in
             if case .addCredential(let label, let fields, let notes) = link {
                 addVM.prefill(label: label, fields: fields, notes: notes)
-                showingAdd = true
+                page = .add
             }
             DispatchQueue.main.async { inbox.clearAddCredential() }
         }
@@ -78,45 +99,99 @@ struct MainView: View {
     // MARK: Home
 
     private var home: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("KeyKeeper").font(.title3.weight(.semibold))
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 14) {
+                Text("KeyKeeper").font(.system(size: 15, weight: .bold))
                 Spacer()
-                Button(L("Open KeyKeeper")) { openMainWindow(nil, nil) }
-                    .buttonStyle(.plain)
-                    .font(.callout)
-                    .foregroundColor(.accentColor)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, 8)
-
-            VStack(alignment: .leading, spacing: 16) {
-                if !approvals.items.isEmpty {
-                    waitingSection
+                PopoverIconButton(symbol: "plus", help: L("Add a key")) {
+                    if !addVM.hasDraft { addVM.reset() }
+                    page = .add
                 }
-                saveSection
-                recentSection
+                PopoverIconButton(symbol: "macwindow", help: L("Open KeyKeeper")) { openMainWindow(nil, nil) }
             }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 14)
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+                TextField(L("Search \(viewModel.credentials.count) keys"), text: $viewModel.searchText)
+                    .textFieldStyle(.plain)
+                    .focused($searchFocused)
+            }
+            .font(.system(size: 14))
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .surface(.inset, radius: 16)
+
+            if !approvals.items.isEmpty {
+                waitingSection
+            }
+
+            list
 
             footer
         }
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 4)
         .frame(width: DS.Popover.width)
         .fixedSize(horizontal: false, vertical: true)
-        .background(GlassSurface(intensity: 0.7))
         .onAppear {
             viewModel.load()
             addVM.refreshExistingIds()
+            searchFocused = true
         }
+    }
+
+    /// One grouped container with hairlines inset past the avatar, like the system list.
+    @ViewBuilder
+    private var list: some View {
+        let items = viewModel.filtered
+        if let failure = viewModel.loadFailure {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L("Couldn't read your credential list")).font(.callout.weight(.semibold)).foregroundColor(.red)
+                Text(failure.reason).font(.caption).foregroundColor(.secondary)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .surface(.card, radius: 14)
+        } else if items.isEmpty {
+            Text(viewModel.credentials.isEmpty
+                 ? L("No keys yet. Press + to store your first one.")
+                 : L("No key matches \"\(viewModel.searchText)\"."))
+                .font(.callout)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 22)
+                .surface(.card, radius: 14)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        PopoverKeyRow(credential: item.credential, subtitle: subtitle(item.id, item.credential)) {
+                            page = .detail(item.id)
+                        }
+                        if index < items.count - 1 {
+                            GlassSeparator().padding(.leading, 58).padding(.trailing, 14)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(height: min(CGFloat(items.count) * PopoverKeyRow.height + 8, PopoverKeyRow.height * 5.5 + 8))
+            .surface(.card, radius: 14)
+        }
+    }
+
+    private func subtitle(_ id: String, _ credential: Credential) -> String {
+        if credential.fields.values.contains(where: { $0.fileFormat != nil }) {
+            return L("Service-account JSON")
+        }
+        return credential.fields.keys.sorted().joined(separator: " · ")
     }
 
     // MARK: Waiting for you
 
     private var waitingSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            GlassSectionTitle(text: L("Waiting for you"), trailing: "\(approvals.items.count)")
             ForEach(approvals.items.prefix(3)) { item in
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .top, spacing: 10) {
@@ -148,166 +223,253 @@ struct MainView: View {
                     }
                 }
                 .padding(12)
-                .surface(.attention)
+                .surface(.attention, radius: 14)
             }
         }
-    }
-
-    // MARK: Save a key
-
-    private var saveSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GlassSectionTitle(text: L("Save a key"))
-            HStack(spacing: 8) {
-                saveTile(L("From clipboard"), symbol: "doc.on.clipboard", highlighted: true) { saveFromClipboard() }
-                saveTile(L("From file"), symbol: "doc.badge.gearshape") { saveFromFile() }
-                    .disabled(importFile == nil)
-                saveTile(L("Type it in"), symbol: "pencil") {
-                    if !addVM.hasDraft { addVM.reset() }
-                    showingAdd = true
-                }
-            }
-            Text(clipboardNotice ?? L("The clipboard is read only when you click, and cleared after saving."))
-                .font(.caption2)
-                .foregroundColor(clipboardNotice == nil ? .secondary : .orange)
-                .fixedSize(horizontal: false, vertical: true)
-            if addVM.hasDraft {
-                Button {
-                    showingAdd = true
-                } label: {
-                    Label(L("Draft: \(addVM.draftTitle)"), systemImage: "doc.badge.ellipsis")
-                        .font(.caption)
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.accentColor)
-            }
-        }
-    }
-
-    private func saveTile(_ title: String, symbol: String, highlighted: Bool = false,
-                          action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: symbol).font(.system(size: 19)).foregroundColor(.accentColor)
-                Text(title).font(.caption.weight(.medium)).lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-            .glassCard(radius: DS.Radius.md, selected: highlighted)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func saveFromClipboard() {
-        let pasteboard = NSPasteboard.general
-        guard let text = pasteboard.string(forType: .string),
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            clipboardNotice = L("There is no text on the clipboard. Copy the key first.")
-            return
-        }
-        clipboardNotice = nil
-        addVM.prefillFromClipboard(text.trimmingCharacters(in: .whitespacesAndNewlines),
-                                   changeCount: pasteboard.changeCount)
-        showingAdd = true
-    }
-
-    private func saveFromFile() {
-        AddCredentialView.pickServiceAccountFile { url in
-            addVM.reset()
-            addVM.useFile(url)
-            showingAdd = true
-            // The open panel takes focus, which closes a non-detached popover.
-            reopenPopover()
-        }
-    }
-
-    // MARK: Just saved
-
-    private var recentSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GlassSectionTitle(text: L("Just saved"))
-            let recent = RecentCredentials.newest(viewModel.credentials)
-            if recent.isEmpty {
-                Text(L("Once a key is saved, you get a paragraph here to paste straight to your agent."))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(recent.enumerated()), id: \.element.id) { index, item in
-                        recentRow(item.id, item.credential)
-                        if index < recent.count - 1 {
-                            GlassSeparator()
-                        }
-                    }
-                }
-                .padding(.horizontal, 12)
-                .glassCard()
-                Text(L("Paste the prompt into your agent. It gets the key's name, never its value."))
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-
-    private func recentRow(_ id: String, _ credential: Credential) -> some View {
-        HStack(spacing: 8) {
-            Button { openMainWindow(.keys, id) } label: {
-                HStack(spacing: 6) {
-                    Text(credential.label).font(.callout).lineLimit(1)
-                    // The ID only adds information when it differs from the name.
-                    Text(credential.label.caseInsensitiveCompare(id) == .orderedSame
-                         ? credential.fields.keys.sorted().joined(separator: " · ")
-                         : id)
-                        .font(.caption.monospaced()).foregroundColor(.secondary).lineLimit(1)
-                    Text("· \(RecentCredentials.dayLabel(for: credential.created))")
-                        .font(.caption).foregroundColor(.secondary)
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(L("Open in KeyKeeper"))
-
-            Button {
-                PlainPasteboard.copy(AgentPromptCopy.prompt(credentialId: id, credential: credential))
-                copiedPromptId = id
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                    if copiedPromptId == id { copiedPromptId = nil }
-                }
-            } label: {
-                Text(copiedPromptId == id ? L("Copied") : L("Copy prompt"))
-                    .font(.caption.weight(.medium))
-            }
-            .buttonStyle(.plain)
-            .foregroundColor(copiedPromptId == id ? .green : .accentColor)
-            .help(L("Copy prompt for your agent"))
-        }
-        .padding(.vertical, 9)
     }
 
     // MARK: Footer
 
     private var footer: some View {
-        HStack(spacing: 14) {
-            Button(L("\(viewModel.credentials.count) keys in total")) { openMainWindow(.keys, nil) }
-                .buttonStyle(.plain)
-                .foregroundColor(.secondary)
+        HStack {
+            Button { NSApplication.shared.terminate(nil) } label: {
+                Label(L("Quit KeyKeeper"), systemImage: "power")
+            }
+            .buttonStyle(.plain)
+            .help(L("KeyKeeper starts again automatically the next time a key is requested."))
             Spacer()
             Button { openMainWindow(.settings, nil) } label: { Image(systemName: "gearshape") }
                 .buttonStyle(.plain)
-                .foregroundColor(.secondary)
                 .help(L("Settings"))
-            Button { NSApplication.shared.terminate(nil) } label: { Image(systemName: "power") }
-                .buttonStyle(.plain)
-                .foregroundColor(.secondary)
-                .help(L("KeyKeeper starts again automatically the next time a key is requested."))
         }
         .font(.caption)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .overlay(alignment: .top) { GlassSeparator() }
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 4)
+        .frame(height: 26)
+    }
+}
+
+/// Plain header icon, the size of the system menu bar extras' + and window buttons.
+struct PopoverIconButton: View {
+    let symbol: String
+    let help: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: .regular))
+                .frame(width: 30, height: 28)
+                .contentShape(Rectangle())
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(hovering ? 0.08 : 0)))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(help)
+    }
+}
+
+/// "‹ Back" pill in the top-left of a menu bar sub-page, as in the system Passwords extra.
+struct PopoverBackButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: "chevron.left").font(.system(size: 13, weight: .semibold))
+                Text(L("Back")).font(.system(size: 14, weight: .semibold))
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .contentShape(Rectangle())
+            .surface(.card, radius: 9)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Rounded letter tile, like the system Passwords list.
+struct KeyAvatar: View {
+    let label: String
+    var size: CGFloat = 32
+
+    var body: some View {
+        Text(label.trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "?")
+            .font(.system(size: size * 0.55, weight: .regular))
+            .foregroundColor(.white)
+            .frame(width: size, height: size)
+            .background(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous).fill(Color.gray.opacity(0.6)))
+    }
+}
+
+struct PopoverKeyRow: View {
+    static let height: CGFloat = 54
+    let credential: Credential
+    let subtitle: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                KeyAvatar(label: credential.label)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(credential.label).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    Text(subtitle).font(.system(size: 12)).foregroundColor(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 6)
+                if credential.security == .strict {
+                    Image(systemName: "hand.raised.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(.orange)
+                        .help(SecurityLevelPresentation.badge(.strict))
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.7))
+            }
+            .padding(.horizontal, 14)
+            .frame(height: Self.height)
+            .contentShape(Rectangle())
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(hovering ? 0.06 : 0)).padding(.horizontal, 4))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// One key, the way the system shows one password: a grouped card of label → value rows,
+/// then the one thing to do with it here — hand it to your agent. Editing happens in the
+/// main window.
+struct PopoverKeyDetail: View {
+    let credentialId: String
+    @StateObject private var vm: CredentialDetailViewModel
+    var onBack: () -> Void
+    var onOpenWindow: () -> Void
+    @State private var copiedIndex: Int?
+    @State private var copiedPrompt = false
+
+    init(credentialId: String, credential: Credential, session: any CredentialSessionManaging,
+         onBack: @escaping () -> Void, onOpenWindow: @escaping () -> Void) {
+        self.credentialId = credentialId
+        _vm = StateObject(wrappedValue: CredentialDetailViewModel(credentialId: credentialId, credential: credential, session: session))
+        self.onBack = onBack
+        self.onOpenWindow = onOpenWindow
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                PopoverBackButton(action: onBack)
+                Spacer()
+                PopoverIconButton(symbol: "macwindow", help: L("Open in KeyKeeper"), action: onOpenWindow)
+            }
+
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    KeyAvatar(label: vm.credential.label, size: 46)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(vm.credential.label).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                        Text(L("Updated \(RecentCredentials.dayLabel(for: vm.credential.updated))"))
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 12)
+
+                GlassSeparator()
+                row(L("ID")) {
+                    Text(credentialId).font(.callout.monospaced()).foregroundColor(.secondary).textSelection(.enabled)
+                }
+                ForEach(Array(vm.fields.enumerated()), id: \.offset) { index, field in
+                    GlassSeparator()
+                    row(field.name, monospaced: true) { fieldValue(index: index, field: field) }
+                }
+                if !vm.credential.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    GlassSeparator()
+                    HStack(alignment: .top) {
+                        Text(L("Note for your agent")).font(.callout)
+                        Spacer(minLength: 12)
+                        Text(vm.credential.notes).font(.callout).foregroundColor(.secondary)
+                            .multilineTextAlignment(.trailing).lineLimit(3)
+                    }
+                    .padding(.vertical, 10)
+                }
+            }
+            .padding(.horizontal, 14)
+            .surface(.card, radius: 14)
+
+            if copiedIndex != nil {
+                Text(L("Copied. The clipboard clears itself in \(Int(SecretPasteboard.clearDelay)) s unless you copy something else."))
+                    .font(.caption2).foregroundColor(.secondary)
+            }
+
+            Button {
+                PlainPasteboard.copy(AgentPromptCopy.prompt(credentialId: credentialId, credential: vm.credential))
+                copiedPrompt = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { copiedPrompt = false }
+            } label: {
+                Label(copiedPrompt ? L("Copied") : L("Copy prompt for your agent"),
+                      systemImage: copiedPrompt ? "checkmark" : "doc.on.doc")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Text(L("Paste the prompt into your agent. It gets the key's name, never its value."))
+                .font(.caption2).foregroundColor(.secondary)
+                .frame(maxWidth: .infinity)
+        }
+        .padding(14)
+        .frame(width: DS.Popover.width)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func row<Value: View>(_ label: String, monospaced: Bool = false, @ViewBuilder value: () -> Value) -> some View {
+        HStack(spacing: 10) {
+            Text(label).font(monospaced ? .callout.monospaced() : .callout).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 12)
+            value()
+        }
+        .frame(minHeight: 40)
+    }
+
+    @ViewBuilder
+    private func fieldValue(index: Int, field: FieldEntry) -> some View {
+        if field.fileFormat != nil {
+            Text(L("Service-account JSON")).font(.callout).foregroundColor(.secondary)
+        } else {
+            HStack(spacing: 8) {
+                Text(field.visible && !field.value.isEmpty ? field.value : "••••••••••••")
+                    .font(.callout.monospaced())
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                Button { vm.toggleFieldVisibility(at: index) } label: {
+                    Image(systemName: field.visible ? "eye.slash" : "eye")
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
+                .help(field.visible ? L("Hide") : L("Show"))
+                Button {
+                    if let value = vm.copyFieldValue(field.name) {
+                        let changeCount = SecretPasteboard.write(value)
+                        SecretPasteboard.scheduleClear(after: changeCount)
+                        copiedIndex = index
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            if copiedIndex == index { copiedIndex = nil }
+                        }
+                    }
+                } label: {
+                    Image(systemName: copiedIndex == index ? "checkmark" : "doc.on.doc")
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(copiedIndex == index ? .green : .secondary)
+                .help(L("Copy value (clipboard is cleared after \(Int(SecretPasteboard.clearDelay)) s)"))
+            }
+        }
     }
 }
 

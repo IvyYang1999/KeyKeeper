@@ -16,6 +16,8 @@ struct AddCredentialView: View {
     /// Called when the chosen ID is already taken and the user would rather open that one.
     var onOpenExisting: (String) -> Void
     var onImportFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)?
+    /// The open panel takes focus, which closes a non-detached popover; this brings it back.
+    var afterFilePicker: () -> Void = {}
 
     @State private var showMoreOptions = false
     @State private var isEditingId = false
@@ -23,26 +25,18 @@ struct AddCredentialView: View {
     @Environment(\.panelLayout) private var layout
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: DS.Spacing.lg) {
-                header
-                nameSection
-                if let file = vm.sourceFile {
-                    fileRow(file)
-                } else {
-                    KeyFieldsEditor(fields: $vm.fields)
-                }
-                moreOptions
-
-                if let error = vm.errorMessage {
-                    Text(error).font(.caption).foregroundColor(.red)
-                }
-
-                actions
+        Group {
+            if layout == .popover {
+                // As tall as the form, like the other menu bar pages.
+                form
+                    .padding(14)
+                    .frame(width: DS.Popover.width)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ScrollView { form.padding() }
+                    .panelFrame()
             }
-            .padding()
         }
-        .panelFrame()
         // A deep link may carry notes, and a draft may have changed the access mode — in
         // both cases the collapsed section would be hiding something that was set for the
         // user. onAppear alone missed the case where a second deep link arrives while the
@@ -52,7 +46,26 @@ struct AddCredentialView: View {
         .onChange(of: vm.security) { expandMoreOptionsIfNeeded() }
     }
 
-    /// Shared with the menu bar's "From file" tile.
+    private var form: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.lg) {
+            header
+            nameSection
+            if let file = vm.sourceFile {
+                fileRow(file)
+            } else {
+                KeyFieldsEditor(fields: $vm.fields)
+            }
+            moreOptions
+
+            if let error = vm.errorMessage {
+                Text(error).font(.caption).foregroundColor(.red)
+            }
+
+            actions
+        }
+    }
+
+    /// Opens the service-account file picker (also used by the form's "import a file instead").
     static func pickServiceAccountFile(_ completion: @escaping (URL) -> Void) {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
@@ -122,18 +135,7 @@ struct AddCredentialView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.md) {
             if layout == .popover {
-            HStack {
-                Button(action: onCancel) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                        Text(L("Back"))
-                    }
-                    .font(.caption)
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.accentColor)
-                Spacer()
-            }
+                PopoverBackButton(action: onCancel)
             }
             Text(L("Add a key")).font(layout == .embedded ? .system(size: 22, weight: .bold) : .headline)
         }
@@ -213,7 +215,7 @@ struct AddCredentialView: View {
                 AdvancedSecuritySection(security: $vm.security)
                 if onImportFile != nil, vm.sourceFile == nil {
                     Button(L("Import a service-account JSON file instead…")) {
-                        Self.pickServiceAccountFile { vm.useFile($0) }
+                        Self.pickServiceAccountFile { vm.useFile($0); afterFilePicker() }
                     }
                     .buttonStyle(.plain)
                     .font(.caption)
