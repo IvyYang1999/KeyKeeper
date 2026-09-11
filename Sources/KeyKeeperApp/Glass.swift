@@ -1,20 +1,32 @@
 import AppKit
 import SwiftUI
 
-/// KeyKeeper's frosted-glass look: the desktop shows through a light blur, with a faint
-/// wash of the icon's yellow and the system blue so the brand reads even on a plain wallpaper.
-/// Kept deliberately pale — the first mockups' light tint, not the saturated second pass.
+/// KeyKeeper's frosted-glass look: pure frosted glass, like a system panel. The blue and
+/// yellow in the mockups were only the "desktop" behind the glass to show its texture;
+/// the app itself adds no tint (yyt, 2026-09-11).
 enum Glass {
-    static let washYellow = Color(red: 0.99, green: 0.91, blue: 0.66)
-    static let washBlue = Color(red: 0.74, green: 0.84, blue: 0.98)
-    static let cardFill = Color.white.opacity(0.55)
-    static let cardStroke = Color.white.opacity(0.85)
     static let selectionStroke = Color(red: 1.0, green: 0.75, blue: 0.0)
+
+    // What makes system glass look refined: heavy blur, then an even veil so whatever is
+    // behind reads only as soft colour, never as shapes. Cards sit on that veil and are
+    // nearly opaque, so text never floats over a dark patch of the desktop.
+    static func veil(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.black.opacity(0.28) : Color.white.opacity(0.5)
+    }
+    static func cardFill(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.78)
+    }
+    static func cardStroke(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.12) : Color.white.opacity(0.95)
+    }
+    // Light-mode values, for the few call sites without an environment.
+    static let cardFill = Color.white.opacity(0.78)
+    static let cardStroke = Color.white.opacity(0.95)
 }
 
 /// Behind-window blur for a whole window or panel.
 struct GlassBackdrop: NSViewRepresentable {
-    var material: NSVisualEffectView.Material = .underWindowBackground
+    var material: NSVisualEffectView.Material = .popover
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
@@ -29,53 +41,52 @@ struct GlassBackdrop: NSViewRepresentable {
     }
 }
 
-/// The pale yellow / blue wash laid over the blur.
-struct BrandWash: View {
-    var intensity: Double = 1
+/// Blur and an even veil — the whole backdrop of a window, panel or popover. No tint.
+struct GlassSurface: View {
+    var intensity: Double = 1   // kept for call sites; the surface carries no colour wash
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        GeometryReader { proxy in
-            let size = proxy.size
-            ZStack {
-                RadialGradient(colors: [Glass.washYellow.opacity(0.55 * intensity), .clear],
-                               center: UnitPoint(x: 0.12, y: 0.08),
-                               startRadius: 0, endRadius: max(size.width, size.height) * 0.75)
-                RadialGradient(colors: [Glass.washBlue.opacity(0.6 * intensity), .clear],
-                               center: UnitPoint(x: 0.92, y: 0.95),
-                               startRadius: 0, endRadius: max(size.width, size.height) * 0.8)
-            }
+        ZStack {
+            GlassBackdrop()
+            Glass.veil(scheme)
         }
-        .allowsHitTesting(false)
+        .ignoresSafeArea()
+    }
+}
+
+private struct GlassCardModifier: ViewModifier {
+    let radius: CGFloat
+    let selected: Bool
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(selected ? Color.white.opacity(scheme == .dark ? 0.16 : 0.97) : Glass.cardFill(scheme))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(selected ? Glass.selectionStroke.opacity(0.9) : Glass.cardStroke(scheme),
+                                  lineWidth: selected ? 1.5 : 0.75)
+            )
+            .shadow(color: .black.opacity(selected ? 0.08 : 0.04), radius: selected ? 8 : 3, y: selected ? 3 : 1)
     }
 }
 
 extension View {
-    /// Frosted card: translucent white with a hairline white edge. `selected` adds the
+    /// Frosted card: nearly opaque white with a hairline white edge. `selected` adds the
     /// icon-yellow ring used for the current row.
     func glassCard(radius: CGFloat = DS.Radius.md, selected: Bool = false, padding: CGFloat? = nil) -> some View {
         self
             .padding(padding ?? 0)
-            .background(
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(selected ? Color.white.opacity(0.92) : Glass.cardFill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(selected ? Glass.selectionStroke.opacity(0.85) : Glass.cardStroke,
-                                  lineWidth: selected ? 1.5 : 1)
-            )
-            .shadow(color: .black.opacity(selected ? 0.08 : 0.03), radius: selected ? 10 : 2, y: selected ? 4 : 1)
+            .modifier(GlassCardModifier(radius: radius, selected: selected))
     }
 
-    /// Full-window glass: blur plus the brand wash.
+    /// Full-window glass: blur and veil.
     func glassWindowBackground(intensity: Double = 1) -> some View {
-        self.background(
-            ZStack {
-                GlassBackdrop()
-                BrandWash(intensity: intensity)
-            }
-            .ignoresSafeArea()
-        )
+        self.background(GlassSurface(intensity: intensity))
     }
 }
 

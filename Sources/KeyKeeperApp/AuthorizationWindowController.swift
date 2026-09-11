@@ -39,6 +39,15 @@ final class AuthorizationWindowController {
     /// that arrive after the prompt was shown used to be invisible until the next prompt.
     func updateWaiting(_ waiting: Int) {
         window?.title = Self.windowTitle(waiting: waiting)
+        window?.titleVisibility = waiting > 0 ? .visible : .hidden
+    }
+
+    /// Used by the menu bar's "Allow…": choosing a duration (and Touch ID for strict keys)
+    /// still happens in this window.
+    func bringToFront() {
+        guard let window else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 
     func dismiss() {
@@ -78,13 +87,29 @@ final class AuthorizationWindowController {
             }
         )
 
-        let hostingController = NSHostingController(rootView: view)
-
-        let win = NSWindow(contentViewController: hostingController)
+        // Frosted, title-less like a system prompt; the title stays for accessibility and
+        // for the "N more waiting" count, shown small in the transparent bar. Hosted as the
+        // content view (not a content view controller) so the glass runs under the title bar.
+        // Same order as the trust prompt panel: make the title bar transparent before the
+        // SwiftUI content is installed, or the content keeps an opaque-bar safe area and the
+        // traffic lights end up floating over a clear strip.
+        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 460),
+                           styleMask: [.titled, .closable, .fullSizeContentView],
+                           backing: .buffered, defer: false)
         win.title = Self.windowTitle(waiting: waiting)
-        win.styleMask = [.titled, .closable]
+        win.titlebarAppearsTransparent = true
+        win.titleVisibility = waiting > 0 ? .visible : .hidden
+        win.isMovableByWindowBackground = true
+        win.isOpaque = false
+        win.backgroundColor = .clear
         win.level = .floating
         win.isReleasedWhenClosed = false
+        let hosting = NSHostingView(rootView: view)
+        // Let the SwiftUI content (and its glass) fill the whole frame, under the title bar;
+        // the view keeps its own top padding for the traffic lights.
+        hosting.safeAreaRegions = []
+        win.contentView = hosting
+        win.setContentSize(hosting.fittingSize)
         win.center()
 
         // Keep a strong reference to the delegate

@@ -161,7 +161,7 @@ struct AuthorizationView: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(alignment: .leading, spacing: 18) {
             switch prompt {
             case .strict:
                 header
@@ -182,18 +182,31 @@ struct AuthorizationView: View {
                     .foregroundColor(.red)
             }
         }
-        .padding(24)
-        .frame(width: 390)
+        .padding(.horizontal, 24)
+        .padding(.top, 40)   // the window's traffic lights sit in this band
+        .padding(.bottom, 22)
+        .frame(width: 420)
+        // Frosted like a system prompt, and the same surface as the save confirmations.
+        .glassWindowBackground()
+    }
+
+    private var callerName: String {
+        TrustPromptModel.sanitizedCaller(prompt.callerIdentity?.displayName ?? L("Unknown Caller"))
     }
 
     private var header: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "key.fill")
-                .font(.system(size: 32))
-                .foregroundColor(.accentColor)
-
-            Text(prompt.title)
-                .font(.headline)
+        HStack(spacing: 14) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 52, height: 52)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(L("\(callerName) wants to use \(prompt.credentialLabel)"))
+                    .font(.system(size: 17, weight: .bold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(prompt.title)
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 
@@ -212,9 +225,8 @@ struct AuthorizationView: View {
             // Subject fingerprint, PID and the process chain are diagnostics; they live
             // in the collapsible "Caller Details" section below.
         }
-        .padding()
-        .background(DS.Fill.card)
-        .cornerRadius(DS.Radius.md)
+        .padding(14)
+        .glassCard()
     }
 
     private func infoRow(_ label: String,
@@ -262,7 +274,8 @@ struct AuthorizationView: View {
     }
 
     private var strictButtons: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
+            Spacer()
             Button(L("Deny")) {
                 onDeny()
             }
@@ -287,22 +300,31 @@ struct AuthorizationView: View {
             .disabled(isAuthenticating)
             .keyboardShortcut(.return)
         }
+        .controlSize(.large)
     }
 
     // MARK: - Service Mode
 
     private var serviceHeader: some View {
-        VStack(spacing: DS.Spacing.sm) {
-            callerKindIcon
-
-            Text(prompt.callerIdentity?.displayName ?? L("Unknown Caller"))
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.middle)
-
-            Text(L("requests access to"))
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+        HStack(spacing: 14) {
+            ZStack(alignment: .bottomTrailing) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 52, height: 52)
+                callerKindIcon
+                    .scaleEffect(0.55)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.white.opacity(0.9)))
+                    .offset(x: 4, y: 4)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(L("\(callerName) wants to use \(prompt.credentialLabel)"))
+                    .font(.system(size: 17, weight: .bold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(prompt.title)
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 
@@ -343,9 +365,8 @@ struct AuthorizationView: View {
             infoRow(L("Credential"), value: prompt.credentialLabel, bold: true)
             infoRow(L("Keys"), value: prompt.fieldNames.joined(separator: ", "), monospaced: true)
         }
-        .padding()
-        .background(DS.Fill.card)
-        .cornerRadius(DS.Radius.md)
+        .padding(14)
+        .glassCard()
     }
 
     @ViewBuilder
