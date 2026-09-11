@@ -59,7 +59,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // which is what you want while pasting several keys.
         popover.delegate = self
         popover.contentViewController = NSHostingController(
-            rootView: MainView(session: credentialService, updateController: updateController)
+            rootView: MainView(session: credentialService, updateController: updateController,
+                importFile: { [weak self] request, completion in
+                    guard let self else { completion(.init(success: false, errorCode: .storageUnavailable)); return }
+                    self.ipcServer.importFile(request, completion: completion)
+                })
         )
 
         authWindowController = AuthorizationWindowController()

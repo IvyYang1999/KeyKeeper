@@ -16,6 +16,7 @@ struct KeyKeeperCommand: ParsableCommand {
             MigrateStorageCommand.self,
             GrantsCommand.self,
             RequestsCommand.self,
+            FileGuardCommand.self,
         ]
     )
 }

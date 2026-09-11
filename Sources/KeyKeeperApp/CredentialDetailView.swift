@@ -122,6 +122,13 @@ struct CredentialDetailView: View {
                         SectionLabel(text: "Keys")
 
                         ForEach(Array(vm.fields.enumerated()), id: \.offset) { index, field in
+                            if field.fileFormat != nil {
+                                Label("\(field.name) · Service-account JSON", systemImage: "doc.badge.gearshape")
+                                    .font(.callout).fixedSize(horizontal: false, vertical: true)
+                                Text("Contents hidden. Used through a private temporary file; the downloaded original is not managed or deleted.")
+                                    .font(.caption2).foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            } else {
                             HStack(spacing: 6) {
                                 Text(field.name)
                                     .font(.callout.monospaced())
@@ -160,6 +167,7 @@ struct CredentialDetailView: View {
                                 .buttonStyle(.plain)
                                 .help("Copy value (clipboard is cleared after \(Int(SecretPasteboard.clearDelay)) s)")
                             }
+                            }
                         }
 
                         if copiedFieldIndex != nil {
@@ -173,8 +181,8 @@ struct CredentialDetailView: View {
                 // How to use it (view mode)
                 if !vm.isEditing {
                     VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-                        SectionLabel(text: "Use in terminal", hint: "values injected as env vars")
-                        CopyableCommand(CredentialUsageCopy.runCommand(credentialId: credentialId))
+                        SectionLabel(text: "Use in terminal", hint: "text values or private file paths")
+                        CopyableCommand(CredentialUsageCopy.runCommand(credentialId: credentialId, credential: vm.credential))
                         let names = CredentialUsageCopy.environmentNames(for: vm.credential)
                         if !names.isEmpty {
                             Text(names.joined(separator: "  "))
@@ -257,13 +265,18 @@ struct CredentialDetailView: View {
 }
 
 enum CredentialUsageCopy {
-    static func runCommand(credentialId: String) -> String {
-        "keykeeper run -c \(credentialId) -- <your command>"
+    static func runCommand(credentialId: String, credential: Credential? = nil) -> String {
+        let files = credential?.fields.filter { $0.value.fileFormat != nil }.keys.sorted() ?? []
+        let mappings = files.enumerated().map { index, field in
+            let variable = files.count == 1 ? "GOOGLE_APPLICATION_CREDENTIALS" : "CREDENTIAL_FILE_\(index + 1)"
+            return " --file \(credentialId):\(field)=\(variable)"
+        }.joined()
+        return "keykeeper run -c \(credentialId)\(mappings) -- <your command>"
     }
 
     static func environmentNames(for credential: Credential) -> [String] {
         credential.fields
-            .filter { $0.value.secret }
+            .filter { $0.value.secret && $0.value.fileFormat == nil }
             .keys
             .sorted()
             .map { EnvironmentVariableName.from(fieldName: $0) }

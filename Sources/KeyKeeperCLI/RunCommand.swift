@@ -9,13 +9,14 @@ struct RunCommand: ParsableCommand {
         abstract: "Run a command with secrets injected as environment variables",
         discussion: """
         Asks the KeyKeeper app for the credential's secret fields (starting the app \
-        automatically if needed) and injects them as environment variables into the \
-        subprocess. Secrets exist only in the subprocess memory \
-        and are never written to disk or stdout.
+        automatically if needed). Text fields become environment variables. File \
+        fields require --file credential-id:field=ENV_NAME: that variable receives \
+        an owner-only temporary JSON path, removed after the command exits. \
+        File mode writes plaintext to a private temporary directory; it is not secure erasure.
 
         Any secret value that appears in the subprocess stdout or stderr is \
         automatically replaced with [REDACTED]. This is an architectural safety \
-        net — secrets cannot leak through output even if the code prints them.
+        net, not a defense against encoded or transformed secrets.
 
         TUI/full-screen programs need a real TTY. Use --tty for those commands; \
         in that mode KeyKeeper inherits stdin/stdout/stderr directly and cannot \
@@ -41,6 +42,9 @@ struct RunCommand: ParsableCommand {
     @Option(name: .long, help: "Prefix for injected environment variable names (e.g. KEYKEEPER_).")
     var prefix: String = ""
 
+    @Option(name: .long, help: "File mapping credential-id:field=ENV_NAME (repeatable; requires -c for that credential). JSON contents never become an env value.")
+    var file: [String] = []
+
     @Flag(name: .long, help: "Print injected variable names (not values) before running the command.")
     var verbose: Bool = false
 
@@ -57,6 +61,7 @@ struct RunCommand: ParsableCommand {
         guard !credential.isEmpty else {
             throw ValidationError("At least one credential ID is required (-c <id>).")
         }
+        guard file.isEmpty || !tty else { throw ValidationError("Credential files require output redaction; --file cannot be combined with --tty.") }
     }
 
     func run() throws {
@@ -64,6 +69,10 @@ struct RunCommand: ParsableCommand {
         let meta = try store.load()
         let grantStore = GrantStore.default
         let session = SessionResolver.resolve()
+        let filePlan = try FileInjectionPlan(credentials: credential, mappings: file, prefix: prefix, meta: meta)
+        if filePlan.hasFiles { try CredentialFileLease.sweepStale() }
+        var fileLease: CredentialFileLease?
+        defer { fileLease?.close() }
 
         // Collect all secret fields from requested credentials
         var injectedEnv: [String: String] = [:]
@@ -88,7 +97,8 @@ struct RunCommand: ParsableCommand {
                 .sorted()
 
             for fieldName in secretFieldNames {
-                let envName = prefix + Self.envVarName(from: fieldName)
+                let envName = filePlan.environmentName(credential: credId, field: fieldName)
+                    ?? (prefix + Self.envVarName(from: fieldName))
 
                 if injectedEnv[envName] != nil {
                     throw CommandFailure(
@@ -104,8 +114,15 @@ struct RunCommand: ParsableCommand {
                     sessionId: session.id,
                     requestedFieldNames: secretFieldNames
                 )
-                injectedEnv[envName] = value
-                secretValues.append(value)
+                if let format = cred.fields[fieldName]?.fileFormat {
+                    _ = try format.validate(Data(value.utf8))
+                    if fileLease == nil { fileLease = try CredentialFileLease() }
+                    injectedEnv[envName] = try fileLease!.write(Data(value.utf8))
+                    secretValues += format.redactionValues(for: value)
+                } else {
+                    injectedEnv[envName] = value
+                    secretValues.append(value)
+                }
             }
         }
 

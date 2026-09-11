@@ -12,7 +12,7 @@ import KeyKeeperCore
 enum IPCLaunchPolicy {
     static func shouldLaunchApp(for request: IPCRequest) -> Bool {
         switch request {
-        case .value, .auth, .clipboardSave, .browserImport:
+        case .value, .auth, .clipboardSave, .browserImport, .fileImport:
             return true
         case .sessionControl, .serviceRequests:
             return false
@@ -21,6 +21,16 @@ enum IPCLaunchPolicy {
 }
 
 enum IPCClient {
+    static func requestFileImport(_ request: FileImportRequest) throws -> ClipboardSaveResponse {
+        try request.validate()
+        let fd = try connectWithRetry(launchIfNeeded: true)
+        defer { close(fd) }
+        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout), tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        try IPCMessage.writeMessage(fd: fd, message: IPCRequest.fileImport(request))
+        guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else { throw IPCError.appNotResponding }
+        return try decodeClipboardSaveResponse(response)
+    }
     static func requestClipboardSave(_ request: ClipboardSaveRequest, fromBrowser: Bool = false,
                                      ready: (String) -> Void = { _ in }) throws -> ClipboardSaveResponse {
         try request.validate()

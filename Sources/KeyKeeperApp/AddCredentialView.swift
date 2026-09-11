@@ -1,5 +1,6 @@
 import SwiftUI
 import KeyKeeperCore
+import UniformTypeIdentifiers
 
 /// The form a beginner meets first. Its happy path is two things: a name and a value.
 ///
@@ -14,6 +15,7 @@ struct AddCredentialView: View {
     var onCancel: () -> Void
     /// Called when the chosen ID is already taken and the user would rather open that one.
     var onOpenExisting: (String) -> Void
+    var onImportFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)?
 
     @State private var showMoreOptions = false
     @State private var isEditingId = false
@@ -23,6 +25,13 @@ struct AddCredentialView: View {
             VStack(alignment: .leading, spacing: DS.Spacing.lg) {
                 header
                 nameSection
+                if onImportFile != nil {
+                    Button("Import service-account JSON…") { chooseFile() }
+                        .disabled(vm.idProblem != nil || vm.fields.contains { !$0.value.isEmpty })
+                    Text("Name this credential first and leave key values empty. File import creates a protected credentials-json field; other draft options are not used. The original file is retained.")
+                        .font(.caption2).foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 KeyFieldsEditor(fields: $vm.fields)
                 moreOptions
 
@@ -42,6 +51,24 @@ struct AddCredentialView: View {
         .onAppear { expandMoreOptionsIfNeeded() }
         .onChange(of: vm.notes) { expandMoreOptionsIfNeeded() }
         .onChange(of: vm.security) { expandMoreOptionsIfNeeded() }
+    }
+
+    private func chooseFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.title = "Choose a service-account JSON file"
+        panel.message = "KeyKeeper will ask before reading and saving. The original file is not deleted."
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            let request = FileImportRequest(target: .init(credentialId: vm.credentialId,
+                fieldName: "credentials-json", create: true), filePath: url.path)
+            onImportFile?(request) { result in
+                if result.success { onSave() }
+                else { vm.errorMessage = result.errorCode?.localizedDescription ?? "File import failed." }
+            }
+        }
     }
 
     /// Only ever opens the section: collapsing is the user's decision to keep.
@@ -214,6 +241,11 @@ struct KeyFieldsEditor: View {
             SectionLabel(text: fields.count > 1 ? "Keys" : "Key", hint: "stored in macOS Keychain")
 
             ForEach(fields.indices, id: \.self) { i in
+                if fields[i].fileFormat != nil {
+                    Label("\(fields[i].name) · Service-account JSON (contents hidden)", systemImage: "doc.badge.gearshape")
+                        .font(.caption).foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
                 VStack(alignment: .leading, spacing: 2) {
                     // Name and value share one bordered container so the pair reads as one
                     // control, and the eye lives inside it rather than floating alongside.
@@ -263,6 +295,7 @@ struct KeyFieldsEditor: View {
                          : "\u{2192} \(EnvironmentVariableName.from(fieldName: fields[i].name))")
                         .font(.caption2.monospaced())
                         .foregroundColor(.secondary.opacity(0.7))
+                }
                 }
             }
 

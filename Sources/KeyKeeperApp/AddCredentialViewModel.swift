@@ -7,6 +7,7 @@ struct FieldEntry: Identifiable {
     var value: String = ""
     var visible: Bool = false  // Hidden by default, click eye to reveal
     var existingSecret: Bool = false  // For detail view: whether this value already exists in the keychain store
+    var fileFormat: CredentialFileFormat?
 }
 
 @MainActor

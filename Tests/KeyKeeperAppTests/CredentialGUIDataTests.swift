@@ -109,6 +109,25 @@ final class CredentialGUIDataTests: XCTestCase {
         ])
     }
 
+    func testFileDetailsNeverRevealAndMetadataEditPreservesType() throws {
+        let session = FakeCredentialSession(values: ["service.json": "synthetic-file"])
+        let credential = makeCredential(fields: ["json": .init(secret: true, fileFormat: .serviceAccountJSON)])
+        try store.save(.init(credentials: ["service": credential]))
+        let vm = CredentialDetailViewModel(credentialId: "service", credential: credential, session: session, store: store)
+        vm.toggleFieldVisibility(at: 0)
+        XCTAssertNil(vm.copyFieldValue("json"))
+        XCTAssertTrue(session.operations.isEmpty)
+        vm.credential.notes = "New description"
+        XCTAssertTrue(vm.saveChanges())
+        XCTAssertEqual(try store.load().credentials["service"]?.fields["json"]?.fileFormat, .serviceAccountJSON)
+        XCTAssertTrue(session.operations.isEmpty)
+        XCTAssertTrue(CredentialUsageCopy.runCommand(credentialId: "service", credential: credential).contains("--file service:json=GOOGLE_APPLICATION_CREDENTIALS"))
+        XCTAssertEqual(CredentialUsageCopy.environmentNames(for: credential), [])
+        vm.fields.append(.init(name: "json", value: "not-a-file"))
+        XCTAssertFalse(vm.saveChanges(), "Duplicate text fields cannot replace a file")
+        XCTAssertTrue(session.operations.isEmpty)
+    }
+
     func testLocked时SaveRevealCopyDelete均提示Unlock且Metadata完好() throws {
         let existing = makeCredential(fields: ["token": CredentialField(secret: true)])
         try store.save(MetaFile(credentials: ["existing": existing]))

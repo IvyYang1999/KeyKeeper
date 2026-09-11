@@ -24,10 +24,14 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
 }
 
 public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError {
+    case invalidFile, fileChanged, wrongFieldType
     case invalidTarget, valueExists, targetNotFound, metadataChanged, clipboardChanged
     case emptyClipboard, busy, denied, expired, disconnected, storageUnavailable, metadataCommitFailed, staleGrants
     public var errorDescription: String? {
         switch self {
+        case .invalidFile: return "Choose an owned regular UTF-8 service-account JSON file (type, client_email and private_key required; at most 64 KiB). No contents were returned."
+        case .fileChanged: return "The selected file changed or became unavailable. Nothing was saved. Select the intended file again."
+        case .wrongFieldType: return "The import source does not match this field's type. Use a fresh credential ID for a different type."
         case .invalidTarget: return "Use a nonempty ID and field (letters, numbers, hyphens, underscores or dots; at most 128 UTF-8 bytes)."
         case .valueExists: return "A value already exists. Nothing was overwritten."
         case .targetNotFound: return "Secret field not found. Use --create only for a new credential ID."

@@ -19,10 +19,13 @@ struct MainView: View {
 
     private let serviceGrantStore = ServiceGrantStore.default
     private let session: any CredentialSessionManaging
+    private var importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)?
 
-    init(session: any CredentialSessionManaging, updateController: UpdateController) {
+    init(session: any CredentialSessionManaging, updateController: UpdateController,
+         importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)? = nil) {
         self.session = session
         self.updateController = updateController
+        self.importFile = importFile
         _viewModel = StateObject(wrappedValue: CredentialListViewModel(session: session))
         _addVM = StateObject(wrappedValue: AddCredentialViewModel(session: session))
     }
@@ -61,7 +64,8 @@ struct MainView: View {
                         addVM.reset()
                         showingAdd = false
                         selectedCredentialId = id
-                    }
+                    },
+                    onImportFile: importFile
                 )
             case .detail(let id):
                 if let item = viewModel.credentials.first(where: { $0.id == id }) {

@@ -3,8 +3,15 @@ import KeyKeeperCore
 
 @MainActor protocol ClipboardSaveSource: AnyObject {
     var changeCount: Int { get }
-    func readText() -> String?
+    var fileFormat: CredentialFileFormat? { get }
+    var displayFilePath: String? { get }
+    func readText() throws -> String?
     func clearIfUnchanged(since count: Int)
+}
+
+extension ClipboardSaveSource {
+    var fileFormat: CredentialFileFormat? { nil }
+    var displayFilePath: String? { nil }
 }
 
 @MainActor final class SystemClipboardSaveSource: ClipboardSaveSource {
@@ -19,6 +26,7 @@ import KeyKeeperCore
         let request: ClipboardSaveRequest
         let callerName: String
         var fromBrowser = false
+        var filePath: String?
     }
     private struct Pending {
         let id: UUID
@@ -61,8 +69,9 @@ import KeyKeeperCore
             try request.validate()
             guard isConnected() else { throw ClipboardSaveError.disconnected }
             let metadata = try metaStore.load()
-            try validateTarget(request, metadata: metadata)
-            let info = Presentation(request: request, callerName: callerName, fromBrowser: source != nil)
+            try validateTarget(request, metadata: metadata, fileFormat: source?.fileFormat)
+            let info = Presentation(request: request, callerName: callerName,
+                fromBrowser: source != nil && source?.fileFormat == nil, filePath: source?.displayFilePath)
             let source = source ?? clipboard
             let id = UUID()
             pending = Pending(id: id, presentation: info, metadata: try canonical(metadata),
@@ -104,21 +113,22 @@ import KeyKeeperCore
             let request = pending.presentation.request
             var metadata = try metaStore.load()
             guard try canonical(metadata) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
-            try validateTarget(request, metadata: metadata)
-            guard clipboard.changeCount == pending.changeCount else { throw ClipboardSaveError.clipboardChanged }
+            try validateTarget(request, metadata: metadata, fileFormat: clipboard.fileFormat)
+            let changed: ClipboardSaveError = clipboard.fileFormat == nil ? .clipboardChanged : .fileChanged
+            guard clipboard.changeCount == pending.changeCount else { throw changed }
             // No pasteboard string is fetched until the target and one-time approval are validated.
-            guard let value = clipboard.readText(), value.utf8.count <= 65_536,
+            guard let value = try clipboard.readText(), value.utf8.count <= 65_536,
                   !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw ClipboardSaveError.emptyClipboard
             }
-            guard clipboard.changeCount == pending.changeCount else { throw ClipboardSaveError.clipboardChanged }
+            guard clipboard.changeCount == pending.changeCount else { throw changed }
             guard now() < pending.expiresAt else { throw ClipboardSaveError.expired }
             guard pending.isConnected() else { throw ClipboardSaveError.disconnected }
             try service.saveMissing(credentialId: request.credentialId, fieldName: request.fieldName, value: value)
             if request.create {
                 let date = ISO8601DateFormatter().string(from: now())
                 metadata.credentials[request.credentialId] = Credential(label: request.credentialId,
-                    notes: "", links: [], fields: [request.fieldName: .init(secret: true)],
+                    notes: "", links: [], fields: [request.fieldName: .init(secret: true, fileFormat: clipboard.fileFormat)],
                     security: .strict, created: date, updated: date)
                 do { try metaStore.save(metadata) }
                 catch { throw ClipboardSaveError.metadataCommitFailed }
@@ -135,7 +145,8 @@ import KeyKeeperCore
         }
     }
 
-    private func validateTarget(_ request: ClipboardSaveRequest, metadata: MetaFile) throws {
+    private func validateTarget(_ request: ClipboardSaveRequest, metadata: MetaFile,
+                                fileFormat: CredentialFileFormat?) throws {
         guard metadata.version == 1 else { throw ClipboardSaveError.storageUnavailable }
         if request.create {
             guard metadata.credentials[request.credentialId] == nil else { throw ClipboardSaveError.valueExists }
@@ -147,6 +158,9 @@ import KeyKeeperCore
         } else {
             guard metadata.credentials[request.credentialId]?.fields[request.fieldName]?.secret == true else {
                 throw ClipboardSaveError.targetNotFound
+            }
+            guard metadata.credentials[request.credentialId]?.fields[request.fieldName]?.fileFormat == fileFormat else {
+                throw ClipboardSaveError.wrongFieldType
             }
         }
         let inventory = try service.fieldNamesByCredential()
@@ -201,12 +215,18 @@ extension Notification.Name {
             stack.addArrangedSubview(label)
             label.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
-        label(info.fromBrowser ? "Save browser paste to KeyKeeper?" : "Save clipboard to KeyKeeper?", font: .boldSystemFont(ofSize: 20))
+        label(info.filePath != nil ? "Save credential file to KeyKeeper?" : (info.fromBrowser ? "Save browser paste to KeyKeeper?" : "Save clipboard to KeyKeeper?"), font: .boldSystemFont(ofSize: 20))
         let caller = String(info.callerName.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.prefix(80))
         label("Requested by: \(caller)")
         label("Credential ID: \(info.request.credentialId)\nField: \(info.request.fieldName)", font: .monospacedSystemFont(ofSize: 13, weight: .medium))
+        if let filePath = info.filePath {
+            label("Source: \(filePath)")
+            label("Service-account JSON · up to 64 KiB. The App reads this file only after approval. The original file is NOT deleted. File contents are not shown here; provider access is not verified.")
+        }
         label(info.request.create ? "Create a new credential with Ask every time protection." : "Restore this missing field. Keep its existing settings and permissions.")
-        label(info.fromBrowser
+        label(info.filePath != nil
+            ? "Nothing is overwritten and no read permission is granted. If the file changes, this save is refused. This request expires in 90 seconds."
+            : info.fromBrowser
             ? "Save the value just pasted into the local browser receiver. No value is shown to the caller. Nothing is overwritten and no read permission is granted. Website identity is not verified. This request expires in 90 seconds."
             : "The App will read your current clipboard. No value is shown to the caller. Nothing is overwritten and no read permission is granted. The clipboard is cleared after saving. This request expires in 90 seconds.")
         let buttons = NSStackView(); buttons.orientation = .horizontal; buttons.spacing = 12

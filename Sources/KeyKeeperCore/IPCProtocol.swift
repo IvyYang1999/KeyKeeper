@@ -45,6 +45,7 @@ public enum KeychainReadTimeoutPolicy {
 // MARK: - Request / Response Envelopes
 
 public enum IPCRequest: Codable, Sendable {
+    case fileImport(FileImportRequest)
     case browserImport(ClipboardSaveRequest)
     case clipboardSave(ClipboardSaveRequest)
     case auth(AuthRequest)
@@ -57,6 +58,9 @@ public enum IPCRequest: Codable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .fileImport(let r):
+            try c.encode("fileImport", forKey: .type)
+            try c.encode(r, forKey: .data)
         case .browserImport(let r):
             try c.encode("browserImport", forKey: .type)
             try c.encode(r, forKey: .data)
@@ -81,6 +85,7 @@ public enum IPCRequest: Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         switch try c.decode(String.self, forKey: .type) {
+        case "fileImport": self = .fileImport(try c.decode(FileImportRequest.self, forKey: .data))
         case "browserImport": self = .browserImport(try c.decode(ClipboardSaveRequest.self, forKey: .data))
         case "clipboardSave": self = .clipboardSave(try c.decode(ClipboardSaveRequest.self, forKey: .data))
         case "auth":  self = .auth(try c.decode(AuthRequest.self, forKey: .data))

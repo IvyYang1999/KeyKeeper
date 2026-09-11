@@ -8,10 +8,13 @@ public enum SecurityLevel: String, Codable, Sendable {
 public struct CredentialField: Codable, Sendable {
     public var value: String?
     public var secret: Bool
+    /// Nil means the original text-field contract. File contents never live in metadata.
+    public var fileFormat: CredentialFileFormat?
 
-    public init(value: String? = nil, secret: Bool) {
+    public init(value: String? = nil, secret: Bool, fileFormat: CredentialFileFormat? = nil) {
         self.value = value
         self.secret = secret
+        self.fileFormat = fileFormat
     }
 }
 

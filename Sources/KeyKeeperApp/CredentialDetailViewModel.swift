@@ -31,6 +31,7 @@ final class CredentialDetailViewModel: ObservableObject {
 
     func toggleFieldVisibility(at index: Int) {
         guard fields.indices.contains(index) else { return }
+        guard fields[index].fileFormat == nil else { return }
         if fields[index].visible {
             fields[index].visible = false
             return
@@ -58,6 +59,7 @@ final class CredentialDetailViewModel: ObservableObject {
     }
 
     func copyFieldValue(_ fieldName: String) -> String? {
+        guard credential.fields[fieldName]?.fileFormat == nil else { return nil }
         do {
             try CredentialOperationMessages.requireUnlocked(session)
             let value = try session.retrieve(
@@ -95,6 +97,13 @@ final class CredentialDetailViewModel: ObservableObject {
             try CredentialOperationMessages.requireWritableStorage(session)
             var meta = try store.load()
             let existingFields = meta.credentials[credentialId]?.fields ?? [:]
+            for (name, field) in existingFields where field.fileFormat != nil {
+                let matching = fields.filter { $0.name == name }
+                guard matching.count == 1, matching[0].value.isEmpty, matching[0].fileFormat == field.fileFormat else {
+                    errorMessage = "File contents cannot be changed in the text editor. Import a new credential ID instead."
+                    return false
+                }
+            }
             let plan = CredentialEditPlan(
                 inputFields: fields.map { .init(name: $0.name, value: $0.value) },
                 existingFields: existingFields,
@@ -151,7 +160,8 @@ final class CredentialDetailViewModel: ObservableObject {
                 name: name,
                 value: "",
                 visible: false,
-                existingSecret: field.secret
+                existingSecret: field.secret,
+                fileFormat: field.fileFormat
             )
         }
     }

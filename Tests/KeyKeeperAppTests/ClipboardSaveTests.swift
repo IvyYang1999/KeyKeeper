@@ -73,6 +73,36 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         XCTAssertEqual(io.writes, 1)
     }
 
+    func testFileImportIsTypedNoOverwriteAndRetainsOriginal() throws {
+        let file = directory.appendingPathComponent("fixture.json")
+        let value = "{\"type\":\"service_account\",\"client_email\":\"fixture@example.invalid\",\"private_key\":\"synthetic-only\"}\n"
+        try Data(value.utf8).write(to: file)
+        let source = try CredentialFileSource(filePath: file.path)
+        let request = ClipboardSaveRequest(credentialId: "fixture", fieldName: "key", create: true)
+        controller.receive(request, callerName: "Test", isConnected: { true }, source: source,
+                           completion: { self.results.append($0) })
+        XCTAssertEqual(io.writes, 0)
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.last, .init(success: true))
+        XCTAssertEqual(try meta.load().credentials["fixture"]?.fields["key"]?.fileFormat, .serviceAccountJSON)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), value)
+        XCTAssertEqual(try String(contentsOf: file), value)
+        controller.receive(request, callerName: "Test", isConnected: { true }, source: source,
+                           completion: { self.results.append($0) })
+        XCTAssertEqual(results.last?.errorCode, .valueExists)
+        XCTAssertEqual(io.writes, 1)
+    }
+
+    func testClipboardCannotRestoreFileFieldAsPlainText() throws {
+        var fixture = credential()
+        fixture.fields["key"] = .init(secret: true, fileFormat: .serviceAccountJSON)
+        try service.save(credentialId: "other", fieldName: "key", value: "synthetic", security: .standard)
+        try meta.save(.init(credentials: ["fixture": fixture]))
+        request(create: false)
+        XCTAssertEqual(results.last?.errorCode, .wrongFieldType)
+        XCTAssertEqual(clipboard.reads, 0)
+    }
+
     func testBrowserSourceReservesTargetWithoutShowingOrReadingUntilPaste() throws {
         var presentations = 0
         controller = ClipboardSaveController(service: service, metaStore: meta, clipboard: clipboard,

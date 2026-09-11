@@ -3,6 +3,19 @@ import XCTest
 import KeyKeeperCore
 
 final class SaveCommandTests: XCTestCase {
+    func testFileImportOnlySendsPathAndTarget() throws {
+        let command = try SaveCommand.parse(["-c", "fixture", "--field", "credentials-json", "--from-file", "/tmp/synthetic.json", "--create"])
+        XCTAssertEqual(command.fromFile, "/tmp/synthetic.json")
+        for extra in ["--from-browser", "--from-clipboard"] {
+            XCTAssertThrowsError(try SaveCommand.parse(["-c", "fixture", "--field", "file", "--from-file", "/tmp/synthetic.json", extra]))
+        }
+        XCTAssertThrowsError(try SaveCommand.parse(["-c", "fixture", "--field", "file", "--from-file", "relative.json"]))
+        let request = FileImportRequest(target: command.request, filePath: command.fromFile!)
+        let data = try JSONEncoder().encode(IPCRequest.fileImport(request))
+        guard case .fileImport(let decoded) = try JSONDecoder().decode(IPCRequest.self, from: data) else { return XCTFail() }
+        XCTAssertEqual(decoded, request)
+        XCTAssertTrue(IPCLaunchPolicy.shouldLaunchApp(for: .fileImport(request)))
+    }
     func testBrowserImportRequiresExactlyOneSourceAndMetadataOnlyIPC() throws {
         let command = try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-browser", "--create"])
         XCTAssertTrue(command.fromBrowser)

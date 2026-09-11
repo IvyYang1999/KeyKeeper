@@ -63,6 +63,23 @@ final class IPCServer: ObservableObject {
     private let clipboardSaveController: ClipboardSaveController?
     private var browserImportBridge: BrowserImportBridge?
 
+    @MainActor func importFile(_ request: FileImportRequest, callerName: String = "KeyKeeper",
+                    isConnected: @escaping () -> Bool = { true },
+                    completion: @escaping (ClipboardSaveResponse) -> Void) {
+        guard let controller = clipboardSaveController else {
+            completion(.init(success: false, errorCode: .storageUnavailable)); return
+        }
+        guard pendingRequest == nil, pendingServiceRequest == nil, !controller.isPending else {
+            completion(.init(success: false, errorCode: .busy)); return
+        }
+        do {
+            try request.validate()
+            let source = try CredentialFileSource(filePath: request.filePath)
+            controller.receive(request.target, callerName: callerName, isConnected: isConnected,
+                               source: source, completion: completion)
+        } catch { completion(.init(success: false, errorCode: error as? ClipboardSaveError ?? .invalidFile)) }
+    }
+
     init(
         session: SessionControlling,
         metaStore: MetaStore = .default,
@@ -244,6 +261,16 @@ final class IPCServer: ObservableObject {
         }
 
         switch envelope {
+        case .fileImport(let request):
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    Self.writeAndClose(.clipboardSave(.init(success: false, errorCode: .storageUnavailable)), clientFd: clientFd)
+                    return
+                }
+                self.importFile(request, callerName: callerIdentity.displayName,
+                    isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
+                    completion: { response in self.send(.clipboardSave(response), clientFd: clientFd) })
+            }
         case .browserImport(let request):
             DispatchQueue.main.async { [weak self] in
                 guard let self, let controller = self.clipboardSaveController else {
