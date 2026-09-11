@@ -424,25 +424,30 @@ struct PopoverKeyDetail: View {
                 .padding(.vertical, 12)
 
                 GlassSeparator()
-                row(L("ID")) {
+                row(L("Group ID")) {
                     Text(credentialId).font(.callout.monospaced()).foregroundColor(.secondary).textSelection(.enabled)
+                    CopyTextButton(text: credentialId, help: L("Copy group ID"))
                 }
+                .help(L("The name scripts and agents pass to keykeeper run -c. It is not a key name."))
                 ForEach(Array(vm.fields.enumerated()), id: \.offset) { index, field in
                     GlassSeparator()
                     if field.fileFormat != nil {
                         fileRows(field)
                     } else {
                         row(field.name, monospaced: true) { fieldValue(index: index, field: field) }
+                            .contextMenu { fieldMenu(index: index, field: field) }
                     }
                 }
                 if !vm.credential.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     GlassSeparator()
-                    HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(L("Note for your agent")).font(.callout)
-                        Spacer(minLength: 12)
-                        Text(vm.credential.notes).font(.callout).foregroundColor(.secondary)
-                            .multilineTextAlignment(.trailing).lineLimit(3)
+                        Text(NoteText.attributed(vm.credential.notes))
+                            .font(.callout).foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 10)
                 }
             }
@@ -502,6 +507,13 @@ struct PopoverKeyDetail: View {
         }
     }
 
+    @ViewBuilder
+    private func fieldMenu(index: Int, field: FieldEntry) -> some View {
+        Button(L("Copy field name")) { PlainPasteboard.copy(field.name) }
+        Button(L("Copy environment variable name")) { PlainPasteboard.copy(EnvironmentVariableName.from(fieldName: field.name)) }
+        Button(L("Copy value")) { copyValue(index: index, field: field) }
+    }
+
     private func copyValue(index: Int, field: FieldEntry) {
         if let value = vm.copyFieldValue(field.name) {
             let changeCount = SecretPasteboard.write(value)
@@ -520,6 +532,7 @@ struct PopoverKeyDetail: View {
                 Image(systemName: symbol).foregroundColor(.secondary)
             }
             Text(label).font(monospaced ? .callout.monospaced() : .callout).lineLimit(1).truncationMode(.middle)
+                .textSelection(.enabled)
             Spacer(minLength: 12)
             value()
         }

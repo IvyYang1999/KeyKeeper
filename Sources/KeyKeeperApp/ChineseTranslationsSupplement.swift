@@ -97,7 +97,13 @@ extension AppL10n {
         // Menu bar (Passwords-style)
         "No keys yet. Press + to store your first one.": "还没有 key，点右上角 + 存第一把。",
         "No key matches \"{0}\".": "没有匹配「{0}」的 key。",
-        // File keys
+        // Group ID, file keys, copy
+        "Group ID": "组 ID",
+        "Group ID {0}": "组 ID {0}",
+        "The name scripts and agents pass to keykeeper run -c. It is not a key name.": "脚本和 Agent 在 keykeeper run -c 里用的名字，不是字段名。",
+        "Copy group ID": "复制组 ID",
+        "Copy field name": "复制字段名",
+        "Copy environment variable name": "复制环境变量名",
         "Copy value": "复制值",
         "Service-account JSON file": "服务账号 JSON 文件",
         "The file's contents are never shown or copied. Agents use it through keykeeper run --file, which hands the process a private temporary file.": "文件内容不会显示也不能复制。Agent 通过 keykeeper run --file 使用，KeyKeeper 会给那个进程一个私有临时文件。",

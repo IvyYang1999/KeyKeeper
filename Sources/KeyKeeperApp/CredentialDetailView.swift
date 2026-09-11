@@ -92,7 +92,9 @@ struct CredentialDetailView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(vm.credential.label).font(.system(size: 23, weight: .bold))
                             HStack(spacing: 6) {
-                                Text(L("ID \(credentialId)")).font(.callout.monospaced()).textSelection(.enabled)
+                                Text(L("Group ID \(credentialId)")).font(.callout.monospaced()).textSelection(.enabled)
+                                    .help(L("The name scripts and agents pass to keykeeper run -c. It is not a key name."))
+                                CopyTextButton(text: credentialId, help: L("Copy group ID"))
                                 Text("·")
                                 Text(SecurityLevelPresentation.badge(vm.credential.security))
                             }
@@ -109,7 +111,7 @@ struct CredentialDetailView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
-                        Text(L("ID \(credentialId)"))
+                        Text(L("Group ID \(credentialId)"))
                             .font(.caption.monospaced())
                             .foregroundColor(.secondary)
                             .textSelection(.enabled)
@@ -212,6 +214,10 @@ struct CredentialDetailView: View {
                     fileRows(field)
                 } else {
                     fieldRow(index: index, field: field)
+                        .contextMenu {
+                            Button(L("Copy field name")) { PlainPasteboard.copy(field.name) }
+                            Button(L("Copy environment variable name")) { PlainPasteboard.copy(EnvironmentVariableName.from(fieldName: field.name)) }
+                        }
                 }
             }
 
@@ -267,6 +273,7 @@ struct CredentialDetailView: View {
                 .font(.callout.monospaced())
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .textSelection(.enabled)
                 .frame(width: layout == .embedded ? 190 : 110, alignment: .leading)
                 .help(field.name)
 
@@ -337,7 +344,7 @@ struct CredentialDetailView: View {
                         .font(.callout)
                         .foregroundColor(.accentColor)
                 } else {
-                    Text(vm.credential.notes)
+                    Text(NoteText.attributed(vm.credential.notes))
                         .font(.callout)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
