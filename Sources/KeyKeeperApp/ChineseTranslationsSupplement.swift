@@ -84,6 +84,16 @@ extension AppL10n {
         "added to the end of the prompt": "会附在提示词末尾",
         "Show": "显示",
         "Environment variables: {0}": "环境变量：{0}",
+        // Access log / background mode
+        "Background reads don't ask you right now": "后台读取现在不会问你",
+        "Keys marked \"Background OK\" can be read by any script or agent on this Mac without a prompt. KeyKeeper only writes it down here as \"read without asking\". Turn on asking and each new caller is shown to you once; the ones you approve keep running unattended.": "标了「允许后台使用」的 key，这台 Mac 上的任何脚本或 Agent 都能直接读走，不弹窗，KeyKeeper 只在这里记一笔「未询问即读取」。打开「先问我」后，每个新的调用方会先弹窗问你一次，批准过的照常无人值守运行。",
+        "Ask me first": "改成先问我",
+        "Callers below will each be asked once, the next time they read.": "下面这些调用方下次读取时，会各问你一次。",
+        "Who read which key, newest first. Repeated reads are folded into one line. The last 500 background reads are kept.": "谁读了哪把 key，最新的在前。同一调用方反复读取合并成一行。后台读取保留最近 500 条。",
+        "{0} times": "{0} 次",
+        "Read without asking": "未询问即读取",
+        "Background access is set to not ask, so this read went through without a prompt.": "后台访问设为不询问，所以这次读取没有弹窗就通过了。",
+        "Terminal sessions you approve show up here. Background callers only appear once asking is turned on.": "你批准过的终端会话会列在这里。后台调用方要在打开「先问我」之后才会出现。",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",

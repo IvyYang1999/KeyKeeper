@@ -25,6 +25,7 @@ struct ApprovedCallersPage: View {
     let credentials: [(id: String, credential: Credential)]
     @State private var groups: [(id: String, label: String, entries: [AccessEntry])] = []
     @State private var errorMessage: String?
+    @State private var permissive = false
 
     private let grantStore = GrantStore.default
     private let serviceGrantStore = ServiceGrantStore.default
@@ -36,11 +37,16 @@ struct ApprovedCallersPage: View {
                     title: L("Who can use them"),
                     subtitle: L("Every script, agent or terminal session you have approved. Revoke one and it has to ask again.")
                 )
+                if permissive {
+                    PermissiveModeBanner(onEnforce: load)
+                }
                 if groups.isEmpty {
                     EmptyGlassCard(
                         symbol: "checkmark.shield",
                         title: L("No one is approved yet"),
-                        text: L("The first time a script or agent asks for a key, KeyKeeper asks you once. What you approve shows up here.")
+                        text: permissive
+                            ? L("Terminal sessions you approve show up here. Background callers only appear once asking is turned on.")
+                            : L("The first time a script or agent asks for a key, KeyKeeper asks you once. What you approve shows up here.")
                     )
                 }
                 ForEach(groups, id: \.id) { group in
@@ -95,6 +101,7 @@ struct ApprovedCallersPage: View {
     }
 
     private func load() {
+        permissive = PermissiveModeBanner.isPermissive
         do {
             groups = try credentials.compactMap { item in
                 let entries = AccessEntryBuilder.entries(
@@ -154,11 +161,90 @@ enum AccessLogBuilder {
         }
         return Array((uses + events).sorted { $0.date > $1.date }.prefix(limit))
     }
+
+    /// One row per caller + key + field + kind: a script that reads the same key 255 times is
+    /// one line with a count, not 255 lines.
+    static func groups(_ entries: [AccessLogEntry]) -> [AccessLogGroup] {
+        var order: [String] = []
+        var byKey: [String: AccessLogGroup] = [:]
+        for entry in entries {
+            let key = [entry.who, entry.credentialId, entry.detail, "\(entry.kind)"].joined(separator: "\u{1F}")
+            if var group = byKey[key] {
+                group.count += 1
+                group.latest = max(group.latest, entry.date)
+                byKey[key] = group
+            } else {
+                order.append(key)
+                byKey[key] = AccessLogGroup(id: key, who: entry.who, credentialId: entry.credentialId,
+                                            detail: entry.detail, kind: entry.kind, count: 1, latest: entry.date)
+            }
+        }
+        return order.compactMap { byKey[$0] }.sorted {
+            $0.latest != $1.latest ? $0.latest > $1.latest : $0.id < $1.id
+        }
+    }
+}
+
+struct AccessLogGroup: Identifiable, Equatable {
+    let id: String
+    let who: String
+    let credentialId: String
+    let detail: String
+    let kind: AccessLogEntry.Kind
+    var count: Int
+    var latest: Date
+}
+
+/// Shown while background reads need no approval ("permissive" mode, the default). It says
+/// in plain words what "read without asking" means and offers the switch in place.
+struct PermissiveModeBanner: View {
+    var caption: String? = nil
+    var onEnforce: () -> Void
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(L("Background reads don't ask you right now"), systemImage: "exclamationmark.shield")
+                .font(.callout.weight(.semibold))
+            Text(L("Keys marked \"Background OK\" can be read by any script or agent on this Mac without a prompt. KeyKeeper only writes it down here as \"read without asking\". Turn on asking and each new caller is shown to you once; the ones you approve keep running unattended."))
+                .font(.callout)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                Button(L("Ask me first")) {
+                    do {
+                        try ServiceGrantStore.default.setAuthorizationMode(.enforced)
+                        errorMessage = nil
+                        onEnforce()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                if let caption {
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            if let errorMessage {
+                Text(errorMessage).font(.caption).foregroundColor(.red)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .surface(.attention)
+    }
+
+    static var isPermissive: Bool {
+        (try? ServiceGrantStore.default.authorizationMode()) != .enforced
+    }
 }
 
 struct AccessLogPage: View {
     let credentials: [(id: String, credential: Credential)]
-    @State private var entries: [AccessLogEntry] = []
+    @State private var groups: [AccessLogGroup] = []
+    @State private var permissive = false
     private let serviceGrantStore = ServiceGrantStore.default
 
     var body: some View {
@@ -166,9 +252,15 @@ struct AccessLogPage: View {
             VStack(alignment: .leading, spacing: 18) {
                 MainPageHeader(
                     title: L("Access log"),
-                    subtitle: L("When approved callers last used a key, and background reads that needed or skipped an approval. Up to 500 events are kept.")
+                    subtitle: L("Who read which key, newest first. Repeated reads are folded into one line. The last 500 background reads are kept.")
                 )
-                if entries.isEmpty {
+                if permissive && groups.contains(where: { $0.kind == .readWithoutApproval }) {
+                    PermissiveModeBanner(
+                        caption: L("Callers below will each be asked once, the next time they read."),
+                        onEnforce: load
+                    )
+                }
+                if groups.isEmpty {
                     EmptyGlassCard(
                         symbol: "list.bullet.rectangle",
                         title: L("Nothing recorded yet"),
@@ -176,9 +268,9 @@ struct AccessLogPage: View {
                     )
                 } else {
                     VStack(spacing: 0) {
-                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                            row(entry)
-                            if index < entries.count - 1 {
+                        ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                            row(group)
+                            if index < groups.count - 1 {
                                 GlassSeparator()
                             }
                         }
@@ -192,23 +284,31 @@ struct AccessLogPage: View {
             .padding(.bottom, 24)
             .frame(maxWidth: 720, alignment: .leading)
         }
-        .onAppear {
-            entries = AccessLogBuilder.entries(
-                serviceGrants: (try? serviceGrantStore.grants()) ?? [],
-                auditEvents: (try? serviceGrantStore.auditEvents()) ?? []
-            )
-        }
+        .onAppear(perform: load)
     }
 
-    private func row(_ entry: AccessLogEntry) -> some View {
+    private func load() {
+        permissive = PermissiveModeBanner.isPermissive
+        groups = AccessLogBuilder.groups(AccessLogBuilder.entries(
+            serviceGrants: (try? serviceGrantStore.grants()) ?? [],
+            auditEvents: (try? serviceGrantStore.auditEvents()) ?? [],
+            limit: .max
+        ))
+    }
+
+    private func row(_ group: AccessLogGroup) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(entry.who) · \(label(for: entry.credentialId))").lineLimit(1).truncationMode(.middle)
-                Text(entry.detail).font(.caption.monospaced()).foregroundColor(.secondary)
+                Text("\(group.who) · \(label(for: group.credentialId))").lineLimit(1).truncationMode(.middle)
+                Text(group.detail).font(.caption.monospaced()).foregroundColor(.secondary)
             }
             Spacer()
-            tag(entry.kind)
-            Text(relative(entry.date)).font(.caption).foregroundColor(.secondary)
+            tag(group.kind)
+            Text(group.count > 1 ? L("\(group.count) times") : "")
+                .font(.caption.monospacedDigit())
+                .foregroundColor(.secondary)
+                .frame(minWidth: 52, alignment: .trailing)
+            Text(relative(group.latest)).font(.caption).foregroundColor(.secondary)
                 .frame(minWidth: 70, alignment: .trailing)
         }
         .font(.callout)
@@ -221,7 +321,8 @@ struct AccessLogPage: View {
         case .approvedUse:
             Text(L("Approved caller")).font(.caption2.weight(.semibold)).foregroundColor(.green)
         case .readWithoutApproval:
-            Text(L("Read without approval")).font(.caption2.weight(.semibold)).foregroundColor(.orange)
+            Text(L("Read without asking")).font(.caption2.weight(.semibold)).foregroundColor(.orange)
+                .help(L("Background access is set to not ask, so this read went through without a prompt."))
         case .approvalRequired:
             Text(L("Asked for approval")).font(.caption2.weight(.semibold)).foregroundColor(.secondary)
         }
