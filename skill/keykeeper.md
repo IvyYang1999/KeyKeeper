@@ -185,16 +185,59 @@ delete, move or edit them, and do not include them in git, screenshots or logs. 
 explicit authorization for the exact original. After safe import/use verification, resume
 the original task with a minimal read-only provider check, without printing secrets.
 
-### Browser-session clipboard (Codex desktop)
+### Website Copy → KeyKeeper: native Chrome (verified on macOS)
 
-Use `keykeeper save -c <credential-id> --field <field-name> --from-browser` (plus `--create` for a fresh ID). Keep this CLI process running: it prints a single-use loopback receiver URL, then waits for the final result. The link authorizes one pending write proposal, never a read; do not share or persist it. No fixed port or machine-specific setup is needed.
+For a website whose Copy action does not reach the browser tool's virtual clipboard,
+use **ordinary Chrome + native computer use for the entire sensitive Copy/Paste step**.
+Check that Chrome/native control is available and that the user permits using Chrome.
+If they require another browser, respect that choice and report its capability gate.
 
-Before copying, check `keykeeper save --help` for `--from-browser`. Remember the source tab and its official URL (metadata only). After the provider's intended Copy action succeeds, navigate **that exact same tab** to the receiver URL; do not open a second receiver tab, even in the same browser session. In the receiver, click **Read the copied key in this tab / 读取此标签中刚复制的密钥**. The receiver's own page code reads and sends the value privately to the local App. This is not permission to call clipboard `readText` from Agent tools: never return a clipboard value, extract it from the DOM, use `fill(secret)`, or transfer it through tool arguments, files or chat. Do not copy anything else between the source action and receipt.
+1. Check `keykeeper save --help` for `--from-browser`; resolve the exact ID/field and whether
+   it is new. Finish login/account choices and user-only gates before starting the short-lived import.
+2. Use the native Chrome app handle to open/navigate an ordinary tab and verify the official
+   provider/account and intended masked Copy button. Do not create, claim or control this
+   sensitive transfer tab with browser-session tooling. Native and browser-tool clipboard
+   paths behaved differently even when their pages reported Copy success.
+3. Click the provider's Copy button with native computer use and verify its success indication.
+   Do not reveal the value or inspect any clipboard. If Copy is uncertain, stop before import.
+4. Start `keykeeper save -c <id> --field <field> --from-browser` (add `--create` only for a new ID).
+   Keep it running. It returns a single-use loopback receiver URL; this is a write-proposal
+   ticket, not the key. Never share or persist it.
+5. In the same ordinary Chrome tab, use native address-bar navigation and `typeText` for
+   that URL, not a paste helper that could replace the clipboard. Verify the receiver's
+   ID/field. Focus its labeled password-style paste area using the native Chrome app handle,
+   then native `pressKey('super+v')`. **Do not use `tab.pressKey` for this native path.**
+   The receiver consumes the paste event without inserting its contents in the input/DOM.
+6. Verify that KeyKeeper asks to save the exact target; the user confirms real saves unless
+   they explicitly authorize that exact save. Saving creates no read grant and never overwrites.
+   Wait for final CLI success, then use separately authorized `keykeeper run` as needed.
+   Only metadata and constant status may enter tool output.
 
-The named read button requires an updated App. If absent, report the App capability gap rather than pretending the installed receiver supports it. The labeled keyboard-paste area remains available only when the browser's supported Paste actually transports the intended copied value. Neither entry places the secret into its input value or status text. The user then confirms the exact ID/field in the native KeyKeeper window. Do not auto-approve real-key saves without explicit authorization for that save. Read the final CLI result; opening the page or seeing "waiting for confirmation" is not success.
+Do not mix a browser-tool Copy with native Paste, or native Copy with virtual Paste. If an
+earlier virtual attempt failed, cancel it and establish a **fresh native source Copy** before
+starting this route. A success toast or changed clipboard revision alone does not prove a
+cross-transport transfer. Never silently fall back to `--from-clipboard` or save unknown
+clipboard contents. Never use clipboard `readText`, DOM value extraction, `fill(secret)`,
+tool arguments or plaintext files as a bridge.
 
-Website Copy buttons and the browser tool's virtual clipboard may use different buffers. An empty tool Paste therefore does not prove the website failed to copy; prefer the receiver's page-owned read in the original copying tab. A new tab can be denied access even when the original tab can read. If a new-tab attempt was denied before submission, cancel it, return to the official source, copy afresh and start a new import in that original tab. If the original-tab read is denied too, respect the browser's permission/user gate; do not bypass it or read either buffer into the model. Never retry an uncertain write.
+The import expires after 90 seconds; do not hand the user an aging receiver page and treat
+its disabled button as a failed click. Check final CLI status. Expired/cancelled requests
+require a fresh source Copy and new request; an **uncertain write must not be retried**.
+If native control is interrupted or the active tab/clipboard changes, stop and establish
+the source again after resolving the pending request. Browser-specific permission prompts,
+login/2FA and real-key save confirmation remain genuine user gates. This route does not
+grant a website persistent clipboard-read permission, attest website provenance, or promise
+protection against other local clipboard managers. Clipboard contents are not automatically
+cleared; do not overwrite newer user content.
 
-Use `--from-clipboard` only when the intended value's transfer into the system clipboard has been established. A website success toast or a changed system clipboard revision alone is not proof. Never silently fall back to another clipboard, which could save an unrelated secret. If the safe source cannot be established, stop at that precise gate. Website/browser compatibility is not universal.
+### Browser-session clipboard (alternative, only when the source uses it)
 
-The import expires after 90 seconds. Closing a page during the submitted request or exiting the CLI cancels pending approval; cancellation after a completed save does not undo that save. The browser clipboard is **not** automatically cleared (the App cannot safely compare it); clear it through the browser's supported UI only if that will not replace newer user content. This is a same-Mac desktop workflow, not a cloud/remote-agent endpoint. Follow the browser tool's own permissions and user-confirmation requirements.
+The same `--from-browser` receiver also supports browser-session keyboard Paste when a
+supported source actually populated that exact virtual clipboard. Keep Copy and Paste in
+that one transport and preserve the same native confirmation and final-result checks.
+A webpage's `navigator.clipboard.writeText` reporting success is not evidence that it filled
+the tool's virtual clipboard. In-app page-owned `readText` was denied in the tested runtime,
+including same-origin reads with a trusted click and focus; merely reusing a tab is not a fix.
+Do not keep asking the user to click, broaden clipboard permissions, or call clipboard-read
+tools to work around that boundary. Offer the native Chrome route when allowed; otherwise
+state the precise unsupported-route gate. This is same-Mac desktop only, not a cloud endpoint.

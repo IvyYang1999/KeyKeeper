@@ -10,7 +10,7 @@ struct SaveCommand: ParsableCommand {
     @Option(help: "Secret field name.") var field: String
     @Flag(help: "Read the system clipboard inside the App only after approval.")
     var fromClipboard = false
-    @Flag(help: "Print a single-use local receiver URL; reuse the copying tab and keep this command running until confirmation.")
+    @Flag(help: "Print a single-use local receiver URL for paste; keep this command running until confirmation. Do not mix clipboard transports.")
     var fromBrowser = false
     @Option(help: "Absolute path to a service-account JSON file (up to 64 KiB). App reads it after approval; original is retained.")
     var fromFile: String?
@@ -51,7 +51,7 @@ struct SaveCommand: ParsableCommand {
             return
         }
         let result = try IPCClient.requestClipboardSave(request, fromBrowser: fromBrowser) { url in
-            print("Open this single-use URL in the SAME TAB where you copied the key. Click Read the copied key in this tab, then confirm in KeyKeeper:")
+            print("Open this single-use URL, paste through the SAME clipboard transport used to copy, then confirm in KeyKeeper. Ordinary Chrome: native Copy + native Paste; do not mix browser-tool and system clipboards:")
             print(url); fflush(stdout)
         }
         guard result.success else { throw CommandFailure(result.errorCode?.localizedDescription ?? "Save failed.") }

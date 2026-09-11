@@ -3,7 +3,7 @@ import KeyKeeperCore
 @testable import KeyKeeperApp
 
 final class BrowserImportPageTests: XCTestCase {
-    func testBrowserReadLifecycleAndExistingPasteStaySecretSafe() throws {
+    func testBrowserPasteLifecycleStaysSecretSafeWithoutClipboardReadPermission() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         for language in ["en", "zh-Hans"] {
             let html = BrowserImportPage.html(request: .init(credentialId: "fixture", fieldName: "key", create: true), language: language)
