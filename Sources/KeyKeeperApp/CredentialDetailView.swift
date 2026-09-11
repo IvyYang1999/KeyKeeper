@@ -13,6 +13,7 @@ struct CredentialDetailView: View {
     @State private var showDiscardConfirmation = false
     @State private var copiedFieldIndex: Int?
     @State private var copiedPrompt = false
+    @State private var summaries: [String: ServiceAccountSummary] = [:]
     @Environment(\.panelLayout) private var layout
 
     init(
@@ -87,9 +88,7 @@ struct CredentialDetailView: View {
                     }
                 } else if layout == .embedded {
                     HStack(alignment: .center, spacing: 14) {
-                        Image(nsImage: NSApp.applicationIconImage)
-                            .resizable()
-                            .frame(width: 46, height: 46)
+                        KeyAvatar(credential: vm.credential, size: 46)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(vm.credential.label).font(.system(size: 23, weight: .bold))
                             HStack(spacing: 6) {
@@ -210,13 +209,7 @@ struct CredentialDetailView: View {
             ForEach(Array(vm.fields.enumerated()), id: \.offset) { index, field in
                 if index > 0 { GlassSeparator() }
                 if field.fileFormat != nil {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Label(L("\(field.name) · Service-account JSON"), systemImage: "doc.badge.gearshape")
-                            .font(.callout).fixedSize(horizontal: false, vertical: true)
-                        Text(L("Contents hidden. Used through a private temporary file; the downloaded original is not managed or deleted."))
-                            .font(.caption2).foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    fileRows(field)
                 } else {
                     fieldRow(index: index, field: field)
                 }
@@ -231,6 +224,41 @@ struct CredentialDetailView: View {
         .padding(layout == .embedded ? 14 : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(EmbeddedCard(layout: layout))
+    }
+
+    /// A service-account file: marked as a file, contents hidden, plus the two non-secret
+    /// facts people need — the robot's email (to grant it access) and its project.
+    @ViewBuilder
+    private func fileRows(_ field: FieldEntry) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.text.fill").foregroundColor(.blue.opacity(0.8))
+                Text(field.name).font(.callout.monospaced()).textSelection(.enabled)
+                Text(L("Service-account JSON file")).font(.callout).foregroundColor(.secondary)
+                Image(systemName: "lock.fill").font(.caption).foregroundColor(.secondary)
+                Spacer(minLength: 0)
+            }
+            Text(L("The file's contents are never shown or copied. Agents use it through keykeeper run --file, which hands the process a private temporary file."))
+                .font(.caption2).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let summary = summaries[field.name] {
+                summaryRow("client_email", summary.clientEmail)
+                if let project = summary.projectId { summaryRow("project_id", project) }
+            }
+        }
+        .task { if summaries[field.name] == nil, let s = vm.serviceAccountSummary(fieldName: field.name) { summaries[field.name] = s } }
+    }
+
+    private func summaryRow(_ name: String, _ value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(name)
+                .font(.callout.monospaced())
+                .frame(width: layout == .embedded ? 190 : 110, alignment: .leading)
+            Text(value).font(.callout).foregroundColor(.secondary)
+                .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            CopyTextButton(text: value, help: L("Copy value"))
+        }
     }
 
     private func fieldRow(index: Int, field: FieldEntry) -> some View {

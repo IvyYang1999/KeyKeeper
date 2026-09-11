@@ -22,4 +22,16 @@ final class CredentialFileTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(CredentialField.self, from: encoded).fileFormat, .serviceAccountJSON)
         XCTAssertNil(field.value)
     }
+
+    /// yyt 2026-09-11：服务账号文件界面上什么都看不到，以为是 bug。只取出不保密的
+    /// client_email 和 project_id 给界面看，私钥不进摘要。
+    func test服务账号摘要只取邮箱和项目编号() {
+        let json = #"{"type":"service_account","project_id":"ga4-demo","client_email":"bot@ga4-demo.iam.gserviceaccount.com","private_key":"-----BEGIN PRIVATE KEY-----\nsynthetic\n-----END PRIVATE KEY-----\n"}"#
+        let summary = ServiceAccountSummary.parse(json)
+        XCTAssertEqual(summary?.clientEmail, "bot@ga4-demo.iam.gserviceaccount.com")
+        XCTAssertEqual(summary?.projectId, "ga4-demo")
+        XCTAssertNil(ServiceAccountSummary.parse("not-json"))
+        XCTAssertNil(ServiceAccountSummary.parse(#"{"type":"service_account","project_id":"x"}"#), "没有邮箱就不算服务账号")
+        XCTAssertNil(ServiceAccountSummary.parse(#"{"type":"service_account","client_email":"a@b"}"#)?.projectId)
+    }
 }

@@ -220,6 +220,27 @@ final class CredentialGUIDataTests: XCTestCase {
         XCTAssertNil(try store.load().credentials["service"])
     }
 
+    /// 打开详情不读值；显式取摘要时只读一次文件字段，文本字段不走这条路，界面上的值仍为空。
+    func test服务账号详情只读出邮箱和项目编号() throws {
+        let json = #"{"type":"service_account","project_id":"ga4-demo","client_email":"bot@ga4-demo.iam.gserviceaccount.com","private_key":"synthetic"}"#
+        let session = FakeCredentialSession(values: ["service.json": json, "service.token": "opaque"])
+        let credential = makeCredential(fields: [
+            "json": .init(secret: true, fileFormat: .serviceAccountJSON),
+            "token": .init(secret: true),
+        ])
+        try store.save(.init(credentials: ["service": credential]))
+        let vm = CredentialDetailViewModel(credentialId: "service", credential: credential, session: session, store: store)
+        XCTAssertTrue(session.operations.isEmpty)
+
+        let summary = vm.serviceAccountSummary(fieldName: "json")
+        XCTAssertEqual(summary?.clientEmail, "bot@ga4-demo.iam.gserviceaccount.com")
+        XCTAssertEqual(summary?.projectId, "ga4-demo")
+        XCTAssertEqual(session.operations, [.retrieve(credentialId: "service", fieldName: "json")])
+        XCTAssertNil(vm.serviceAccountSummary(fieldName: "token"))
+        XCTAssertEqual(session.operations.count, 1)
+        XCTAssertEqual(vm.fields.first { $0.name == "json" }?.value, "", "文件内容不能进入界面字段")
+    }
+
     private func makeCredential(fields: [String: CredentialField]) -> Credential {
         Credential(
             label: "Service",

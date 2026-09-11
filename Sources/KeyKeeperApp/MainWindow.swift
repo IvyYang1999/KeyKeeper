@@ -337,6 +337,8 @@ private struct KeysPage: View {
             router.isAdding = false
             router.selectedCredentialId = id
         } label: {
+            HStack(spacing: 10) {
+            KeyAvatar(credential: credential, size: 30)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(credential.label).font(.callout.weight(.semibold)).lineLimit(1)
@@ -353,6 +355,7 @@ private struct KeysPage: View {
                     .font(.caption.monospaced())
                     .foregroundColor(.secondary)
                     .lineLimit(1)
+            }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
@@ -371,8 +374,8 @@ private struct KeysPage: View {
     }
 
     private func subtitle(_ credential: Credential) -> String {
-        if credential.fields.values.contains(where: { $0.fileFormat != nil }) {
-            return L("Service-account JSON")
+        if CredentialKind(credential) == .serviceAccountFile {
+            return L("Service-account JSON file")
         }
         return credential.fields.keys.sorted().joined(separator: " · ")
     }

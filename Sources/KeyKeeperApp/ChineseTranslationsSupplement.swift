@@ -97,6 +97,11 @@ extension AppL10n {
         // Menu bar (Passwords-style)
         "No keys yet. Press + to store your first one.": "还没有 key，点右上角 + 存第一把。",
         "No key matches \"{0}\".": "没有匹配「{0}」的 key。",
+        // File keys
+        "Copy value": "复制值",
+        "Service-account JSON file": "服务账号 JSON 文件",
+        "The file's contents are never shown or copied. Agents use it through keykeeper run --file, which hands the process a private temporary file.": "文件内容不会显示也不能复制。Agent 通过 keykeeper run --file 使用，KeyKeeper 会给那个进程一个私有临时文件。",
+        "Website session": "网站登录态",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",

@@ -185,8 +185,8 @@ struct MainView: View {
     }
 
     private func subtitle(_ id: String, _ credential: Credential) -> String {
-        if credential.fields.values.contains(where: { $0.fileFormat != nil }) {
-            return L("Service-account JSON")
+        if CredentialKind(credential) == .serviceAccountFile {
+            return L("Service-account JSON file")
         }
         return credential.fields.keys.sorted().joined(separator: " · ")
     }
@@ -300,16 +300,50 @@ struct PopoverBackButton: View {
 }
 
 /// Rounded letter tile, like the system Passwords list.
+/// Text keys get their first letter on grey (as in the system list); service-account files
+/// get a document on blue and website sessions a globe on teal, so a file key never looks
+/// like a key whose value went missing (yyt 2026-09-11).
 struct KeyAvatar: View {
+    enum Kind { case text, file, session }
+
     let label: String
+    var kind: Kind = .text
     var size: CGFloat = 32
 
+    init(label: String, kind: Kind = .text, size: CGFloat = 32) {
+        self.label = label
+        self.kind = kind
+        self.size = size
+    }
+
+    init(credential: Credential, size: CGFloat = 32) {
+        self.init(label: credential.label, kind: CredentialKind(credential) == .serviceAccountFile ? .file : .text, size: size)
+    }
+
     var body: some View {
-        Text(label.trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "?")
-            .font(.system(size: size * 0.55, weight: .regular))
-            .foregroundColor(.white)
-            .frame(width: size, height: size)
-            .background(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous).fill(Color.gray.opacity(0.6)))
+        Group {
+            switch kind {
+            case .text:
+                Text(label.trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "?")
+                    .font(.system(size: size * 0.55, weight: .regular))
+            case .file:
+                Image(systemName: "doc.text.fill").font(.system(size: size * 0.46))
+            case .session:
+                Image(systemName: "globe").font(.system(size: size * 0.5))
+            }
+        }
+        .foregroundColor(.white)
+        .frame(width: size, height: size)
+        .background(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous).fill(tint))
+        .help(kind == .file ? L("Service-account JSON file") : kind == .session ? L("Website session") : "")
+    }
+
+    private var tint: Color {
+        switch kind {
+        case .text: return Color.gray.opacity(0.6)
+        case .file: return Color.blue.opacity(0.72)
+        case .session: return Color.teal.opacity(0.8)
+        }
     }
 }
 
@@ -323,7 +357,7 @@ struct PopoverKeyRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                KeyAvatar(label: credential.label)
+                KeyAvatar(credential: credential)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(credential.label).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                     Text(subtitle).font(.system(size: 12)).foregroundColor(.secondary).lineLimit(1)
@@ -359,6 +393,7 @@ struct PopoverKeyDetail: View {
     var onOpenWindow: () -> Void
     @State private var copiedIndex: Int?
     @State private var copiedPrompt = false
+    @State private var summaries: [String: ServiceAccountSummary] = [:]
 
     init(credentialId: String, credential: Credential, session: any CredentialSessionManaging,
          onBack: @escaping () -> Void, onOpenWindow: @escaping () -> Void) {
@@ -378,7 +413,7 @@ struct PopoverKeyDetail: View {
 
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
-                    KeyAvatar(label: vm.credential.label, size: 46)
+                    KeyAvatar(credential: vm.credential, size: 46)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(vm.credential.label).font(.system(size: 17, weight: .semibold)).lineLimit(1)
                         Text(L("Updated \(RecentCredentials.dayLabel(for: vm.credential.updated))"))
@@ -394,7 +429,11 @@ struct PopoverKeyDetail: View {
                 }
                 ForEach(Array(vm.fields.enumerated()), id: \.offset) { index, field in
                     GlassSeparator()
-                    row(field.name, monospaced: true) { fieldValue(index: index, field: field) }
+                    if field.fileFormat != nil {
+                        fileRows(field)
+                    } else {
+                        row(field.name, monospaced: true) { fieldValue(index: index, field: field) }
+                    }
                 }
                 if !vm.credential.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     GlassSeparator()
@@ -436,8 +475,50 @@ struct PopoverKeyDetail: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func row<Value: View>(_ label: String, monospaced: Bool = false, @ViewBuilder value: () -> Value) -> some View {
-        HStack(spacing: 10) {
+    /// A service-account file: what it is, that its contents stay hidden, and the two
+    /// non-secret facts people need (the robot's email to grant access to, and its project).
+    @ViewBuilder
+    private func fileRows(_ field: FieldEntry) -> some View {
+        row(field.name, monospaced: true, symbol: "doc.text") {
+            Text(L("Service-account JSON file")).font(.callout).foregroundColor(.secondary)
+            Image(systemName: "lock.fill").font(.caption).foregroundColor(.secondary)
+        }
+        .help(L("The file's contents are never shown or copied. Agents use it through keykeeper run --file, which hands the process a private temporary file."))
+        .task { if summaries[field.name] == nil, let s = vm.serviceAccountSummary(fieldName: field.name) { summaries[field.name] = s } }
+        if let summary = summaries[field.name] {
+            GlassSeparator()
+            row("client_email", monospaced: true) {
+                Text(summary.clientEmail).font(.callout).foregroundColor(.secondary)
+                    .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                CopyTextButton(text: summary.clientEmail, help: L("Copy value"))
+            }
+            if let project = summary.projectId {
+                GlassSeparator()
+                row("project_id", monospaced: true) {
+                    Text(project).font(.callout).foregroundColor(.secondary).textSelection(.enabled)
+                    CopyTextButton(text: project, help: L("Copy value"))
+                }
+            }
+        }
+    }
+
+    private func copyValue(index: Int, field: FieldEntry) {
+        if let value = vm.copyFieldValue(field.name) {
+            let changeCount = SecretPasteboard.write(value)
+            SecretPasteboard.scheduleClear(after: changeCount)
+            copiedIndex = index
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                if copiedIndex == index { copiedIndex = nil }
+            }
+        }
+    }
+
+    private func row<Value: View>(_ label: String, monospaced: Bool = false, symbol: String? = nil,
+                                  @ViewBuilder value: () -> Value) -> some View {
+        HStack(spacing: 8) {
+            if let symbol {
+                Image(systemName: symbol).foregroundColor(.secondary)
+            }
             Text(label).font(monospaced ? .callout.monospaced() : .callout).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 12)
             value()
@@ -463,16 +544,7 @@ struct PopoverKeyDetail: View {
                 .buttonStyle(.plain)
                 .foregroundColor(.secondary)
                 .help(field.visible ? L("Hide") : L("Show"))
-                Button {
-                    if let value = vm.copyFieldValue(field.name) {
-                        let changeCount = SecretPasteboard.write(value)
-                        SecretPasteboard.scheduleClear(after: changeCount)
-                        copiedIndex = index
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            if copiedIndex == index { copiedIndex = nil }
-                        }
-                    }
-                } label: {
+                Button { copyValue(index: index, field: field) } label: {
                     Image(systemName: copiedIndex == index ? "checkmark" : "doc.on.doc")
                 }
                 .buttonStyle(.plain)
@@ -488,5 +560,25 @@ enum CredentialDeletionCopy {
 
     static func message(credentialId: String) -> String {
         AppL10n.render(template, arguments: [credentialId], language: AppL10n.language)
+    }
+}
+
+/// Small copy icon for non-secret text (IDs, names, the service account's email).
+struct CopyTextButton: View {
+    let text: String
+    let help: String
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            PlainPasteboard.copy(text)
+            copied = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
+        } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(copied ? .green : .secondary)
+        .help(help)
     }
 }

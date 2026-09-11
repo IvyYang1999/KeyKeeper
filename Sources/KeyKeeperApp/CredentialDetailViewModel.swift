@@ -68,6 +68,15 @@ final class CredentialDetailViewModel: ObservableObject {
         )
     }
 
+    /// Reads a service-account file once and keeps only its client_email and project_id for
+    /// display. The document itself is dropped right away and never reaches `fields`.
+    func serviceAccountSummary(fieldName: String) -> ServiceAccountSummary? {
+        guard credential.fields[fieldName]?.fileFormat == .serviceAccountJSON,
+              (try? CredentialOperationMessages.requireUnlocked(session)) != nil,
+              let document = try? session.retrieve(credentialId: credentialId, fieldName: fieldName) else { return nil }
+        return ServiceAccountSummary.parse(document)
+    }
+
     func copyFieldValue(_ fieldName: String) -> String? {
         guard credential.fields[fieldName]?.fileFormat == nil else { return nil }
         do {
