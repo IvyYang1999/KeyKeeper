@@ -50,7 +50,7 @@ struct ApprovedCallersPage: View {
                             ForEach(Array(group.entries.enumerated()), id: \.element.id) { index, entry in
                                 entryRow(entry)
                                 if index < group.entries.count - 1 {
-                                    Rectangle().fill(Color.white.opacity(0.8)).frame(height: 1)
+                                    GlassSeparator()
                                 }
                             }
                         }
@@ -63,7 +63,7 @@ struct ApprovedCallersPage: View {
                 }
             }
             .padding(.horizontal, 28)
-            .padding(.top, 28)
+            .padding(.top, 12) // title lines up with the first sidebar item
             .padding(.bottom, 24)
             .frame(maxWidth: 720, alignment: .leading)
         }
@@ -179,7 +179,7 @@ struct AccessLogPage: View {
                         ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                             row(entry)
                             if index < entries.count - 1 {
-                                Rectangle().fill(Color.white.opacity(0.8)).frame(height: 1)
+                                GlassSeparator()
                             }
                         }
                     }
@@ -188,7 +188,7 @@ struct AccessLogPage: View {
                 }
             }
             .padding(.horizontal, 28)
-            .padding(.top, 28)
+            .padding(.top, 12) // title lines up with the first sidebar item
             .padding(.bottom, 24)
             .frame(maxWidth: 720, alignment: .leading)
         }

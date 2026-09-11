@@ -313,12 +313,7 @@ struct CredentialDetailView: View {
             .controlSize(layout == .embedded ? .large : .regular)
         }
         .padding(layout == .embedded ? 14 : 0)
-        .background {
-            if layout == .embedded {
-                RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous).fill(Glass.cardFill)
-                RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous).strokeBorder(Glass.cardStroke)
-            }
-        }
+        .modifier(EmbeddedCard(layout: layout))
     }
 }
 
@@ -338,5 +333,17 @@ enum CredentialUsageCopy {
             .keys
             .sorted()
             .map { EnvironmentVariableName.from(fieldName: $0) }
+    }
+}
+
+/// In the main window the detail sections sit on cards; in the popover they stay flat.
+private struct EmbeddedCard: ViewModifier {
+    let layout: PanelLayout
+    func body(content: Content) -> some View {
+        if layout == .embedded {
+            content.surface(.card)
+        } else {
+            content
+        }
     }
 }

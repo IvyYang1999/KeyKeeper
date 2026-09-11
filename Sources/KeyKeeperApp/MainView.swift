@@ -123,7 +123,7 @@ struct MainView: View {
                         Image(systemName: item.symbol)
                             .foregroundColor(.accentColor)
                             .frame(width: 26, height: 26)
-                            .background(Color.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 7))
+                            .surface(.raised, radius: 7)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(item.title).font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                             Text(item.detail).font(.caption).foregroundColor(.secondary).lineLimit(2)
@@ -148,10 +148,7 @@ struct MainView: View {
                     }
                 }
                 .padding(12)
-                .background(Color(red: 1, green: 0.97, blue: 0.9).opacity(0.85),
-                            in: RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
-                    .strokeBorder(Color.orange.opacity(0.25)))
+                .surface(.attention)
             }
         }
     }
@@ -241,7 +238,7 @@ struct MainView: View {
                     ForEach(Array(recent.enumerated()), id: \.element.id) { index, item in
                         recentRow(item.id, item.credential)
                         if index < recent.count - 1 {
-                            Rectangle().fill(Color.white.opacity(0.8)).frame(height: 1)
+                            GlassSeparator()
                         }
                     }
                 }
@@ -306,7 +303,7 @@ struct MainView: View {
         .font(.caption)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.06)).frame(height: 0.5) }
+        .overlay(alignment: .top) { GlassSeparator() }
     }
 }
 

@@ -85,8 +85,7 @@ struct AddCredentialView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: DS.Radius.sm))
-            .overlay(RoundedRectangle(cornerRadius: DS.Radius.sm).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+            .surface(.inset, radius: DS.Radius.sm)
         }
     }
 
@@ -263,12 +262,7 @@ struct DescriptionEditor: View {
                 .frame(minHeight: 52, maxHeight: 88)
                 .scrollContentBackground(.hidden)
                 .padding(6)
-                .background(Color(nsColor: .textBackgroundColor))
-                .cornerRadius(DS.Radius.sm)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.sm)
-                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                )
+                .surface(.inset, radius: DS.Radius.sm)
                 .overlay(alignment: .topLeading) {
                     if text.isEmpty {
                         Text(L("When to use these keys, renewal links, notes to self\u{2026}"))
@@ -353,14 +347,7 @@ struct KeyFieldsEditor: View {
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
-                    .background(
-                        Color(nsColor: .textBackgroundColor),
-                        in: RoundedRectangle(cornerRadius: DS.Radius.sm)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DS.Radius.sm)
-                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                    )
+                    .surface(.inset, radius: DS.Radius.sm)
 
                     // Rendered unconditionally: letting it appear and disappear made the
                     // whole form jump while the user was still typing the field name.

@@ -177,7 +177,7 @@ struct TrustPromptView: View {
                     .font(.callout)
                     .padding(.vertical, 9)
                     if index < model.rows.count - 1 {
-                        Rectangle().fill(Color.white.opacity(0.8)).frame(height: 1)
+                        GlassSeparator()
                     }
                 }
             }
