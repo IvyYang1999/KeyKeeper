@@ -86,6 +86,16 @@ public final class GrantStore: Sendable {
         }
     }
 
+    /// A credential's group ID changed: its terminal approvals follow it.
+    public func moveGrants(from oldId: String, to newId: String) throws {
+        guard oldId != newId else { return }
+        try withFileLock { file in
+            for index in file.grants.indices where file.grants[index].credentialId == oldId {
+                file.grants[index].credentialId = newId
+            }
+        }
+    }
+
     /// Revoke all grants for a credential.
     public func revokeAllGrants(credentialId: String) throws {
         try withFileLock { file in

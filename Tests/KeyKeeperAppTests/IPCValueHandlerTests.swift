@@ -76,6 +76,32 @@ final class IPCValueHandlerTests: XCTestCase {
         XCTAssertNil(response.storageErrorCode)
     }
 
+    /// `keykeeper edit` 不弹窗直接改名；改名后脚本里写的旧组 ID、旧字段名照样能取值，改动留一笔。
+    func test改名后旧组ID和旧字段名照样能取值且改动留记录() throws {
+        try saveMetadata(security: .standard)
+        let service = KeychainCredentialService(store: KeychainBlobStore(io: MemoryBlobIO()))
+        try service.save(credentialId: "service-a", fieldName: "access", value: "opaque-keychain-value", security: .standard)
+        let server = makeServer(session: service)
+        let log = MetadataChangeLog(directory: directory)
+
+        let edit = server.handleMetadataEdit(
+            MetadataEditRequest(groupId: "service-a", edit: MetadataEdit(newGroupId: "svc", fieldRenames: ["access": "token"])),
+            callerName: "claude", changeLog: log)
+
+        XCTAssertTrue(edit.success, edit.error ?? "")
+        XCTAssertEqual(edit.groupId, "svc")
+        XCTAssertEqual(try log.records().map(\.caller), ["claude"])
+        XCTAssertEqual(try metaStore.load().credentials.keys.sorted(), ["svc"])
+        let response = try requestValue(server: server)  // still asks for service-a / access
+        XCTAssertTrue(response.success)
+        XCTAssertEqual(response.value, "opaque-keychain-value")
+
+        let refused = server.handleMetadataEdit(MetadataEditRequest(groupId: "svc", edit: MetadataEdit(newGroupId: "Not Valid")),
+                                                callerName: "claude", changeLog: log)
+        XCTAssertFalse(refused.success)
+        XCTAssertEqual(try log.records().count, 1)
+    }
+
     func testVaultNotFoundKeepsLegacyCodeAndAllReadFailuresGetStorageMapping() throws {
         try saveMetadata(security: .standard)
 

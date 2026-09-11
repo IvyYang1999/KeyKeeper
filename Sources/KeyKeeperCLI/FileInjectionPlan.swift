@@ -19,13 +19,16 @@ struct FileInjectionPlan {
                   !name.hasPrefix("DYLD_"), !name.hasPrefix("LD_") else {
                 throw CommandFailure("Invalid credential file mapping or reserved environment variable.")
             }
-            let id = String(target[0]); let field = String(target[1])
+            // Earlier group IDs and field names resolve to the current ones.
+            let id = meta.resolveGroupId(String(target[0])) ?? String(target[0])
+            let field = meta.credentials[id]?.resolveFieldName(String(target[1])) ?? String(target[1])
+            let key = "\(id):\(field)"
             guard credentials.contains(id), let entry = meta.credentials[id]?.fields[field],
-                  entry.secret, entry.fileFormat != nil, names[String(parts[0])] == nil,
+                  entry.secret, entry.fileFormat != nil, names[key] == nil,
                   usedNames.insert(name).inserted else {
                 throw CommandFailure("File mappings must name distinct file fields in the requested -c credentials and distinct environment variables.")
             }
-            names[String(parts[0])] = name
+            names[key] = name
         }
         for id in credentials {
             guard let credential = meta.credentials[id] else { throw CommandFailure("Credential not found. Check its ID with keykeeper list.") }

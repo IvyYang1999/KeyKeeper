@@ -15,7 +15,7 @@ struct MetaCommand: ParsableCommand {
         let store = MetaStore.default
         let meta = try store.load()
 
-        guard let cred = meta.credentials[credentialId] else {
+        guard let id = meta.resolveGroupId(credentialId), let cred = meta.credentials[id] else {
             throw CommandFailure("Credential '\(credentialId)' not found. Run 'keykeeper list' to see the available IDs.")
         }
 

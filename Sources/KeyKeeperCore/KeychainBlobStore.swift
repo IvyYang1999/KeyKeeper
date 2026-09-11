@@ -176,6 +176,38 @@ public final class KeychainBlobStore: @unchecked Sendable {
         }
     }
 
+    /// First step of a rename: copy every value of `fromCredentialId` to its new place
+    /// (`toCredentialId`, field renamed by `fieldMap`) in one write, keeping the originals.
+    /// Metadata is committed after this, and `dropValues` removes the originals last, so a
+    /// failure at any point leaves every name metadata refers to with its value.
+    /// Never replaces a different value already at the destination.
+    public func copyValues(fromCredentialId: String, toCredentialId: String, fieldMap: [String: String]) throws {
+        try withLock {
+            var blob = try loadBlob()
+            guard let source = blob.credentials[fromCredentialId] else { throw KeychainError.notFound }
+            var destination = blob.credentials[toCredentialId] ?? [:]
+            for (field, value) in source {
+                let target = fieldMap[field] ?? field
+                if fromCredentialId == toCredentialId && target == field { continue }
+                if let existing = destination[target], existing != value { throw ClipboardSaveError.valueExists }
+                destination[target] = value
+            }
+            blob.credentials[toCredentialId] = destination
+            try store(blob)
+        }
+    }
+
+    /// Last step of a rename: remove values that metadata no longer refers to. Missing ones are fine.
+    public func dropValues(credentialId: String, fieldNames: [String]) throws {
+        try withLock {
+            var blob = try loadBlob()
+            guard blob.credentials[credentialId] != nil, !fieldNames.isEmpty else { return }
+            for field in fieldNames { blob.credentials[credentialId]?.removeValue(forKey: field) }
+            if blob.credentials[credentialId]?.isEmpty == true { blob.credentials.removeValue(forKey: credentialId) }
+            try store(blob)
+        }
+    }
+
     /// Field names per credential — used by migration verification. Never exposes values.
     public func fieldNamesByCredential() throws -> [String: Set<String>] {
         try withLock {
@@ -290,6 +322,14 @@ public final class KeychainCredentialService: @unchecked Sendable {
 
     public func delete(credentialId: String, fieldName: String) throws {
         try store.delete(credentialId: credentialId, fieldName: fieldName)
+    }
+
+    public func copyValues(fromCredentialId: String, toCredentialId: String, fieldMap: [String: String]) throws {
+        try store.copyValues(fromCredentialId: fromCredentialId, toCredentialId: toCredentialId, fieldMap: fieldMap)
+    }
+
+    public func dropValues(credentialId: String, fieldNames: [String]) throws {
+        try store.dropValues(credentialId: credentialId, fieldNames: fieldNames)
     }
 }
 

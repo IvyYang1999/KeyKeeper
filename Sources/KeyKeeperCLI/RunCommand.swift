@@ -64,21 +64,33 @@ struct RunCommand: ParsableCommand {
         guard file.isEmpty || !tty else { throw ValidationError("Credential files require output redaction; --file cannot be combined with --tty.") }
     }
 
+    /// `-c` accepts current and earlier group IDs; everything after this uses the current one.
+    static func resolveCredentialIds(_ names: [String], in meta: MetaFile) throws -> [String] {
+        try names.map { name in
+            guard let id = meta.resolveGroupId(name) else {
+                throw CommandFailure("Credential '\(name)' not found. Run 'keykeeper list' to see the available IDs.")
+            }
+            return id
+        }
+    }
+
     func run() throws {
         let store = MetaStore.default
         let meta = try store.load()
         let grantStore = GrantStore.default
         let session = SessionResolver.resolve()
-        let filePlan = try FileInjectionPlan(credentials: credential, mappings: file, prefix: prefix, meta: meta)
+        let credentialIds = try Self.resolveCredentialIds(credential, in: meta)
+        let filePlan = try FileInjectionPlan(credentials: credentialIds, mappings: file, prefix: prefix, meta: meta)
         if filePlan.hasFiles { try CredentialFileLease.sweepStale() }
         var fileLease: CredentialFileLease?
         defer { fileLease?.close() }
 
         // Collect all secret fields from requested credentials
         var injectedEnv: [String: String] = [:]
+        var aliasEnv: [String: String] = [:]
         var secretValues: [String] = []
 
-        for credId in credential {
+        for credId in credentialIds {
             guard let cred = meta.credentials[credId] else {
                 throw CommandFailure("Credential '\(credId)' not found. Run 'keykeeper list' to see the available IDs.")
             }
@@ -122,8 +134,16 @@ struct RunCommand: ParsableCommand {
                 } else {
                     injectedEnv[envName] = value
                     secretValues.append(value)
+                    // Earlier field names keep their variables, so scripts written before a
+                    // rename still work. A current name always wins over an old one.
+                    for oldName in cred.environmentNames(forField: fieldName, prefix: prefix).dropFirst() {
+                        aliasEnv[oldName] = aliasEnv[oldName] ?? value
+                    }
                 }
             }
+        }
+        for (name, value) in aliasEnv where injectedEnv[name] == nil {
+            injectedEnv[name] = value
         }
 
         if injectedEnv.isEmpty {

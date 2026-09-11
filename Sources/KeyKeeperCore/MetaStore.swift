@@ -1,6 +1,12 @@
 import Foundation
 
-public final class MetaStore: Sendable {
+/// Load and save of meta.json, as a seam for tests that simulate a failed write.
+public protocol MetaStoring {
+    func load() throws -> MetaFile
+    func save(_ meta: MetaFile) throws
+}
+
+public final class MetaStore: Sendable, MetaStoring {
     /// Where the metadata lives; surfaced in the GUI when it cannot be read.
     public let fileURL: URL
 

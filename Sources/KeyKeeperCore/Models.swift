@@ -10,11 +10,19 @@ public struct CredentialField: Codable, Sendable {
     public var secret: Bool
     /// Nil means the original text-field contract. File contents never live in metadata.
     public var fileFormat: CredentialFileFormat?
+    /// What the person called this field ("API Key "), free text for people and agents.
+    /// The dictionary key is the machine name that becomes the environment variable.
+    public var displayName: String?
+    /// Earlier machine names. They keep working forever: `run` still injects their variables.
+    public var aliases: [String]?
 
-    public init(value: String? = nil, secret: Bool, fileFormat: CredentialFileFormat? = nil) {
+    public init(value: String? = nil, secret: Bool, fileFormat: CredentialFileFormat? = nil,
+                displayName: String? = nil, aliases: [String]? = nil) {
         self.value = value
         self.secret = secret
         self.fileFormat = fileFormat
+        self.displayName = displayName
+        self.aliases = aliases
     }
 }
 
@@ -26,10 +34,12 @@ public struct Credential: Codable, Sendable {
     public var security: SecurityLevel
     public var created: String
     public var updated: String
+    /// Earlier group IDs (the `-c` name). They keep resolving to this credential forever.
+    public var aliases: [String]?
 
     public init(label: String, notes: String, links: [String],
                 fields: [String: CredentialField], security: SecurityLevel,
-                created: String, updated: String) {
+                created: String, updated: String, aliases: [String]? = nil) {
         self.label = label
         self.notes = notes
         self.links = links
@@ -37,6 +47,7 @@ public struct Credential: Codable, Sendable {
         self.security = security
         self.created = created
         self.updated = updated
+        self.aliases = aliases
     }
 }
 
