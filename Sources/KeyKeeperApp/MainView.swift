@@ -82,6 +82,9 @@ struct MainView: View {
                 }
             }
         }
+        // The popover's own glass alone is too clear over a bright window behind it: white text
+        // on white. The design system's base veil keeps it legible in both appearances.
+        .background(PopoverVeil())
         .environment(\.locale, AppL10n.locale(preference: interfaceLanguage))
         // Handled on the outer body so a link that arrived before the popover was ever
         // rendered is still picked up on first render.
@@ -246,6 +249,13 @@ struct MainView: View {
         .foregroundColor(.secondary)
         .padding(.horizontal, 4)
         .frame(height: 26)
+    }
+}
+
+private struct PopoverVeil: View {
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        Glass.fill(.base, scheme).ignoresSafeArea()
     }
 }
 

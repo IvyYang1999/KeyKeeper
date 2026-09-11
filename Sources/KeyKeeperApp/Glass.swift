@@ -9,7 +9,7 @@ import SwiftUI
 //
 // | Surface     | Where                                         | Light                      | Dark                       |
 // |-------------|-----------------------------------------------|----------------------------|----------------------------|
-// | .base       | window / popover / panel backdrop             | blur + white 50 %          | blur + black 28 %          |
+// | .base       | window / popover / panel backdrop             | blur + white 50 %          | blur + black 38 %          |
 // | .card       | list rows, content cards, tiles, info cards   | white 30 % + white hairline| white 6 % + white hairline |
 // | .raised     | the selected row, sidebar item, primary tile  | white 92 % + soft shadow   | white 16 % + soft shadow   |
 // | .inset      | search field, command box, value wells        | black 4.5 % (sunken)       | white 6 % (sunken)         |
@@ -24,7 +24,7 @@ enum Surface {
 
 enum Glass {
     static func veil(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.black.opacity(0.28) : Color.white.opacity(0.5)
+        scheme == .dark ? Color.black.opacity(0.38) : Color.white.opacity(0.5)
     }
 
     static func fill(_ surface: Surface, _ scheme: ColorScheme) -> Color {
