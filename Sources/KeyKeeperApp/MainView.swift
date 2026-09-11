@@ -1,460 +1,313 @@
 import SwiftUI
 import KeyKeeperCore
 
+/// The menu bar popover: the "right now" half of KeyKeeper.
+///
+/// It holds what comes to you — requests waiting for a yes or no — and what you are about
+/// to do with a key in hand: store it, then hand its name to your agent. Browsing, editing,
+/// approvals history, website sessions and settings live in the main window. The rule that
+/// decides where something goes: did someone come to me, or am I going to do something?
 struct MainView: View {
     @AppStorage(AppL10n.preferenceName) private var interfaceLanguage = "system"
+    @AppStorage("setupComplete") private var setupComplete = false
     @StateObject private var viewModel: CredentialListViewModel
     @StateObject private var addVM: AddCredentialViewModel
-    @AppStorage("setupComplete") private var setupComplete = false
-    @State private var selectedCredentialId: String?
-    @State private var showingAdd = false
-    @State private var showSettings = false
-    @State private var showServiceGrants = false
-    @State private var serviceGrants: [ServiceGrant] = []
-
-    @ObservedObject private var updateController: UpdateController
-
-    @State private var pendingDeleteId: String?
-
+    @ObservedObject private var approvals = ApprovalCenter.shared
     @ObservedObject private var inbox = UICommandInbox.shared
+    @State private var showingAdd = false
+    @State private var copiedPromptId: String?
+    @State private var clipboardNotice: String?
 
-    private let serviceGrantStore = ServiceGrantStore.default
     private let session: any CredentialSessionManaging
     private var importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)?
-    private var showBrowserSessions: (() -> Void)?
+    private var openMainWindow: (MainWindowRouter.Section?, String?) -> Void
+    private var reopenPopover: () -> Void
 
-    init(session: any CredentialSessionManaging, updateController: UpdateController,
+    init(session: any CredentialSessionManaging,
          importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)? = nil,
-         showBrowserSessions: (() -> Void)? = nil) {
+         openMainWindow: @escaping (MainWindowRouter.Section?, String?) -> Void = { _, _ in },
+         reopenPopover: @escaping () -> Void = {}) {
         self.session = session
-        self.updateController = updateController
         self.importFile = importFile
-        self.showBrowserSessions = showBrowserSessions
+        self.openMainWindow = openMainWindow
+        self.reopenPopover = reopenPopover
         _viewModel = StateObject(wrappedValue: CredentialListViewModel(session: session))
         _addVM = StateObject(wrappedValue: AddCredentialViewModel(session: session))
     }
 
-    enum Page { case list, add, detail(String), serviceGrants, settings }
-
-    private var currentPage: Page {
-        if showServiceGrants { return .serviceGrants }
-        if showSettings { return .settings }
-        if showingAdd { return .add }
-        if let id = selectedCredentialId { return .detail(id) }
-        return .list
-    }
-
     var body: some View {
         Group {
-        if !setupComplete {
-            SetupView(setupComplete: $setupComplete)
-        } else {
-            switch currentPage {
-            case .list:
-                credentialListContent
-            case .add:
+            if !setupComplete {
+                SetupView(setupComplete: $setupComplete)
+            } else if showingAdd {
                 AddCredentialView(
                     vm: addVM,
                     onSave: {
                         viewModel.load()
                         addVM.reset()
                         showingAdd = false
+                        NotificationCenter.default.post(name: .credentialsChanged, object: nil)
                     },
-                    onCancel: {
-                        // Keep draft — just go back to list
-                        showingAdd = false
-                    },
+                    onCancel: { showingAdd = false },
                     onOpenExisting: { id in
                         addVM.reset()
                         showingAdd = false
-                        selectedCredentialId = id
+                        openMainWindow(.keys, id)
                     },
                     onImportFile: importFile
                 )
-            case .detail(let id):
-                if let item = viewModel.credentials.first(where: { $0.id == id }) {
-                    CredentialDetailView(
-                        credentialId: item.id,
-                        credential: item.credential,
-                        session: session,
-                        onBack: { selectedCredentialId = nil },
-                        onUpdate: { viewModel.load() },
-                        onDelete: {
-                            guard viewModel.delete(id: item.id) else {
-                                return viewModel.errorMessage ?? L("Delete failed")
-                            }
-                            selectedCredentialId = nil
-                            return nil
-                        }
-                    )
-                } else {
-                    credentialListContent
-                }
-            case .serviceGrants:
-                serviceGrantsView
-            case .settings:
-                SettingsView(
-                    updateController: updateController,
-                    onBack: { showSettings = false },
-                    onShowServiceGrants: { showServiceGrants = true },
-                    onShowSetup: {
-                        showSettings = false
-                        UserDefaults.standard.set(false, forKey: "setupComplete")
-                        setupComplete = false
-                    }
-                )
+                .background(GlassSurface(intensity: 0.7))
+            } else {
+                home
             }
-        }
         }
         .environment(\.locale, AppL10n.locale(preference: interfaceLanguage))
-        // Handled on the outer body so every page responds, and so a request that arrived
-        // before the popover was ever rendered is still picked up on first render.
+        // Handled on the outer body so a link that arrived before the popover was ever
+        // rendered is still picked up on first render.
         .onReceive(inbox.$pendingAddCredential.compactMap { $0 }) { link in
-            guard case .addCredential(let label, let fields, let notes) = link else {
-                DispatchQueue.main.async { inbox.clearAddCredential() }
-                return
+            if case .addCredential(let label, let fields, let notes) = link {
+                addVM.prefill(label: label, fields: fields, notes: notes)
+                showingAdd = true
             }
-            addVM.prefill(label: label, fields: fields, notes: notes)
-            showServiceGrants = false
-            showSettings = false
-            selectedCredentialId = nil
-            showingAdd = true
             DispatchQueue.main.async { inbox.clearAddCredential() }
         }
-        .onReceive(inbox.$pendingSettings.filter { $0 }) { _ in
-            showServiceGrants = false
-            showingAdd = false
-            selectedCredentialId = nil
-            showSettings = true
-            DispatchQueue.main.async { inbox.clearSettings() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .clipboardCredentialSaved)) { _ in
-            viewModel.load()
-        }
+        .onReceive(NotificationCenter.default.publisher(for: .clipboardCredentialSaved)) { _ in viewModel.load() }
+        .onReceive(NotificationCenter.default.publisher(for: .credentialsChanged)) { _ in viewModel.load() }
     }
 
-    @ViewBuilder
-    private var credentialListContent: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("KeyKeeper")
-                    .font(.title3.weight(.semibold))
-                Spacer()
-                if let showBrowserSessions {
-                    Button(action: showBrowserSessions) { Image(systemName: "globe") }
-                        .help(L("Website sessions"))
-                }
-                Button(action: { showSettings = true }) {
-                    Image(systemName: "gearshape")
-                }
-                .help(L("Settings"))
-                Button(action: { showingAdd = true }) {
-                    Image(systemName: "plus")
-                }
-                .help(L("New key group"))
-            }
-            .padding()
+    // MARK: Home
 
-            TextField(L("Search..."), text: $viewModel.searchText)
-                .textFieldStyle(.roundedBorder)
-                .padding(.horizontal)
-
-            if let failure = viewModel.loadFailure {
-                Spacer()
-                VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-                    Label(L("Couldn't read your credential list"), systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout.weight(.semibold))
-                        .foregroundColor(.red)
-                    Text(L("Your key values are safe in the macOS Keychain; only the list file failed to load. Nothing has been deleted."))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(failure.reason)
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(failure.fileURL.path)
-                        .font(.caption2.monospaced())
-                        .foregroundColor(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                    HStack {
-                        Button(L("Show in Finder")) {
-                            NSWorkspace.shared.activateFileViewerSelecting([failure.fileURL])
-                        }
-                        .font(.caption)
-                        Button(L("Try again")) { viewModel.load() }
-                            .font(.caption)
-                    }
-                }
-                .dsCard(padding: DS.Spacing.md, fill: Color.red.opacity(0.08))
-                .padding(.horizontal)
-                Spacer()
-            } else if viewModel.filtered.isEmpty {
-                Spacer()
-                if addVM.hasDraft {
-                    VStack(spacing: 8) {
-                        Text(L("No credentials stored"))
-                            .foregroundColor(.secondary)
-                        Button(L("Continue editing draft")) {
-                            showingAdd = true
-                        }
-                        .font(.caption)
-                    }
-                } else {
-                    VStack(spacing: DS.Spacing.sm) {
-                        Text(L("No keys yet"))
-                            .foregroundColor(.secondary)
-                        Text(L("Values are encrypted by the macOS Keychain. AI tools see only the names."))
-                            .font(.caption)
-                            .foregroundColor(.secondary.opacity(0.7))
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, DS.Spacing.xl)
-                    }
-                }
-                Spacer()
-            } else {
-                ScrollView {
-                    VStack(spacing: 10) {
-                        // Draft hint
-                        if addVM.hasDraft {
-                            Button(action: { showingAdd = true }) {
-                                HStack {
-                                    Image(systemName: "doc.badge.ellipsis")
-                                    Text(L("Draft: \(addVM.draftTitle)"))
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Text(L("Continue"))
-                                        .foregroundColor(.accentColor)
-                                }
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .dsCard(padding: DS.Spacing.sm, fill: DS.Fill.cardSecondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        ForEach(viewModel.filtered, id: \.id) { item in
-                            CredentialRow(id: item.id, credential: item.credential)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    selectedCredentialId = item.id
-                                }
-                                .contextMenu {
-                                    Button(L("Delete\u{2026}"), role: .destructive) {
-                                        pendingDeleteId = item.id
-                                    }
-                                }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, DS.Spacing.md)
-                }
-                .confirmationDialog(
-                    L("Delete \"\(credentialLabel(for: pendingDeleteId ?? ""))\"?"),
-                    isPresented: Binding(
-                        get: { pendingDeleteId != nil },
-                        set: { if !$0 { pendingDeleteId = nil } }
-                    ),
-                    titleVisibility: .visible
-                ) {
-                    Button(L("Delete"), role: .destructive) {
-                        if let id = pendingDeleteId {
-                            viewModel.delete(id: id)
-                        }
-                        pendingDeleteId = nil
-                    }
-                    Button(L("Cancel"), role: .cancel) { pendingDeleteId = nil }
-                } message: {
-                    Text(CredentialDeletionCopy.message(credentialId: pendingDeleteId ?? ""))
-                }
-            }
-        }
-        .frame(width: DS.Popover.width, height: DS.Popover.height)
-        .onAppear { viewModel.load() }
-        .safeAreaInset(edge: .bottom) {
-            VStack(spacing: DS.Spacing.sm) {
-                if let error = viewModel.errorMessage {
-                    Text(error)
-                        .font(.caption2)
-                        .foregroundColor(.red)
-                        .lineLimit(2)
-                }
-
-                HStack {
-                    Button(action: { NSApplication.shared.terminate(nil) }) {
-                        Label(L("Quit KeyKeeper"), systemImage: "power")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help(L("KeyKeeper starts again automatically the next time a key is requested."))
-                    Spacer()
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, DS.Spacing.sm)
-            .background(.regularMaterial)
-        }
-        .onAppear {
-            loadServiceGrants()
-        }
-    }
-
-    private func loadServiceGrants() {
-        serviceGrants = (try? serviceGrantStore.grants()) ?? []
-    }
-
-    private func revokeServiceGrant(_ grantId: String) {
-        try? serviceGrantStore.revokeGrant(id: grantId)
-        loadServiceGrants()
-    }
-
-    private func credentialLabel(for id: String) -> String {
-        viewModel.credentials.first(where: { $0.id == id })?.credential.label ?? id
-    }
-
-    // MARK: - Service Grants View
-
-    @ViewBuilder
-    private var serviceGrantsView: some View {
+    private var home: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Button {
-                    showServiceGrants = false
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                        Text(L("Back"))
+                Text("KeyKeeper").font(.title3.weight(.semibold))
+                Spacer()
+                Button(L("Open KeyKeeper")) { openMainWindow(nil, nil) }
+                    .buttonStyle(.plain)
+                    .font(.callout)
+                    .foregroundColor(.accentColor)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
+
+            VStack(alignment: .leading, spacing: 16) {
+                if !approvals.items.isEmpty {
+                    waitingSection
+                }
+                saveSection
+                recentSection
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 14)
+
+            footer
+        }
+        .frame(width: DS.Popover.width)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(GlassSurface(intensity: 0.7))
+        .onAppear {
+            viewModel.load()
+            addVM.refreshExistingIds()
+        }
+    }
+
+    // MARK: Waiting for you
+
+    private var waitingSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GlassSectionTitle(text: L("Waiting for you"), trailing: "\(approvals.items.count)")
+            ForEach(approvals.items.prefix(3)) { item in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: item.symbol)
+                            .foregroundColor(.accentColor)
+                            .frame(width: 26, height: 26)
+                            .background(Color.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 7))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.title).font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                            Text(item.detail).font(.caption).foregroundColor(.secondary).lineLimit(2)
+                        }
                     }
-                    .font(.caption)
+                    HStack(spacing: 8) {
+                        if let expiresAt = item.expiresAt {
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                let seconds = max(0, Int(expiresAt.timeIntervalSince(context.date).rounded(.up)))
+                                Text(L("Cancels in \(seconds) s")).font(.caption2).foregroundColor(.secondary).monospacedDigit()
+                            }
+                        }
+                        Spacer()
+                        Button(L("Deny"), action: item.deny)
+                            .controlSize(.small)
+                        Button(action: item.confirm) {
+                            Text(item.opensWindow ? "\(item.confirmTitle)…" : item.confirmTitle)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(item.destructive ? .red : .accentColor)
+                        .controlSize(.small)
+                    }
+                }
+                .padding(12)
+                .background(Color(red: 1, green: 0.97, blue: 0.9).opacity(0.85),
+                            in: RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
+                    .strokeBorder(Color.orange.opacity(0.25)))
+            }
+        }
+    }
+
+    // MARK: Save a key
+
+    private var saveSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GlassSectionTitle(text: L("Save a key"))
+            HStack(spacing: 8) {
+                saveTile(L("From clipboard"), symbol: "doc.on.clipboard", highlighted: true) { saveFromClipboard() }
+                saveTile(L("From file"), symbol: "doc.badge.gearshape") { saveFromFile() }
+                    .disabled(importFile == nil)
+                saveTile(L("Type it in"), symbol: "pencil") {
+                    if !addVM.hasDraft { addVM.reset() }
+                    showingAdd = true
+                }
+            }
+            Text(clipboardNotice ?? L("The clipboard is read only when you click, and cleared after saving."))
+                .font(.caption2)
+                .foregroundColor(clipboardNotice == nil ? .secondary : .orange)
+                .fixedSize(horizontal: false, vertical: true)
+            if addVM.hasDraft {
+                Button {
+                    showingAdd = true
+                } label: {
+                    Label(L("Draft: \(addVM.draftTitle)"), systemImage: "doc.badge.ellipsis")
+                        .font(.caption)
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(.accentColor)
-                Spacer()
             }
-            .padding()
+        }
+    }
 
-            Text(L("Approved background callers"))
-                .font(.title3.weight(.semibold))
-                .padding(.horizontal)
-                .padding(.bottom, DS.Spacing.sm)
+    private func saveTile(_ title: String, symbol: String, highlighted: Bool = false,
+                          action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: symbol).font(.system(size: 19)).foregroundColor(.accentColor)
+                Text(title).font(.caption.weight(.medium)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+            .glassCard(radius: DS.Radius.md, selected: highlighted)
+        }
+        .buttonStyle(.plain)
+    }
 
-            if serviceGrants.isEmpty {
-                Spacer()
-                VStack(spacing: DS.Spacing.sm) {
-                    Image(systemName: "checkmark.shield")
-                        .font(.system(size: 24))
-                        .foregroundColor(.secondary)
-                    Text(L("No background callers approved yet"))
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                Spacer()
+    private func saveFromClipboard() {
+        let pasteboard = NSPasteboard.general
+        guard let text = pasteboard.string(forType: .string),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            clipboardNotice = L("There is no text on the clipboard. Copy the key first.")
+            return
+        }
+        clipboardNotice = nil
+        addVM.prefillFromClipboard(text.trimmingCharacters(in: .whitespacesAndNewlines),
+                                   changeCount: pasteboard.changeCount)
+        showingAdd = true
+    }
+
+    private func saveFromFile() {
+        AddCredentialView.pickServiceAccountFile { url in
+            addVM.reset()
+            addVM.useFile(url)
+            showingAdd = true
+            // The open panel takes focus, which closes a non-detached popover.
+            reopenPopover()
+        }
+    }
+
+    // MARK: Just saved
+
+    private var recentSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GlassSectionTitle(text: L("Just saved"))
+            let recent = RecentCredentials.newest(viewModel.credentials)
+            if recent.isEmpty {
+                Text(L("Once a key is saved, you get a paragraph here to paste straight to your agent."))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
-                ScrollView {
-                    VStack(spacing: DS.Spacing.md) {
-                        ForEach(groupedServiceGrants) { group in
-                            VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-                                Text(credentialLabel(for: group.credentialId))
-                                    .font(.callout.bold())
-
-                                ForEach(group.grants) { grant in
-                                    serviceGrantRow(grant)
-                                    if grant.id != group.grants.last?.id {
-                                        Divider()
-                                    }
-                                }
-                            }
-                            .dsCard()
+                VStack(spacing: 0) {
+                    ForEach(Array(recent.enumerated()), id: \.element.id) { index, item in
+                        recentRow(item.id, item.credential)
+                        if index < recent.count - 1 {
+                            Rectangle().fill(Color.white.opacity(0.8)).frame(height: 1)
                         }
                     }
-                    .padding(.horizontal)
-                    .padding(.top, DS.Spacing.sm)
                 }
-            }
-        }
-        .frame(width: DS.Popover.width, height: DS.Popover.height)
-        .onAppear { loadServiceGrants() }
-    }
-
-    private func serviceGrantRow(_ grant: ServiceGrant) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(grant.subjectDisplayName)
-                    .font(.callout)
-
-                HStack(spacing: 4) {
-                    Text(grant.fields.joined(separator: ", "))
-                        .font(.caption.monospaced())
-                        .foregroundColor(.secondary)
-                    Text("\u{00B7}")
-                        .foregroundColor(.secondary)
-                    Text(serviceDurationLabel(grant.duration))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Text(serviceGrantTimeLabel(grant))
+                .padding(.horizontal, 12)
+                .glassCard()
+                Text(L("Paste the prompt into your agent. It gets the key's name, never its value."))
                     .font(.caption2)
-                    .foregroundColor(.secondary.opacity(0.6))
+                    .foregroundColor(.secondary)
             }
+        }
+    }
 
-            Spacer()
-
-            Button(L("Revoke")) {
-                revokeServiceGrant(grant.id)
+    private func recentRow(_ id: String, _ credential: Credential) -> some View {
+        HStack(spacing: 8) {
+            Button { openMainWindow(.keys, id) } label: {
+                HStack(spacing: 6) {
+                    Text(credential.label).font(.callout).lineLimit(1)
+                    Text(id).font(.caption.monospaced()).foregroundColor(.secondary).lineLimit(1)
+                    Text("· \(RecentCredentials.dayLabel(for: credential.created))")
+                        .font(.caption).foregroundColor(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
             }
-            .font(.caption)
-            .foregroundColor(.red)
             .buttonStyle(.plain)
-        }
-        .padding(.vertical, 4)
-    }
+            .help(L("Open in KeyKeeper"))
 
-    private var groupedServiceGrants: [ServiceGrantGroup] {
-        Dictionary(grouping: serviceGrants, by: \.credentialId)
-            .map { ServiceGrantGroup(credentialId: $0.key, grants: $0.value.sorted { $0.createdAt > $1.createdAt }) }
-            .sorted { credentialLabel(for: $0.credentialId) < credentialLabel(for: $1.credentialId) }
-    }
-
-    private func serviceDurationLabel(_ duration: ServiceGrantDuration) -> String {
-        switch duration {
-        case .once:
-            return L("Once")
-        case .timed(let date):
-            if date > Date() {
-                let formatter = RelativeDateTimeFormatter()
-                formatter.locale = AppL10n.locale
-                formatter.unitsStyle = .abbreviated
-                return L("Expires \(formatter.localizedString(for: date, relativeTo: Date()))")
-            } else {
-                return L("Expired")
+            Button {
+                PlainPasteboard.copy(AgentPromptCopy.prompt(credentialId: id, credential: credential))
+                copiedPromptId = id
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                    if copiedPromptId == id { copiedPromptId = nil }
+                }
+            } label: {
+                Text(copiedPromptId == id ? L("Copied") : L("Copy prompt"))
+                    .font(.caption.weight(.medium))
             }
-        case .always:
-            return L("Always")
+            .buttonStyle(.plain)
+            .foregroundColor(copiedPromptId == id ? .green : .accentColor)
+            .help(L("Copy prompt for your agent"))
         }
+        .padding(.vertical, 9)
     }
 
-    private func serviceGrantTimeLabel(_ grant: ServiceGrant) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.locale = AppL10n.locale
-        formatter.unitsStyle = .abbreviated
-        if let lastUsed = grant.lastUsedAt {
-            return L("Used \(formatter.localizedString(for: lastUsed, relativeTo: Date()))")
-        }
-        return L("Created \(formatter.localizedString(for: grant.createdAt, relativeTo: Date()))")
-    }
-}
+    // MARK: Footer
 
-private struct ServiceGrantGroup: Identifiable {
-    let credentialId: String
-    let grants: [ServiceGrant]
-    var id: String { credentialId }
+    private var footer: some View {
+        HStack(spacing: 14) {
+            Button(L("\(viewModel.credentials.count) keys in total")) { openMainWindow(.keys, nil) }
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
+            Spacer()
+            Button { openMainWindow(.settings, nil) } label: { Image(systemName: "gearshape") }
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
+                .help(L("Settings"))
+            Button { NSApplication.shared.terminate(nil) } label: { Image(systemName: "power") }
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
+                .help(L("KeyKeeper starts again automatically the next time a key is requested."))
+        }
+        .font(.caption)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.06)).frame(height: 0.5) }
+    }
 }
 
 enum CredentialDeletionCopy {

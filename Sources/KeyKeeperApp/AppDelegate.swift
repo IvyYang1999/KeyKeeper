@@ -79,13 +79,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Dragging the popover away turns it into a window that survives clicks elsewhere,
         // which is what you want while pasting several keys.
         popover.delegate = self
-        popover.contentViewController = NSHostingController(
-            rootView: MainView(session: credentialService, updateController: updateController,
+        let popoverContent = NSHostingController(
+            rootView: MainView(session: credentialService,
                 importFile: { [weak self] request, completion in
                     guard let self else { completion(.init(success: false, errorCode: .storageUnavailable)); return }
                     self.ipcServer.importFile(request, completion: completion)
-                }, showBrowserSessions: { [weak self] in self?.showMainWindow(section: .sessions) })
+                },
+                openMainWindow: { [weak self] section, credentialId in
+                    self?.showMainWindow(section: section, credentialId: credentialId)
+                },
+                reopenPopover: { [weak self] in
+                    guard let self, !self.popover.isShown else { return }
+                    self.showPopover()
+                })
         )
+        // The home page is as tall as its content; the add page keeps the fixed size.
+        popoverContent.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = popoverContent
+
+        // The status item shows how many requests are waiting, so they are visible even
+        // when the floating prompt is behind another window.
+        ApprovalCenter.shared.$items
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] items in self?.updateStatusBadge(count: items.count) }
+            .store(in: &cancellables)
 
         authWindowController = AuthorizationWindowController()
 
@@ -119,6 +136,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] authRequest, serviceRequest in
                 if authRequest == nil, serviceRequest == nil {
                     self?.authWindowController.dismiss()
+                    self?.clearAuthApproval()
                 }
             }
             .store(in: &cancellables)
@@ -126,9 +144,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Open the popover only on first run. A CLI request from cron or a script also
         // launches the app, and must not pop a window onto the user's screen.
         if ProcessInfo.processInfo.environment["KEYKEEPER_UI_TEST_SETTINGS"] == "1" {
-            UICommandInbox.shared.requestSettings()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.showPopover()
+                self?.showMainWindow(section: .settings)
             }
         } else if Self.shouldShowPopoverOnLaunch(
             setupComplete: UserDefaults.standard.bool(forKey: "setupComplete")
@@ -175,9 +192,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         terminationSignalSources.removeAll()
     }
 
+    private var authApprovalID: UUID?
+
+    private func registerAuthApproval(title: String, detail: String, expiresAt: Date, deny: @escaping () -> Void) {
+        clearAuthApproval()
+        let id = UUID()
+        authApprovalID = id
+        ApprovalCenter.shared.add(.init(
+            id: id, symbol: "key.fill", title: title, detail: detail, expiresAt: expiresAt,
+            confirmTitle: L("Allow"), destructive: false, opensWindow: true,
+            confirm: { [weak self] in self?.authWindowController.bringToFront() },
+            deny: deny
+        ))
+    }
+
+    private func clearAuthApproval() {
+        if let authApprovalID { ApprovalCenter.shared.remove(id: authApprovalID) }
+        authApprovalID = nil
+    }
+
+    private func updateStatusBadge(count: Int) {
+        guard let button = statusItem?.button else { return }
+        button.imagePosition = .imageLeft
+        button.title = count > 0 ? " \(count)" : ""
+    }
+
     private func handleAuthRequest(_ pending: IPCServer.PendingAuthRequest) {
         let request = pending.request
         let grantStore = GrantStore.default
+        let caller = TrustPromptModel.sanitizedCaller(request.callerIdentity?.displayName ?? L("Unknown Caller"))
+        registerAuthApproval(
+            title: L("\(caller) wants to use \(request.credentialLabel)"),
+            detail: ([request.fieldNames.joined(separator: ", ")] + [request.sessionLabel.map { AppL10n.text($0) }].compactMap { $0 })
+                .joined(separator: " · "),
+            expiresAt: pending.expiresAt,
+            deny: { [weak self] in
+                self?.ipcServer.respond(to: pending, with: AuthResponse(granted: false, error: "User denied"))
+            }
+        )
 
         authWindowController.show(
             request: request,
@@ -211,6 +263,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleServiceRequest(_ pending: IPCServer.PendingServiceRequest) {
         let serviceGrantStore = ServiceGrantStore.default
+        let caller = TrustPromptModel.sanitizedCaller(pending.callerIdentity.displayName)
+        registerAuthApproval(
+            title: L("\(caller) wants to use \(pending.credentialLabel)"),
+            detail: pending.fieldNames.joined(separator: ", "),
+            expiresAt: pending.expiresAt,
+            deny: { [weak self] in self?.ipcServer.denyServiceRequest(pending) }
+        )
 
         authWindowController.show(
             serviceRequest: pending,

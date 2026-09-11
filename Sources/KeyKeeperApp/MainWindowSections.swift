@@ -203,7 +203,7 @@ struct AccessLogPage: View {
     private func row(_ entry: AccessLogEntry) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(L("\(entry.who) · \(label(for: entry.credentialId))")).lineLimit(1).truncationMode(.middle)
+                Text("\(entry.who) · \(label(for: entry.credentialId))").lineLimit(1).truncationMode(.middle)
                 Text(entry.detail).font(.caption.monospaced()).foregroundColor(.secondary)
             }
             Spacer()
