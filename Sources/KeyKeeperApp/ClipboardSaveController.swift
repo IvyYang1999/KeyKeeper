@@ -30,6 +30,7 @@ extension ClipboardSaveSource {
         var fromBrowser = false
         var filePath: String?
         var pythonSymbol: String?
+        var expiresAt: Date?
     }
     private struct Pending {
         let id: UUID
@@ -73,13 +74,15 @@ extension ClipboardSaveSource {
             guard isConnected() else { throw ClipboardSaveError.disconnected }
             let metadata = try metaStore.load()
             try validateTarget(request, metadata: metadata, fileFormat: source?.fileFormat)
+            let expiresAt = now().addingTimeInterval(90)
             let info = Presentation(request: request, callerName: callerName,
                 fromBrowser: source != nil && source?.displayFilePath == nil,
-                filePath: source?.displayFilePath, pythonSymbol: source?.pythonSymbol)
+                filePath: source?.displayFilePath, pythonSymbol: source?.pythonSymbol,
+                expiresAt: expiresAt)
             let source = source ?? clipboard
             let id = UUID()
             pending = Pending(id: id, presentation: info, metadata: try canonical(metadata),
-                changeCount: source.changeCount, source: source, expiresAt: now().addingTimeInterval(90),
+                changeCount: source.changeCount, source: source, expiresAt: expiresAt,
                 isConnected: isConnected, completion: completion)
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.expireIfNeeded() }
@@ -192,71 +195,17 @@ extension Notification.Name {
     static let clipboardCredentialSaved = Notification.Name("KeyKeeper.clipboardCredentialSaved")
 }
 
-/// Standard macOS controls, no text input or secret preview; Escape and Return both cancel.
-@MainActor private final class ClipboardSaveWindow: NSObject, NSWindowDelegate {
-    private var window: NSPanel?
-    private var decide: ((Bool) -> Void)?
-    func show(_ info: ClipboardSaveController.Presentation, decide: @escaping (Bool) -> Void) {
-        self.decide = decide
-        let panel = ClipboardSavePanel(contentRect: NSRect(x: 0, y: 0, width: 500, height: 420),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        panel.title = L("KeyKeeper — Save once")
-        panel.isReleasedWhenClosed = false; panel.hidesOnDeactivate = false
-        panel.level = .floating; panel.delegate = self
-        panel.onCancel = { [weak self] in self?.decide?(false) }
-        let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 16
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        panel.contentView!.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: panel.contentView!.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: panel.contentView!.trailingAnchor, constant: -24),
-            stack.topAnchor.constraint(equalTo: panel.contentView!.topAnchor, constant: 24),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: panel.contentView!.bottomAnchor, constant: -24)
-        ])
-        func label(_ text: String, font: NSFont = .systemFont(ofSize: 13)) {
-            let label = NSTextField(wrappingLabelWithString: text)
-            label.font = font; label.lineBreakMode = .byWordWrapping
-            stack.addArrangedSubview(label)
-            label.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        }
-        label(info.pythonSymbol != nil ? L("Save a source candidate to KeyKeeper?") : info.filePath != nil ? L("Save credential file to KeyKeeper?") : (info.fromBrowser ? L("Save browser paste to KeyKeeper?") : L("Save clipboard to KeyKeeper?")), font: .boldSystemFont(ofSize: 20))
-        let caller = String(info.callerName.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.prefix(80))
-        label(L("Requested by: \(caller)"))
-        label(L("Credential ID: \(info.request.credentialId)\nField: \(info.request.fieldName)"), font: .monospacedSystemFont(ofSize: 13, weight: .medium))
-        if let filePath = info.filePath {
-            label(L("Source: \(filePath)"))
-            if let symbol = info.pythonSymbol {
-                label(L("Python symbol: \(symbol)"), font: .monospacedSystemFont(ofSize: 13, weight: .medium))
-                label(L("Python source · up to 1 MiB. Only the selected string literal or environment default is extracted after approval. Source code is never executed. This is a candidate, not a verified runtime or provider credential. The original is retained; no value is shown."))
-            } else {
-                label(L("Service-account JSON · up to 64 KiB. The App reads this file only after approval. The original file is NOT deleted. File contents are not shown here; provider access is not verified."))
-            }
-        }
-        label(info.request.create ? L("Create a new credential with Ask every time protection.") : L("Restore this missing field. Keep its existing settings and permissions."))
-        label(info.filePath != nil
-            ? L("Nothing is overwritten and no read permission is granted. If the file changes, this save is refused. This request expires in 90 seconds.")
-            : info.fromBrowser
-            ? L("Save the value just pasted into the local browser receiver. No value is shown to the caller. Nothing is overwritten and no read permission is granted. Website identity is not verified. This request expires in 90 seconds.")
-            : L("The App will read your current clipboard. No value is shown to the caller. Nothing is overwritten and no read permission is granted. The clipboard is cleared after saving. This request expires in 90 seconds."))
-        let buttons = NSStackView(); buttons.orientation = .horizontal; buttons.spacing = 12
-        let cancel = NSButton(title: L("Cancel"), target: self, action: #selector(cancelSave))
-        cancel.bezelStyle = .rounded; cancel.keyEquivalent = "\r"; cancel.keyEquivalentModifierMask = []
-        let save = NSButton(title: L("Save once"), target: self, action: #selector(approveSave))
-        save.bezelStyle = .rounded
-        save.keyEquivalent = "\r"; save.keyEquivalentModifierMask = .command
-        buttons.addArrangedSubview(cancel); buttons.addArrangedSubview(save); stack.addArrangedSubview(buttons)
-        panel.contentView!.layoutSubtreeIfNeeded()
-        panel.setContentSize(NSSize(width: 500, height: max(420, stack.fittingSize.height + 48)))
-        window = panel; panel.center(); NSApp.activate(ignoringOtherApps: true); panel.makeKeyAndOrderFront(nil)
-        panel.makeFirstResponder(cancel)
-    }
-    func dismiss() { window?.orderOut(nil); window = nil; decide = nil }
-    @objc private func approveSave() { decide?(true) }
-    @objc private func cancelSave() { decide?(false) }
-    func windowShouldClose(_ sender: NSWindow) -> Bool { decide?(false); return false }
-}
+/// Shown through the shared trust prompt: no text input and no secret preview.
+/// Esc cancels, ⌘↩ saves, plain Return does nothing.
+@MainActor private final class ClipboardSaveWindow {
+    private let presenter = TrustPromptPresenter()
 
-@MainActor private final class ClipboardSavePanel: NSPanel {
-    var onCancel: (() -> Void)?
-    override func cancelOperation(_ sender: Any?) { onCancel?() }
+    func show(_ info: ClipboardSaveController.Presentation, decide: @escaping (Bool) -> Void) {
+        let symbol = info.pythonSymbol != nil ? "chevron.left.forwardslash.chevron.right"
+            : info.filePath != nil ? "doc.badge.gearshape"
+            : info.fromBrowser ? "safari" : "doc.on.clipboard"
+        presenter.show(.save(info), symbol: symbol, decide: decide)
+    }
+
+    func dismiss() { presenter.dismiss() }
 }

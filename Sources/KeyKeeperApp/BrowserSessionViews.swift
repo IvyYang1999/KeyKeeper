@@ -104,51 +104,15 @@ private struct BrowserSessionManagerView: View {
     }
 }
 
-@MainActor private final class BrowserSessionApprovalWindow: NSObject, NSWindowDelegate {
-    private var panel: BrowserSessionApprovalPanel?
-    private var decide: ((Bool) -> Void)?
-    func show(_ info: BrowserSessionPresentation, decide: @escaping (Bool) -> Void) {
-        self.decide = decide
-        let panel = BrowserSessionApprovalPanel(contentRect: NSRect(x: 0, y: 0, width: 540, height: 420),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        self.panel = panel; panel.isReleasedWhenClosed = false; panel.delegate = self
-        panel.title = L("KeyKeeper — Website session")
-        panel.level = .floating; panel.hidesOnDeactivate = false
-        panel.onCancel = { [weak self] in self?.resolve(false) }
-        let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 16
-        stack.translatesAutoresizingMaskIntoConstraints = false; panel.contentView!.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: panel.contentView!.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: panel.contentView!.trailingAnchor, constant: -24),
-            stack.topAnchor.constraint(equalTo: panel.contentView!.topAnchor, constant: 24),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: panel.contentView!.bottomAnchor, constant: -24)
-        ])
-        func text(_ value: String, heading: Bool = false) {
-            let label = NSTextField(wrappingLabelWithString: value)
-            label.font = heading ? .boldSystemFont(ofSize: 20) : .systemFont(ofSize: 13)
-            stack.addArrangedSubview(label); label.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        }
-        text(BrowserSessionCopy.action(info.action), heading: true)
-        text(info.session.origin, heading: true)
-        text(L("Requested by: \(info.caller)"))
-        text(L("Profile label: \(info.session.label) · \(info.session.cookieCount) Cookies"))
-        text(info.action == .delete
-             ? L("This stops the managed window and deletes only this saved snapshot. Chrome and the website account remain unchanged.")
-             : L("This can grant account actions, not just reading. Only this site opens in a temporary window; cross-site navigation and file uploads are blocked. Closing it does not revoke the website session."))
-        text(L("One request only · expires in 90 seconds · Cookie values are never returned to the caller."))
-        let cancel = NSButton(title: L("Cancel"), target: self, action: #selector(cancelClicked)); cancel.keyEquivalent = "\r"
-        let allow = NSButton(title: L("Confirm once"), target: self, action: #selector(allowClicked))
-        stack.addArrangedSubview(NSStackView(views: [cancel, allow]))
-        panel.center(); panel.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
-    }
-    @objc private func cancelClicked() { resolve(false) }
-    @objc private func allowClicked() { resolve(true) }
-    private func resolve(_ approved: Bool) { let reply = decide; decide = nil; reply?(approved) }
-    func windowWillClose(_ notification: Notification) { resolve(false) }
-    func dismiss() { decide = nil; panel?.close(); panel = nil }
-}
+@MainActor private final class BrowserSessionApprovalWindow {
+    private let presenter = TrustPromptPresenter()
 
-@MainActor private final class BrowserSessionApprovalPanel: NSPanel {
-    var onCancel: (() -> Void)?
-    override func cancelOperation(_ sender: Any?) { onCancel?() }
+    func show(_ info: BrowserSessionPresentation, decide: @escaping (Bool) -> Void) {
+        // The controller gives each request 90 seconds from the moment it is received,
+        // which is also when it is presented.
+        presenter.show(.browserSession(info, expiresAt: Date().addingTimeInterval(90)),
+                       symbol: "globe", decide: decide)
+    }
+
+    func dismiss() { presenter.dismiss() }
 }

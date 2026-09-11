@@ -23,7 +23,7 @@ enum AppL10n {
     }
     static func text(_ template: String) -> String { render(template, language: language) }
     static func render(_ template: String, arguments: [String] = [], language: String) -> String {
-        let translated = language == "zh-Hans" ? chinese[template] ?? template : template
+        let translated = language == "zh-Hans" ? chinese[template] ?? chineseSupplement[template] ?? template : template
         let value = NSMutableString(string: translated)
         // Match only the template, backwards; user-provided arguments are never parsed again.
         for match in placeholderPattern.matches(in: translated, range: NSRange(location: 0, length: value.length)).reversed() {
