@@ -118,8 +118,10 @@ final class AppIconAssetTests: XCTestCase {
         XCTAssertTrue(buildScript.contains("Assets/Compiled/Assets.car"), "打包脚本必须把 Assets.car 放进 App")
     }
 
-    /// yyt 2026-09-11：“图标变成不透明了，而不是磨玻璃半透明”。钥匙必须是 Liquid Glass 半透明层。
-    func test图标钥匙层是半透明玻璃() throws {
+    /// yyt 2026-09-11：先嫌“图标不透明、不是磨玻璃”，玻璃版装上后又说浅色下黄钥匙和白底
+    /// “完全就是一体了，还是原来的好看”，深色和透明样式下玻璃“很有立体感”。
+    /// 所以：默认浅色用实心钥匙，深色与透明（tinted）用半透明玻璃 + 高光。
+    func test图标浅色用实心钥匙深色和透明用半透明玻璃() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -128,9 +130,22 @@ final class AppIconAssetTests: XCTestCase {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let group = try XCTUnwrap((json["groups"] as? [[String: Any]])?.first)
         let layer = try XCTUnwrap((group["layers"] as? [[String: Any]])?.first { $0["image-name"] as? String == "keys.png" })
-        XCTAssertEqual(layer["glass"] as? Bool, true, "钥匙层要用玻璃材质")
-        let translucency = try XCTUnwrap(group["translucency"] as? [String: Any])
-        XCTAssertEqual(translucency["enabled"] as? Bool, true, "钥匙要半透明")
-        XCTAssertEqual(group["specular"] as? Bool, true, "玻璃要有高光")
+
+        /// Value for an appearance (nil = default/light) from a `<key>-specializations` array.
+        func value(_ key: String, in object: [String: Any], appearance: String?) -> Any? {
+            guard let list = object["\(key)-specializations"] as? [[String: Any]] else { return object[key] }
+            let match = list.first { ($0["appearance"] as? String) == appearance }
+                ?? list.first { $0["appearance"] == nil }
+            return match?["value"]
+        }
+
+        XCTAssertEqual(value("glass", in: layer, appearance: nil) as? Bool, false, "浅色钥匙要实心，和白底拉开对比")
+        XCTAssertEqual((value("translucency", in: group, appearance: nil) as? [String: Any])?["enabled"] as? Bool, false)
+        for appearance in ["dark", "tinted"] {
+            XCTAssertEqual(value("glass", in: layer, appearance: appearance) as? Bool, true, "\(appearance) 下钥匙要玻璃材质")
+            XCTAssertEqual((value("translucency", in: group, appearance: appearance) as? [String: Any])?["enabled"] as? Bool, true,
+                           "\(appearance) 下钥匙要半透明")
+            XCTAssertEqual(value("specular", in: group, appearance: appearance) as? Bool, true, "\(appearance) 下玻璃要有高光")
+        }
     }
 }
