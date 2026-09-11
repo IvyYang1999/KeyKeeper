@@ -117,4 +117,20 @@ final class AppIconAssetTests: XCTestCase {
         let buildScript = try String(contentsOf: repositoryRoot.appendingPathComponent("scripts/build-app.sh"), encoding: .utf8)
         XCTAssertTrue(buildScript.contains("Assets/Compiled/Assets.car"), "打包脚本必须把 Assets.car 放进 App")
     }
+
+    /// yyt 2026-09-11：“图标变成不透明了，而不是磨玻璃半透明”。钥匙必须是 Liquid Glass 半透明层。
+    func test图标钥匙层是半透明玻璃() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repositoryRoot.appendingPathComponent("Assets/AppIcon.icon/icon.json"))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let group = try XCTUnwrap((json["groups"] as? [[String: Any]])?.first)
+        let layer = try XCTUnwrap((group["layers"] as? [[String: Any]])?.first { $0["image-name"] as? String == "keys.png" })
+        XCTAssertEqual(layer["glass"] as? Bool, true, "钥匙层要用玻璃材质")
+        let translucency = try XCTUnwrap(group["translucency"] as? [String: Any])
+        XCTAssertEqual(translucency["enabled"] as? Bool, true, "钥匙要半透明")
+        XCTAssertEqual(group["specular"] as? Bool, true, "玻璃要有高光")
+    }
 }

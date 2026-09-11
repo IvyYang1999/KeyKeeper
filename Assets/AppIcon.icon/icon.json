@@ -4,21 +4,22 @@
   },
   "groups": [
     {
+      "blur-material": 0.6,
       "layers": [
         {
+          "glass": true,
           "image-name": "keys.png",
-          "name": "keys",
-          "glass": false
+          "name": "keys"
         }
       ],
       "shadow": {
-        "kind": "neutral",
+        "kind": "layer-color",
         "opacity": 0.5
       },
-      "specular": false,
+      "specular": true,
       "translucency": {
-        "enabled": false,
-        "value": 0.5
+        "enabled": true,
+        "value": 0.6
       }
     }
   ],
