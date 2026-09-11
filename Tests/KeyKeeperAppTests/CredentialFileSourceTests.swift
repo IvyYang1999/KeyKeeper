@@ -12,6 +12,23 @@ import KeyKeeperCore
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: directory) }
 
+    func testPythonSourceIsTextAndOpenedWithoutParsingUntilRead() throws {
+        let sourceFile = directory.appendingPathComponent("fixture.py")
+        try Data("invalid Python !!!".utf8).write(to: sourceFile)
+        let invalid = try CredentialFileSource(filePath: sourceFile.path, pythonSymbol: "ADMIN_KEY")
+        XCTAssertNil(invalid.fileFormat)
+        XCTAssertEqual(invalid.pythonSymbol, "ADMIN_KEY")
+        XCTAssertThrowsError(try invalid.readText())
+        let bytes = Data("ADMIN_KEY = os.getenv('ADMIN_KEY', 'synthetic-value')".utf8)
+        try bytes.write(to: sourceFile)
+        let source = try CredentialFileSource(filePath: sourceFile.path, pythonSymbol: "ADMIN_KEY")
+        XCTAssertEqual(try source.readText(), "synthetic-value")
+        source.clearIfUnchanged(since: 0)
+        XCTAssertEqual(try Data(contentsOf: sourceFile), bytes)
+        try bytes.write(to: sourceFile, options: .atomic)
+        XCTAssertThrowsError(try source.readText()) { XCTAssertEqual($0 as? ClipboardSaveError, .fileChanged) }
+    }
+
     func testBoundedReadAndOriginalIsNeverRemoved() throws {
         let bytes = Data("{\"type\":\"service_account\",\"client_email\":\"fixture@example.invalid\",\"private_key\":\"synthetic-only\"}\n".utf8)
         try bytes.write(to: file)

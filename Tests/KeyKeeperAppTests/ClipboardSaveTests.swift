@@ -73,6 +73,48 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         XCTAssertEqual(io.writes, 1)
     }
 
+    func testSourceImportApprovesTextOnlyAndNeverOverwrites() throws {
+        let file = directory.appendingPathComponent("fixture.py")
+        let bytes = Data("raise RuntimeError('never execute')\nADMIN_KEY = os.getenv('ADMIN_KEY', 'synthetic-value')".utf8)
+        try bytes.write(to: file)
+        let source = try CredentialFileSource(filePath: file.path, pythonSymbol: "ADMIN_KEY")
+        var shown: ClipboardSaveController.Presentation?
+        controller = ClipboardSaveController(service: service, metaStore: meta, present: { info, _ in shown = info }, dismiss: {})
+        let request = ClipboardSaveRequest(credentialId: "fixture", fieldName: "key", create: true)
+        controller.receive(request, callerName: "Test", isConnected: { true }, source: source,
+                           completion: { self.results.append($0) })
+        XCTAssertEqual(shown?.pythonSymbol, "ADMIN_KEY")
+        XCTAssertEqual(shown?.fromBrowser, false)
+        XCTAssertEqual(io.writes, 0)
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.last, .init(success: true))
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "synthetic-value")
+        XCTAssertNil(try meta.load().credentials["fixture"]?.fields["key"]?.fileFormat)
+        XCTAssertEqual(try meta.load().credentials["fixture"]?.security, .strict)
+        XCTAssertTrue(try GrantStore(directory: directory).grants(for: "fixture").isEmpty)
+        XCTAssertEqual(try Data(contentsOf: file), bytes)
+        for create in [true, false] {
+            controller.receive(.init(credentialId: "fixture", fieldName: "key", create: create), callerName: "Test",
+                isConnected: { true }, source: source, completion: { self.results.append($0) })
+            XCTAssertEqual(results.last?.errorCode, .valueExists)
+        }
+        XCTAssertEqual(io.writes, 1)
+    }
+
+    func testSourceCancellationAndFileMutationDoNotWrite() throws {
+        let file = directory.appendingPathComponent("fixture.py")
+        try Data("invalid Python !!!".utf8).write(to: file)
+        for approved in [false, true] {
+            let source = try CredentialFileSource(filePath: file.path, pythonSymbol: "ADMIN_KEY")
+            controller.receive(.init(credentialId: "fixture", fieldName: "key", create: true), callerName: "Test",
+                isConnected: { true }, source: source, completion: { self.results.append($0) })
+            if approved { try Data("ADMIN_KEY='synthetic'".utf8).write(to: file, options: .atomic) }
+            controller.resolve(approved: approved)
+            XCTAssertEqual(results.last?.errorCode, approved ? .fileChanged : .denied)
+            XCTAssertEqual(io.writes, 0)
+        }
+    }
+
     func testFileImportIsTypedNoOverwriteAndRetainsOriginal() throws {
         let file = directory.appendingPathComponent("fixture.json")
         let value = "{\"type\":\"service_account\",\"client_email\":\"fixture@example.invalid\",\"private_key\":\"synthetic-only\"}\n"

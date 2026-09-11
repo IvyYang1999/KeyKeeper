@@ -5,20 +5,29 @@ import KeyKeeperCore
 /// Hold an open descriptor and identity snapshot, but do not read bytes before approval.
 /// O_NONBLOCK prevents FIFOs/devices from hanging even before their type is checked.
 @MainActor final class CredentialFileSource: ClipboardSaveSource {
-    let fileFormat: CredentialFileFormat? = .serviceAccountJSON
+    let fileFormat: CredentialFileFormat?
+    let pythonSymbol: String?
     let displayFilePath: String?
     private let descriptor: Int32
     private let snapshot: stat
 
-    init(filePath: String) throws {
-        try FileImportRequest(target: .init(credentialId: "validate", fieldName: "file"), filePath: filePath).validate()
+    init(filePath: String, pythonSymbol: String? = nil) throws {
+        let target = ClipboardSaveRequest(credentialId: "validate", fieldName: "file")
+        if let pythonSymbol {
+            try SourceImportRequest(target: target, filePath: filePath, pythonSymbol: pythonSymbol).validate()
+        } else {
+            try FileImportRequest(target: target, filePath: filePath).validate()
+        }
+        self.pythonSymbol = pythonSymbol
+        fileFormat = pythonSymbol == nil ? .serviceAccountJSON : nil
+        let invalid: ClipboardSaveError = pythonSymbol == nil ? .invalidFile : .invalidSource
         let fd = open(filePath, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
-        guard fd >= 0 else { throw ClipboardSaveError.invalidFile }
+        guard fd >= 0 else { throw invalid }
         var info = stat()
         guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
               info.st_uid == getuid(), info.st_size > 0,
-              info.st_size <= CredentialFileFormat.maximumBytes else {
-            close(fd); throw ClipboardSaveError.invalidFile
+              info.st_size <= (pythonSymbol == nil ? CredentialFileFormat.maximumBytes : SourceImportRequest.maximumBytes) else {
+            close(fd); throw invalid
         }
         descriptor = fd; snapshot = info; displayFilePath = filePath
     }
@@ -35,6 +44,7 @@ import KeyKeeperCore
         }
         guard count == snapshot.st_size, unchanged() else { throw ClipboardSaveError.fileChanged }
         data.count = count
+        if let pythonSymbol { return try PythonSourceExtractor.extract(data, symbol: pythonSymbol) }
         return try CredentialFileFormat.serviceAccountJSON.validate(data)
     }
 

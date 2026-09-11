@@ -12,7 +12,7 @@ import KeyKeeperCore
 enum IPCLaunchPolicy {
     static func shouldLaunchApp(for request: IPCRequest) -> Bool {
         switch request {
-        case .value, .auth, .clipboardSave, .browserImport, .fileImport, .browserSession:
+        case .value, .auth, .clipboardSave, .browserImport, .fileImport, .sourceImport, .browserSession:
             return true
         case .sessionControl, .serviceRequests:
             return false
@@ -45,11 +45,18 @@ enum IPCClient {
     }
     static func requestFileImport(_ request: FileImportRequest) throws -> ClipboardSaveResponse {
         try request.validate()
+        return try requestLocalImport(.fileImport(request))
+    }
+    static func requestSourceImport(_ request: SourceImportRequest) throws -> ClipboardSaveResponse {
+        try request.validate()
+        return try requestLocalImport(.sourceImport(request))
+    }
+    private static func requestLocalImport(_ envelope: IPCRequest) throws -> ClipboardSaveResponse {
         let fd = try connectWithRetry(launchIfNeeded: true)
         defer { close(fd) }
         var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout), tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-        try IPCMessage.writeMessage(fd: fd, message: IPCRequest.fileImport(request))
+        try IPCMessage.writeMessage(fd: fd, message: envelope)
         guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else { throw IPCError.appNotResponding }
         return try decodeClipboardSaveResponse(response)
     }

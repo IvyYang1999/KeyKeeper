@@ -5,6 +5,7 @@ import KeyKeeperCore
     var changeCount: Int { get }
     var fileFormat: CredentialFileFormat? { get }
     var displayFilePath: String? { get }
+    var pythonSymbol: String? { get }
     func readText() throws -> String?
     func clearIfUnchanged(since count: Int)
 }
@@ -12,6 +13,7 @@ import KeyKeeperCore
 extension ClipboardSaveSource {
     var fileFormat: CredentialFileFormat? { nil }
     var displayFilePath: String? { nil }
+    var pythonSymbol: String? { nil }
 }
 
 @MainActor final class SystemClipboardSaveSource: ClipboardSaveSource {
@@ -27,6 +29,7 @@ extension ClipboardSaveSource {
         let callerName: String
         var fromBrowser = false
         var filePath: String?
+        var pythonSymbol: String?
     }
     private struct Pending {
         let id: UUID
@@ -71,7 +74,8 @@ extension ClipboardSaveSource {
             let metadata = try metaStore.load()
             try validateTarget(request, metadata: metadata, fileFormat: source?.fileFormat)
             let info = Presentation(request: request, callerName: callerName,
-                fromBrowser: source != nil && source?.fileFormat == nil, filePath: source?.displayFilePath)
+                fromBrowser: source != nil && source?.displayFilePath == nil,
+                filePath: source?.displayFilePath, pythonSymbol: source?.pythonSymbol)
             let source = source ?? clipboard
             let id = UUID()
             pending = Pending(id: id, presentation: info, metadata: try canonical(metadata),
@@ -114,7 +118,7 @@ extension ClipboardSaveSource {
             var metadata = try metaStore.load()
             guard try canonical(metadata) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
             try validateTarget(request, metadata: metadata, fileFormat: clipboard.fileFormat)
-            let changed: ClipboardSaveError = clipboard.fileFormat == nil ? .clipboardChanged : .fileChanged
+            let changed: ClipboardSaveError = clipboard.displayFilePath == nil ? .clipboardChanged : .fileChanged
             guard clipboard.changeCount == pending.changeCount else { throw changed }
             // No pasteboard string is fetched until the target and one-time approval are validated.
             guard let value = try clipboard.readText(), value.utf8.count <= 65_536,
@@ -215,13 +219,18 @@ extension Notification.Name {
             stack.addArrangedSubview(label)
             label.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
-        label(info.filePath != nil ? L("Save credential file to KeyKeeper?") : (info.fromBrowser ? L("Save browser paste to KeyKeeper?") : L("Save clipboard to KeyKeeper?")), font: .boldSystemFont(ofSize: 20))
+        label(info.pythonSymbol != nil ? L("Save a source candidate to KeyKeeper?") : info.filePath != nil ? L("Save credential file to KeyKeeper?") : (info.fromBrowser ? L("Save browser paste to KeyKeeper?") : L("Save clipboard to KeyKeeper?")), font: .boldSystemFont(ofSize: 20))
         let caller = String(info.callerName.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.prefix(80))
         label(L("Requested by: \(caller)"))
         label(L("Credential ID: \(info.request.credentialId)\nField: \(info.request.fieldName)"), font: .monospacedSystemFont(ofSize: 13, weight: .medium))
         if let filePath = info.filePath {
             label(L("Source: \(filePath)"))
-            label(L("Service-account JSON · up to 64 KiB. The App reads this file only after approval. The original file is NOT deleted. File contents are not shown here; provider access is not verified."))
+            if let symbol = info.pythonSymbol {
+                label(L("Python symbol: \(symbol)"), font: .monospacedSystemFont(ofSize: 13, weight: .medium))
+                label(L("Python source · up to 1 MiB. Only the selected string literal or environment default is extracted after approval. Source code is never executed. This is a candidate, not a verified runtime or provider credential. The original is retained; no value is shown."))
+            } else {
+                label(L("Service-account JSON · up to 64 KiB. The App reads this file only after approval. The original file is NOT deleted. File contents are not shown here; provider access is not verified."))
+            }
         }
         label(info.request.create ? L("Create a new credential with Ask every time protection.") : L("Restore this missing field. Keep its existing settings and permissions."))
         label(info.filePath != nil

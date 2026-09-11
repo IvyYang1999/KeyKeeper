@@ -47,6 +47,7 @@ public enum KeychainReadTimeoutPolicy {
 public enum IPCRequest: Codable, Sendable {
     case browserSession(BrowserSessionRequest)
     case fileImport(FileImportRequest)
+    case sourceImport(SourceImportRequest)
     case browserImport(ClipboardSaveRequest)
     case clipboardSave(ClipboardSaveRequest)
     case auth(AuthRequest)
@@ -61,6 +62,9 @@ public enum IPCRequest: Codable, Sendable {
         switch self {
         case .browserSession(let r):
             try c.encode("browserSession", forKey: .type)
+            try c.encode(r, forKey: .data)
+        case .sourceImport(let r):
+            try c.encode("sourceImport", forKey: .type)
             try c.encode(r, forKey: .data)
         case .fileImport(let r):
             try c.encode("fileImport", forKey: .type)
@@ -91,6 +95,7 @@ public enum IPCRequest: Codable, Sendable {
         switch try c.decode(String.self, forKey: .type) {
         case "browserSession": self = .browserSession(try c.decode(BrowserSessionRequest.self, forKey: .data))
         case "fileImport": self = .fileImport(try c.decode(FileImportRequest.self, forKey: .data))
+        case "sourceImport": self = .sourceImport(try c.decode(SourceImportRequest.self, forKey: .data))
         case "browserImport": self = .browserImport(try c.decode(ClipboardSaveRequest.self, forKey: .data))
         case "clipboardSave": self = .clipboardSave(try c.decode(ClipboardSaveRequest.self, forKey: .data))
         case "auth":  self = .auth(try c.decode(AuthRequest.self, forKey: .data))

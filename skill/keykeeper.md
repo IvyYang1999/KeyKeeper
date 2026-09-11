@@ -111,6 +111,34 @@ The clipboard must stay unchanged until confirmation. On timeout/connection fail
 
 This command reads the macOS system clipboard. A tool's browser-session clipboard may be isolated; do not assume `tab.clipboard` reaches KeyKeeper.
 
+### Python source literals (local macOS)
+
+When the user authorizes transferring a value already present in an exact local Python
+file, use the built-in source importer instead of asking them to copy/paste. First check
+`keykeeper save --help` for `--from-source` and `--python-symbol`; both App and CLI need
+support. An older App fails closed. This first version requires an already installed
+Apple Python 3 from Command Line Tools or Xcode; do not silently install a runtime.
+
+```bash
+keykeeper save -c my-service --field ADMIN_KEY --from-source /absolute/path/config.py --python-symbol ADMIN_KEY --create
+```
+
+Only path, symbol and destination enter the command. Do not open/print the source, extract
+the value with Agent tools, execute/import the source, or build a plaintext bridge.
+The App reads an owned regular UTF-8 file (up to 1 MiB) only after native confirmation and
+parses a unique top-level string literal or the literal default in `os.getenv` /
+`os.environ.get`. Dynamic expressions, ambiguous bindings and file changes are refused.
+Use `--create` only for a fresh ID; omit it only to restore a missing **text** field.
+Existing values are never overwritten. The original remains unchanged; no read grant is
+created. The user confirms real saves unless they explicitly authorize that exact save.
+
+A source default is only a candidate, not evidence of the effective runtime or deployed
+password. Confirm final save success, then use a separately authorized minimal read-only
+check through `keykeeper run` that returns only fixed status. Do not claim the candidate
+works online or change deployment credentials merely because it was stored. Unsupported
+source syntax or runtime availability is a precise handoff gate, not permission to echo
+the value or ask for it in chat. An uncertain write must not be blindly retried.
+
 ### Credential files (local macOS)
 
 First check `keykeeper save --help` for `--from-file` and `keykeeper run --help` for `--file`.

@@ -81,6 +81,23 @@ final class IPCServer: ObservableObject {
         } catch { completion(.init(success: false, errorCode: error as? ClipboardSaveError ?? .invalidFile)) }
     }
 
+    @MainActor func importSource(_ request: SourceImportRequest, callerName: String,
+                    isConnected: @escaping () -> Bool,
+                    completion: @escaping (ClipboardSaveResponse) -> Void) {
+        guard let controller = clipboardSaveController else {
+            completion(.init(success: false, errorCode: .storageUnavailable)); return
+        }
+        guard pendingRequest == nil, pendingServiceRequest == nil, !controller.isPending, browserSessionController?.isPending != true else {
+            completion(.init(success: false, errorCode: .busy)); return
+        }
+        do {
+            try request.validate()
+            let source = try CredentialFileSource(filePath: request.filePath, pythonSymbol: request.pythonSymbol)
+            controller.receive(request.target, callerName: callerName, isConnected: isConnected,
+                               source: source, completion: completion)
+        } catch { completion(.init(success: false, errorCode: error as? ClipboardSaveError ?? .invalidSource)) }
+    }
+
     init(
         session: SessionControlling,
         metaStore: MetaStore = .default,
@@ -279,6 +296,16 @@ final class IPCServer: ObservableObject {
                 controller.receive(request, caller: callerIdentity.displayName,
                     isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
                     completion: { response in self.send(.browserSession(response), clientFd: clientFd) })
+            }
+        case .sourceImport(let request):
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    Self.writeAndClose(.clipboardSave(.init(success: false, errorCode: .storageUnavailable)), clientFd: clientFd)
+                    return
+                }
+                self.importSource(request, callerName: callerIdentity.displayName,
+                    isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
+                    completion: { response in self.send(.clipboardSave(response), clientFd: clientFd) })
             }
         case .fileImport(let request):
             DispatchQueue.main.async { [weak self] in

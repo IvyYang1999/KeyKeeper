@@ -3,6 +3,13 @@ import KeyKeeperCore
 @testable import KeyKeeperApp
 
 final class AppLocalizationTests: XCTestCase {
+    func testSourceImportCopyAndErrorsAreTranslated() {
+        let keys = ["Save a source candidate to KeyKeeper?", "Python symbol: {0}",
+            "Python source · up to 1 MiB. Only the selected string literal or environment default is extracted after approval. Source code is never executed. This is a candidate, not a verified runtime or provider credential. The original is retained; no value is shown.",
+            ClipboardSaveError.invalidSource.errorDescription!, ClipboardSaveError.unsupportedSource.errorDescription!,
+            ClipboardSaveError.sourceParserUnavailable.errorDescription!]
+        for key in keys { XCTAssertNotNil(AppL10n.chinese[key], key) }
+    }
     func testBrowserSessionStaticCopyHasChineseTranslation() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let source = try String(contentsOf: root.appendingPathComponent("Sources/KeyKeeperApp/BrowserSessionViews.swift"), encoding: .utf8)

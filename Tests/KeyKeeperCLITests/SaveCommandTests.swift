@@ -3,6 +3,23 @@ import XCTest
 import KeyKeeperCore
 
 final class SaveCommandTests: XCTestCase {
+    func testSourceRequiresExplicitSymbolAndDistinctMetadataOnlyProtocol() throws {
+        let base = ["-c", "fixture", "--field", "ADMIN_KEY", "--from-source", "/tmp/synthetic.py"]
+        XCTAssertThrowsError(try SaveCommand.parse(base))
+        XCTAssertThrowsError(try SaveCommand.parse(base + ["--python-symbol", "X;print(1)"]))
+        XCTAssertThrowsError(try SaveCommand.parse(base + ["--python-symbol", "X", "--from-clipboard"]))
+        XCTAssertThrowsError(try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-browser", "--python-symbol", "X"]))
+        let command = try SaveCommand.parse(base + ["--python-symbol", "ADMIN_KEY", "--create"])
+        let request = SourceImportRequest(target: command.request, filePath: command.fromSource!, pythonSymbol: command.pythonSymbol!)
+        let data = try JSONEncoder().encode(IPCRequest.sourceImport(request))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["type"] as? String, "sourceImport")
+        let payload = try XCTUnwrap(json["data"] as? [String: Any])
+        XCTAssertEqual(Set(payload.keys), ["target", "filePath", "pythonSymbol"])
+        guard case .sourceImport(let decoded) = try JSONDecoder().decode(IPCRequest.self, from: data) else { return XCTFail() }
+        XCTAssertEqual(decoded, request)
+        XCTAssertTrue(IPCLaunchPolicy.shouldLaunchApp(for: .sourceImport(request)))
+    }
     func testFileImportOnlySendsPathAndTarget() throws {
         let command = try SaveCommand.parse(["-c", "fixture", "--field", "credentials-json", "--from-file", "/tmp/synthetic.json", "--create"])
         XCTAssertEqual(command.fromFile, "/tmp/synthetic.json")

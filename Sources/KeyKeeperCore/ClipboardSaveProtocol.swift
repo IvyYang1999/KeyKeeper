@@ -24,11 +24,15 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
 }
 
 public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError {
+    case invalidSource, unsupportedSource, sourceParserUnavailable
     case invalidFile, fileChanged, wrongFieldType
     case invalidTarget, valueExists, targetNotFound, metadataChanged, clipboardChanged
     case emptyClipboard, busy, denied, expired, disconnected, storageUnavailable, metadataCommitFailed, staleGrants
     public var errorDescription: String? {
         switch self {
+        case .invalidSource: return "Choose an owned regular UTF-8 Python file up to 1 MiB and an explicit Python symbol. No source contents were returned."
+        case .unsupportedSource: return "The selected symbol is missing, ambiguous or unsupported. Only one top-level string literal or os.getenv/os.environ.get string default is accepted. Nothing was saved."
+        case .sourceParserUnavailable: return "A supported Apple Python 3 parser is unavailable. No runtime was installed and no source code was executed."
         case .invalidFile: return "Choose an owned regular UTF-8 service-account JSON file (type, client_email and private_key required; at most 64 KiB). No contents were returned."
         case .fileChanged: return "The selected file changed or became unavailable. Nothing was saved. Select the intended file again."
         case .wrongFieldType: return "The import source does not match this field's type. Use a fresh credential ID for a different type."
