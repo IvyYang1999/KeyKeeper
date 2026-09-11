@@ -31,8 +31,8 @@ final class StorageProtectionTests: XCTestCase {
                    security: .standard, created: "2026-01-01", updated: "2026-01-01")
     }
 
-    // 【曾经的 bug】恢复元数据但没有值时，新增、纯元数据编辑和删除都不能落盘。
-    func testMissingAndPartialStoresBlockEveryGUIMutation() throws {
+    // 整库缺失仍拒绝新增；部分缺失只允许全新 ID，编辑/删除继续保护旧数据。
+    func testMissingStoreBlocksAllWritesAndPartialStoreOnlyAllowsCreate() throws {
         for partial in [false, true] {
             io.blob = partial ? Data(#"{"version":1,"credentials":{"fixture":{"one":"synthetic"}}}"#.utf8) : nil
             let original = MetaFile(credentials: ["fixture": credential()])
@@ -44,9 +44,6 @@ final class StorageProtectionTests: XCTestCase {
             add.label = "New fixture"
             add.credentialId = "new"
             add.fields = [FieldEntry(name: "field", value: "synthetic")]
-            XCTAssertFalse(add.save())
-            XCTAssertTrue(add.errorMessage?.contains("blocked") == true)
-
             let detail = CredentialDetailViewModel(credentialId: "fixture", credential: credential(), session: session, store: metaStore)
             detail.credential.notes = "metadata-only change"
             XCTAssertFalse(detail.saveChanges())
@@ -58,6 +55,16 @@ final class StorageProtectionTests: XCTestCase {
             XCTAssertEqual(try Data(contentsOf: metaStore.fileURL), metadataBefore)
             XCTAssertEqual(io.blob, valuesBefore)
             XCTAssertEqual(io.writes, 0)
+            XCTAssertEqual(add.save(), partial)
+            if partial {
+                XCTAssertEqual(io.writes, 1)
+                XCTAssertEqual(try session.retrieve(credentialId: "fixture", fieldName: "one"), "synthetic")
+                XCTAssertNotNil(try metaStore.load().credentials["fixture"]?.fields["two"])
+            } else {
+                XCTAssertTrue(add.errorMessage?.contains("blocked") == true)
+                XCTAssertEqual(try Data(contentsOf: metaStore.fileURL), metadataBefore)
+                XCTAssertEqual(io.blob, valuesBefore)
+            }
         }
     }
 

@@ -24,6 +24,8 @@ public protocol CredentialSessionManaging: AnyObject {
     func status() -> SessionStatus
     /// Check the pre-edit inventory before any value or metadata mutation begins.
     func validateStorage() throws
+    /// Create a whole new ID in one write; must never replace existing or orphan values.
+    func createCredential(credentialId: String, values: [String: String], security: SecurityLevel) throws
     func retrieve(credentialId: String, fieldName: String) throws -> String
     func save(
         credentialId: String,
@@ -37,4 +39,8 @@ public protocol CredentialSessionManaging: AnyObject {
 extension CredentialSessionManaging {
     // Legacy/test session providers have no split metadata/blob inventory.
     public func validateStorage() throws {}
+    // Older providers must opt into atomic create; never emulate it with overwrite-capable saves.
+    public func createCredential(credentialId: String, values: [String: String], security: SecurityLevel) throws {
+        throw ClipboardSaveError.storageUnavailable
+    }
 }

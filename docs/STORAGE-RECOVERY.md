@@ -10,9 +10,13 @@ the session state; it is not an inventory or recovery check.
 - A missing Keychain item plus metadata describing existing secret fields blocks
   normal store creation. An item observed earlier by the current store instance
   cannot silently be recreated after it disappears, even if metadata is empty.
-- Before GUI add, edit or delete, all secret fields in metadata must exist in the
-  blob. A partial store blocks mutations, including metadata-only edits. Available
-  values can still be read; extra blob fields are preserved, not deleted.
+- GUI add is create-only: a readable, supported partial store accepts a fresh ID.
+  Both metadata and blob inventories must lack that ID (including orphan values),
+  and there must be no old read grants for the ID. All new fields are written once
+  under the store lock. No existing values, metadata records or grants are removed.
+- Before GUI edit or delete, all secret fields in metadata must exist in the blob.
+  A partial store still blocks these operations, including metadata-only edits.
+  Available values can still be read; extra blob fields are preserved, not deleted.
 - Updating a previously read item never falls back to creating it. First creation
   never overwrites an item created by another writer in the meantime.
 - A genuinely new installation can create its first store. Multi-field editing and
@@ -24,6 +28,20 @@ the session state; it is not an inventory or recovery check.
 The guard detects inconsistency; it cannot recover missing values. It is not a
 transaction spanning metadata and Keychain, and does not solve concurrent writes
 from separate processes to an existing blob. Normal App use has one process owner.
+If the new values are saved but metadata cannot be committed, they remain protected
+as orphan values. The App explicitly reports that partial outcome and blocks a retry
+from overwriting them; there is no destructive rollback or automatic cleanup.
+
+## 2026-09-11 create-only fix acceptance
+
+Required: disjoint GUI creation in a partial store, no overwrite of existing/orphan
+IDs, no inherited stale grants, single-write multi-field creation, missing/corrupt
+store refusal, metadata failure preservation, Chinese errors, isolated real-App
+save/readback and signed local installation with backup. Not included: broader
+edit/delete permissions, legacy recovery, browser sessions or public release.
+Block only data loss, secret disclosure, unauthorized writes, broken compatibility
+or these requirements. Close with targeted regressions, one full candidate gate,
+real UI verification, scoped commit, final gate/build, backup/install/hash checks.
 
 ## What counts as a recoverable backup
 

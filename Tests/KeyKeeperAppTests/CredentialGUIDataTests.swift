@@ -35,7 +35,8 @@ final class CredentialGUIDataTests: XCTestCase {
         XCTAssertEqual(try store.load().credentials["service"]?.label, "Service")
     }
 
-    func test新增使用已有ID时先清理被覆盖的Vault字段() throws {
+    // 【曾经的 bug】新增入口即使绕过按钮验证也不能覆盖已有凭据。
+    func test新增使用已有ID时拒绝且旧数据不变() throws {
         let existing = makeCredential(fields: [
             "old-token": CredentialField(secret: true)
         ])
@@ -48,23 +49,16 @@ final class CredentialGUIDataTests: XCTestCase {
         vm.credentialId = "service"
         vm.fields = [FieldEntry(name: "new-token", value: "opaque-new-value")]
 
-        XCTAssertTrue(vm.save())
-        XCTAssertEqual(session.operations, [
-            .delete(credentialId: "service", fieldName: "old-token"),
-            .save(
-                credentialId: "service",
-                fieldName: "new-token",
-                value: "opaque-new-value"
-            )
-        ])
-        XCTAssertNil(session.values["service.old-token"])
+        XCTAssertFalse(vm.save())
+        XCTAssertTrue(session.operations.isEmpty)
+        XCTAssertEqual(session.values["service.old-token"], "opaque-old-value")
         XCTAssertEqual(
             Set(try store.load().credentials["service"]?.fields.keys.map { $0 } ?? []),
-            ["new-token"]
+            ["old-token"]
         )
     }
 
-    func test新增覆盖时Vault删除失败则保留原Metadata() throws {
+    func test新增重复ID不尝试删除Vault且保留原Metadata() throws {
         let existing = makeCredential(fields: [
             "old-token": CredentialField(secret: true)
         ])
@@ -77,9 +71,7 @@ final class CredentialGUIDataTests: XCTestCase {
         vm.fields = [FieldEntry(name: "new-token", value: "opaque-new-value")]
 
         XCTAssertFalse(vm.save())
-        XCTAssertEqual(session.operations, [
-            .delete(credentialId: "service", fieldName: "old-token")
-        ])
+        XCTAssertTrue(session.operations.isEmpty)
         let stored = try XCTUnwrap(store.load().credentials["service"])
         XCTAssertEqual(stored.label, "Service")
         XCTAssertEqual(Set(stored.fields.keys), ["old-token"])
@@ -239,6 +231,85 @@ final class CredentialGUIDataTests: XCTestCase {
             updated: "2026-07-20"
         )
     }
+
+    // 【曾经的 bug】一个旧字段缺失不应阻止无关的新凭据入库。
+    func testPartialOldStoreAllowsNewCredentialWithoutChangingOldValuesOrMetadata() throws {
+        let old = makeCredential(fields: ["missing": .init(secret: true), "kept": .init(secret: true)])
+        try store.save(.init(credentials: ["old": old]))
+        let io = GUIRecoveryBlobIO()
+        io.blob = Data(#"{"version":1,"credentials":{"old":{"kept":"synthetic-kept","orphan":"synthetic-orphan"}}}"#.utf8)
+        let session = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.store.load() }))
+        let vm = AddCredentialViewModel(session: session, store: store)
+        vm.label = "New"; vm.credentialId = "new"
+        vm.fields = [.init(name: "a", value: "synthetic-a"), .init(name: "b", value: "synthetic-b")]
+        XCTAssertTrue(vm.save())
+        XCTAssertEqual(io.writeCount, 1, "Multi-field create must be one Keychain write")
+        XCTAssertEqual(try session.retrieve(credentialId: "new", fieldName: "a"), "synthetic-a")
+        XCTAssertEqual(try session.retrieve(credentialId: "new", fieldName: "b"), "synthetic-b")
+        XCTAssertEqual(try session.retrieve(credentialId: "old", fieldName: "kept"), "synthetic-kept")
+        XCTAssertEqual(try session.retrieve(credentialId: "old", fieldName: "orphan"), "synthetic-orphan")
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        XCTAssertEqual(try encoder.encode(store.load().credentials["old"]), try encoder.encode(old))
+        XCTAssertThrowsError(try session.validateStorage(), "Editing/deleting protection remains")
+    }
+}
+
+extension CredentialGUIDataTests {
+    func testNewSaveBlocksMissingStoreOrOrphanCollisionWithoutChangingMetadata() throws {
+        let old = makeCredential(fields: ["missing": .init(secret: true)])
+        try store.save(.init(credentials: ["old": old]))
+        let before = try Data(contentsOf: store.fileURL)
+        let originals: [Data?] = [nil, Data("invalid".utf8), Data(#"{"version":1,"credentials":{"new":{"other":"synthetic"}}}"#.utf8)]
+        for original in originals {
+            let io = GUIRecoveryBlobIO(); io.blob = original
+            let service = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.store.load() }))
+            let vm = AddCredentialViewModel(session: service, store: store)
+            vm.label = "New"; vm.credentialId = "new"; vm.fields = [.init(name: "fixture", value: "synthetic")]
+            XCTAssertFalse(vm.save())
+            XCTAssertEqual(io.blob, original); XCTAssertEqual(io.writeCount, 0)
+            XCTAssertEqual(try Data(contentsOf: store.fileURL), before)
+        }
+    }
+
+    func testCreateRechecksFreshMetadataAndRejectsDuplicateFieldsAndOldReadGrants() throws {
+        let service = FakeCredentialSession()
+        let vm = AddCredentialViewModel(session: service, store: store)
+        vm.label = "New"; vm.credentialId = "new"; vm.fields = [.init(name: "fixture", value: "synthetic")]
+        try store.save(.init(credentials: ["new": makeCredential(fields: [:])]))
+        XCTAssertFalse(vm.save()); XCTAssertTrue(service.operations.isEmpty)
+        try store.save(.init())
+        vm.fields.append(.init(name: "fixture", value: "other"))
+        XCTAssertFalse(vm.save()); XCTAssertTrue(service.operations.isEmpty)
+        vm.fields.removeLast()
+        try GrantStore(directory: directory).addGrant(.init(credentialId: "new", duration: .always))
+        XCTAssertFalse(vm.save()); XCTAssertTrue(service.operations.isEmpty)
+        XCTAssertNil(try store.load().credentials["new"])
+    }
+
+    func testMetadataCommitFailureRetainsStoredValuesAndReportsDoNotRetry() throws {
+        let io = GUIRecoveryBlobIO()
+        let service = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.store.load() }))
+        io.onWrite = { try FileManager.default.createDirectory(at: self.store.fileURL, withIntermediateDirectories: false) }
+        let vm = AddCredentialViewModel(session: service, store: store)
+        vm.label = "New"; vm.credentialId = "new"; vm.fields = [.init(name: "fixture", value: "synthetic")]
+        XCTAssertFalse(vm.save())
+        XCTAssertTrue(vm.errorMessage?.contains("Do not retry") == true)
+        XCTAssertEqual(try service.retrieve(credentialId: "new", fieldName: "fixture"), "synthetic")
+        XCTAssertEqual(io.writeCount, 1)
+        XCTAssertFalse(vm.save()); XCTAssertEqual(io.writeCount, 1)
+    }
+}
+
+private final class GUIRecoveryBlobIO: KeychainBlobIO, @unchecked Sendable {
+    var blob: Data?
+    var writeCount = 0
+    var onWrite: (() throws -> Void)?
+    func readBlob() throws -> Data? { blob }
+    func writeBlob(_ data: Data, replacingExisting: Bool) throws {
+        guard !replacingExisting || blob != nil else { throw CredentialStorageError.missingStore }
+        blob = data; writeCount += 1
+        try onWrite?()
+    }
 }
 
 private final class FakeCredentialSession: CredentialSessionManaging {
@@ -255,6 +326,12 @@ private final class FakeCredentialSession: CredentialSessionManaging {
 
     func status() -> SessionStatus {
         currentStatus
+    }
+
+    func createCredential(credentialId: String, values: [String: String], security: SecurityLevel) throws {
+        for (name, value) in values.sorted(by: { $0.key < $1.key }) {
+            try save(credentialId: credentialId, fieldName: name, value: value, security: security)
+        }
     }
 
     func retrieve(credentialId: String, fieldName: String) throws -> String {

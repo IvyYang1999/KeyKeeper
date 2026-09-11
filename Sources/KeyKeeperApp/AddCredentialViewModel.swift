@@ -146,24 +146,28 @@ class AddCredentialViewModel: ObservableObject {
     @discardableResult
     func save() -> Bool {
         do {
-            try CredentialOperationMessages.requireWritableStorage(session)
+            try CredentialOperationMessages.requireUnlocked(session)
             var meta = try store.load()
-            let existingFields = meta.credentials[credentialId]?.fields ?? [:]
+            guard meta.version == 1 else { throw ClipboardSaveError.storageUnavailable }
+            guard meta.credentials[credentialId] == nil else { throw ClipboardSaveError.valueExists }
+            guard !label.isEmpty, idFormatProblem == nil else { throw ClipboardSaveError.invalidTarget }
+            let directory = store.fileURL.deletingLastPathComponent()
+            guard try GrantStore(directory: directory).grants(for: credentialId).isEmpty,
+                  try ServiceGrantStore(directory: directory).grants(credentialId: credentialId).isEmpty else {
+                throw ClipboardSaveError.staleGrants
+            }
             let plan = CredentialEditPlan(
                 inputFields: fields.map { .init(name: $0.name, value: $0.value) },
-                existingFields: existingFields,
+                existingFields: [:],
                 security: security
             )
-
-            for fieldName in plan.valueDeletions {
-                try session.delete(credentialId: credentialId, fieldName: fieldName)
-            }
+            var values: [String: String] = [:]
             for write in plan.valueWrites {
-                try session.save(
-                    credentialId: credentialId, fieldName: write.fieldName,
-                    value: write.value, security: plan.metadata.security
-                )
+                guard values[write.fieldName] == nil else { throw ClipboardSaveError.invalidTarget }
+                values[write.fieldName] = write.value
             }
+            guard !values.isEmpty else { throw ClipboardSaveError.invalidTarget }
+            try session.createCredential(credentialId: credentialId, values: values, security: security)
 
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy-MM-dd"
@@ -175,7 +179,8 @@ class AddCredentialViewModel: ObservableObject {
                 fields: plan.metadata.fields, security: plan.metadata.security,
                 created: now, updated: now
             )
-            try store.save(meta)
+            do { try store.save(meta) }
+            catch { throw ClipboardSaveError.metadataCommitFailed }
             errorMessage = nil
             refreshExistingIds()
             return true

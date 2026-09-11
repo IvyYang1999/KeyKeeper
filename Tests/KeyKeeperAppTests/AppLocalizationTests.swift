@@ -3,6 +3,16 @@ import KeyKeeperCore
 @testable import KeyKeeperApp
 
 final class AppLocalizationTests: XCTestCase {
+    func testStorageCreationAndRecoveryErrorsAreTranslatedWithoutSecretInterpolation() {
+        let errors: [any LocalizedError] = [CredentialStorageError.missingStore, CredentialStorageError.incompleteStore,
+            ClipboardSaveError.valueExists, ClipboardSaveError.invalidTarget, ClipboardSaveError.staleGrants,
+            ClipboardSaveError.storageUnavailable, ClipboardSaveError.metadataCommitFailed]
+        for error in errors {
+            let message = error.errorDescription!
+            XCTAssertNotNil(AppL10n.chinese[message])
+            XCTAssertNotEqual(AppL10n.render(message, language: "zh-Hans"), message)
+        }
+    }
     func testLanguageResolutionUsesFirstSupportedLanguageAndExplicitOverride() {
         XCTAssertEqual(AppL10n.resolve(preference: "system", preferred: ["en-US", "zh-Hans-US"]), "en")
         XCTAssertEqual(AppL10n.resolve(preference: "system", preferred: ["zh-CN", "en"]), "zh-Hans")

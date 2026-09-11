@@ -143,6 +143,25 @@ public final class KeychainBlobStore: @unchecked Sendable {
         }
     }
 
+    /// Partial historical coverage is not a reason to reject a disjoint append.
+    /// Validate the store and both ID inventories under the same lock, then write all fields once.
+    public func createCredential(credentialId: String, values: [String: String]) throws {
+        try withLock {
+            guard !credentialId.isEmpty, !values.isEmpty,
+                  values.allSatisfy({ !$0.key.isEmpty && !$0.value.isEmpty }) else {
+                throw ClipboardSaveError.invalidTarget
+            }
+            var blob = try loadBlob()
+            let meta = try loadMetadata()
+            guard meta.version == 1 else { throw ClipboardSaveError.storageUnavailable }
+            guard meta.credentials[credentialId] == nil, blob.credentials[credentialId] == nil else {
+                throw ClipboardSaveError.valueExists
+            }
+            blob.credentials[credentialId] = values
+            try store(blob)
+        }
+    }
+
     public func delete(credentialId: String, fieldName: String) throws {
         try withLock {
             var blob = try loadBlob()
@@ -246,6 +265,11 @@ public final class KeychainCredentialService: @unchecked Sendable {
 
     public func saveMissing(credentialId: String, fieldName: String, value: String) throws {
         try store.saveMissing(credentialId: credentialId, fieldName: fieldName, value: value)
+    }
+
+    public func createCredential(credentialId: String, values: [String: String], security: SecurityLevel) throws {
+        _ = security
+        try store.createCredential(credentialId: credentialId, values: values)
     }
 
     public func retrieve(credentialId: String, fieldName: String) throws -> String {
