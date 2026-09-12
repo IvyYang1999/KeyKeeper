@@ -22,6 +22,9 @@ struct ListCommand: ParsableCommand {
         for (id, cred) in meta.credentials.sorted(by: { $0.key < $1.key }) {
             print("\(id) | \(cred.label)")
             if detail {
+                if let aliases = cred.aliases, !aliases.isEmpty {
+                    print("  also answers to: \(aliases.joined(separator: ", "))")
+                }
                 if !cred.notes.isEmpty {
                     print("  notes: \(cred.notes)")
                 }
@@ -29,10 +32,13 @@ struct ListCommand: ParsableCommand {
                     print("  link: \(link)")
                 }
                 for (fieldName, field) in cred.fields.sorted(by: { $0.key < $1.key }) {
+                    var label = fieldName
+                    if let display = field.displayName { label += " (\(display))" }
+                    if let aliases = field.aliases, !aliases.isEmpty { label += " [was: \(aliases.joined(separator: ", "))]" }
                     if field.secret {
-                        print("  \(fieldName): ********")
+                        print("  \(label): ********")
                     } else {
-                        print("  \(fieldName): \(field.value ?? "")")
+                        print("  \(label): \(field.value ?? "")")
                     }
                 }
             }

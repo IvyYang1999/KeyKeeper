@@ -82,6 +82,25 @@ open "keykeeper://add?label=OpenAI&fields=api-key,org-id"
 
 After manual entry, accept only the credential ID/field names from the user, verify safe use, and resume the original task. Never ask them to paste the value into chat.
 
+## Tidying names and notes
+
+Titles, notes and field display names are free text for the user and for you. The group ID
+(`-c`) and field names (they become environment variables) are for machines. When they are
+unclear — a Chinese or spaced group ID, a field called `cc` — you may fix them yourself:
+
+```bash
+keykeeper edit 百度千帆 --group-id baidu-qianfan --rename-field cc=api-key
+keykeeper edit openai --field-label "api-key=Project key (evals)" --notes "Only for eval scripts"
+keykeeper edit baidu-qianfan --title "百度千帆 · 学术搜索"
+```
+
+- No prompt is shown. Values and security levels never change.
+- Old group IDs and field names keep working forever: `run -c 百度千帆` still resolves, and
+  `run` still sets the old variable (`CC`) alongside the new one (`API_KEY`).
+- Names must be plain: letters, digits, `-`, `_`, `.` (group IDs lowercase). Old names stay
+  reserved and cannot be reused by another credential.
+- **Tell the user what you changed.** KeyKeeper also records it and shows it in the menu bar.
+
 ## Errors and what to do
 
 | Message contains | Meaning | What to do |

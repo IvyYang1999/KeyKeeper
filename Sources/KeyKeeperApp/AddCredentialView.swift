@@ -16,6 +16,8 @@ struct AddCredentialView: View {
     /// Called when the chosen ID is already taken and the user would rather open that one.
     var onOpenExisting: (String) -> Void
     var onImportFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)?
+    /// The open panel takes focus, which closes a non-detached popover; this brings it back.
+    var afterFilePicker: () -> Void = {}
 
     @State private var showMoreOptions = false
     @State private var isEditingId = false
@@ -23,26 +25,18 @@ struct AddCredentialView: View {
     @Environment(\.panelLayout) private var layout
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: DS.Spacing.lg) {
-                header
-                nameSection
-                if let file = vm.sourceFile {
-                    fileRow(file)
-                } else {
-                    KeyFieldsEditor(fields: $vm.fields)
-                }
-                moreOptions
-
-                if let error = vm.errorMessage {
-                    Text(error).font(.caption).foregroundColor(.red)
-                }
-
-                actions
+        Group {
+            if layout == .popover {
+                // As tall as the form, like the other menu bar pages.
+                form
+                    .padding(14)
+                    .frame(width: DS.Popover.width)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ScrollView { form.padding() }
+                    .panelFrame()
             }
-            .padding()
         }
-        .panelFrame()
         // A deep link may carry notes, and a draft may have changed the access mode — in
         // both cases the collapsed section would be hiding something that was set for the
         // user. onAppear alone missed the case where a second deep link arrives while the
@@ -52,7 +46,26 @@ struct AddCredentialView: View {
         .onChange(of: vm.security) { expandMoreOptionsIfNeeded() }
     }
 
-    /// Shared with the menu bar's "From file" tile.
+    private var form: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.lg) {
+            header
+            nameSection
+            if let file = vm.sourceFile {
+                fileRow(file)
+            } else {
+                KeyFieldsEditor(fields: $vm.fields)
+            }
+            moreOptions
+
+            if let error = vm.errorMessage {
+                Text(error).font(.caption).foregroundColor(.red)
+            }
+
+            actions
+        }
+    }
+
+    /// Opens the service-account file picker (also used by the form's "import a file instead").
     static func pickServiceAccountFile(_ completion: @escaping (URL) -> Void) {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
@@ -85,8 +98,7 @@ struct AddCredentialView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: DS.Radius.sm))
-            .overlay(RoundedRectangle(cornerRadius: DS.Radius.sm).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+            .surface(.inset, radius: DS.Radius.sm)
         }
     }
 
@@ -123,18 +135,7 @@ struct AddCredentialView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.md) {
             if layout == .popover {
-            HStack {
-                Button(action: onCancel) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                        Text(L("Back"))
-                    }
-                    .font(.caption)
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.accentColor)
-                Spacer()
-            }
+                PopoverBackButton(action: onCancel)
             }
             Text(L("Add a key")).font(layout == .embedded ? .system(size: 22, weight: .bold) : .headline)
         }
@@ -214,7 +215,7 @@ struct AddCredentialView: View {
                 AdvancedSecuritySection(security: $vm.security)
                 if onImportFile != nil, vm.sourceFile == nil {
                     Button(L("Import a service-account JSON file instead…")) {
-                        Self.pickServiceAccountFile { vm.useFile($0) }
+                        Self.pickServiceAccountFile { vm.useFile($0); afterFilePicker() }
                     }
                     .buttonStyle(.plain)
                     .font(.caption)
@@ -257,21 +258,16 @@ struct DescriptionEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-            SectionLabel(text: L("Description"), hint: L("visible to AI"))
+            SectionLabel(text: L("Note for your agent"), hint: L("goes into the prompt"))
             TextEditor(text: $text)
                 .font(.callout)
                 .frame(minHeight: 52, maxHeight: 88)
                 .scrollContentBackground(.hidden)
                 .padding(6)
-                .background(Color(nsColor: .textBackgroundColor))
-                .cornerRadius(DS.Radius.sm)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.sm)
-                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                )
+                .surface(.inset, radius: DS.Radius.sm)
                 .overlay(alignment: .topLeading) {
                     if text.isEmpty {
-                        Text(L("When to use these keys, renewal links, notes to self\u{2026}"))
+                        Text(L("What it is for, limits, which environment\u{2026}"))
                             .font(.callout)
                             .foregroundColor(.secondary.opacity(0.5))
                             .padding(.horizontal, 10)
@@ -285,6 +281,10 @@ struct DescriptionEditor: View {
 
 struct KeyFieldsEditor: View {
     @Binding var fields: [FieldEntry]
+    /// Detail editor: the name column is the machine name and a separate display name is
+    /// editable. Add form: whatever is typed becomes the display name and a machine name is
+    /// derived from it.
+    var showsDisplayName = false
     /// Reads a field's stored value. Provided by the detail editor so the eye shows what is
     /// already saved; nil on the Add page, where nothing is stored yet.
     var revealStoredValue: ((FieldEntry) throws -> String)? = nil
@@ -307,6 +307,15 @@ struct KeyFieldsEditor: View {
             fields[index].value = try fetch(fields[index])
         }
         fields[index].visible = true
+    }
+
+    /// "→ API_KEY", or "→ api-key · API_KEY" when the typed name gets a plainer machine name.
+    private func namePreview(_ typed: String) -> String {
+        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return " " }
+        let machine = showsDisplayName ? trimmed : AddCredentialViewModel.machineFieldName(trimmed)
+        let variable = EnvironmentVariableName.from(fieldName: machine)
+        return machine == trimmed ? "\u{2192} \(variable)" : "\u{2192} \(machine) \u{00B7} \(variable)"
     }
 
     var body: some View {
@@ -353,20 +362,19 @@ struct KeyFieldsEditor: View {
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
-                    .background(
-                        Color(nsColor: .textBackgroundColor),
-                        in: RoundedRectangle(cornerRadius: DS.Radius.sm)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DS.Radius.sm)
-                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                    )
+                    .surface(.inset, radius: DS.Radius.sm)
 
+                    if showsDisplayName {
+                        TextField(L("Display name (optional, for you and your agent)"), text: $fields[i].displayName)
+                            .textFieldStyle(.plain)
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .frame(height: 24)
+                            .surface(.inset, radius: DS.Radius.sm)
+                    }
                     // Rendered unconditionally: letting it appear and disappear made the
                     // whole form jump while the user was still typing the field name.
-                    Text(fields[i].name.isEmpty
-                         ? " "
-                         : "\u{2192} \(EnvironmentVariableName.from(fieldName: fields[i].name))")
+                    Text(namePreview(fields[i].name))
                         .font(.caption2.monospaced())
                         .foregroundColor(.secondary.opacity(0.7))
                 }

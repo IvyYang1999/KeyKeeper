@@ -19,6 +19,24 @@ final class AgentHandoffTests: XCTestCase {
         let en = AgentPromptCopy.prompt(credentialId: "openai", credential: cred, language: "en")
         XCTAssertTrue(en.contains("keykeeper run -c openai -- <command>"))
         XCTAssertTrue(en.contains("Never ask me for the value"))
+        // yyt 2026-09-11：名字不规范时 Agent 可以自己改，改完说一声。
+        XCTAssertTrue(zh.contains("keykeeper edit"))
+        XCTAssertTrue(zh.contains("告诉我"))
+        XCTAssertTrue(en.contains("keykeeper edit"))
+    }
+
+    func test有备注时提示词带上给Agent的备注() {
+        var cred = credential(["api-key": CredentialField(value: "should-not-appear", secret: true)])
+        cred.notes = "  只用于 staging 环境，额度每月 50 刀\n"
+        let zh = AgentPromptCopy.prompt(credentialId: "openai", credential: cred, language: "zh-Hans")
+        XCTAssertTrue(zh.contains("备注：只用于 staging 环境，额度每月 50 刀"))
+        XCTAssertFalse(zh.contains("should-not-appear"))
+
+        let en = AgentPromptCopy.prompt(credentialId: "openai", credential: cred, language: "en")
+        XCTAssertTrue(en.contains("Note: 只用于 staging 环境，额度每月 50 刀"))
+
+        cred.notes = "   "
+        XCTAssertFalse(AgentPromptCopy.prompt(credentialId: "openai", credential: cred, language: "zh-Hans").contains("备注"))
     }
 
     func test服务账号文件的提示词带file映射() {

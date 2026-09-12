@@ -230,7 +230,7 @@ struct StepCard: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(DS.Spacing.lg)
-        .background(DS.Fill.card, in: RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous))
+        .surface(.card)
     }
 }
 
@@ -263,6 +263,6 @@ struct CopyableCommand: View {
             .buttonStyle(.plain)
         }
         .padding(8)
-        .background(DS.Fill.codeBlock, in: RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous))
+        .surface(.inset, radius: DS.Radius.sm)
     }
 }

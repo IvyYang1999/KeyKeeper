@@ -50,3 +50,18 @@ public struct FileImportRequest: Codable, Sendable, Equatable {
         }
     }
 }
+
+/// The non-secret identity of a Google service-account file, for display only: which robot
+/// account it is and which project it belongs to. The private key never enters this value.
+public struct ServiceAccountSummary: Equatable, Sendable {
+    public let clientEmail: String
+    public let projectId: String?
+
+    public static func parse(_ document: String) -> ServiceAccountSummary? {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(document.utf8)) as? [String: Any],
+              let email = (object["client_email"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !email.isEmpty else { return nil }
+        let project = (object["project_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ServiceAccountSummary(clientEmail: email, projectId: project?.isEmpty == false ? project : nil)
+    }
+}

@@ -167,6 +167,18 @@ public final class ServiceGrantStore: Sendable {
         }
     }
 
+    /// A credential's group ID or field names changed: background approvals follow them.
+    /// Without this a field rename silently invalidated every approval that listed it.
+    public func moveGrants(from oldId: String, to newId: String, fieldMap: [String: String]) throws {
+        guard oldId != newId || !fieldMap.isEmpty else { return }
+        try withFileLock { file in
+            for index in file.grants.indices where file.grants[index].credentialId == oldId {
+                file.grants[index].credentialId = newId
+                file.grants[index].fields = Array(Set(file.grants[index].fields.map { fieldMap[$0] ?? $0 })).sorted()
+            }
+        }
+    }
+
     public func noteSuccessfulUse(grantId: String, fieldName: String, at date: Date = Date()) throws {
         try withFileLock { file in
             guard let index = file.grants.firstIndex(where: { $0.id == grantId }) else { return }

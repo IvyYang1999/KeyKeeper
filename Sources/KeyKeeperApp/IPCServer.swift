@@ -371,6 +371,40 @@ final class IPCServer: ObservableObject {
         case .sessionControl(let request):
             let response = handleSessionControl(request)
             Self.writeAndClose(.sessionControl(response), clientFd: clientFd)
+        case .metadataEdit(let request):
+            // On the main queue, so it never interleaves with an edit made in the window.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    Self.writeAndClose(.metadataEdit(.init(success: false, error: "KeyKeeper is shutting down.")), clientFd: clientFd)
+                    return
+                }
+                let response = self.handleMetadataEdit(request, callerName: callerIdentity.displayName)
+                self.send(.metadataEdit(response), clientFd: clientFd)
+            }
+        }
+    }
+
+    /// Names and notes only — never values or security — so no prompt: the change is applied,
+    /// written to the change log, and shown in the menu bar and access log afterwards.
+    func handleMetadataEdit(_ request: MetadataEditRequest, callerName: String,
+                            changeLog: MetadataChangeLog = .default) -> MetadataEditResponse {
+        guard let manager = session as? any CredentialSessionManaging else {
+            return .init(success: false, error: "Storage cannot be safely updated.")
+        }
+        let editor = MetadataEditor(session: manager, metaStore: metaStore,
+                                    grantStore: grantStore, serviceGrantStore: serviceGrantStore)
+        do {
+            let result = try editor.apply(request.edit, groupId: request.groupId)
+            let label = result.meta.credentials[result.groupId]?.label ?? result.groupId
+            let record = MetadataChangeRecord(caller: callerName, groupId: result.groupId, label: label, changes: result.changes)
+            try? changeLog.append(record)
+            NotificationCenter.default.post(name: .credentialsChanged, object: nil)
+            NotificationCenter.default.post(name: .metadataEditedByCaller, object: record)
+            return .init(success: true, groupId: result.groupId, changes: result.changes)
+        } catch let error as LocalizedError {
+            return .init(success: false, error: error.errorDescription ?? "\(error)")
+        } catch {
+            return .init(success: false, error: error.localizedDescription)
         }
     }
 
@@ -551,7 +585,15 @@ final class IPCServer: ObservableObject {
     func handleValueRequest(_ request: ValueRequest,
                             clientFd: Int32,
                             callerIdentity: CallerIdentity) {
-        // Load credential metadata to check security level
+        // Load credential metadata to check security level. Earlier group IDs and field names
+        // resolve to the current ones, which is what grants and values are keyed by.
+        var request = request
+        if let meta = try? metaStore.load(), let id = meta.resolveGroupId(request.credentialId),
+           let field = meta.credentials[id]?.resolveFieldName(request.fieldName) {
+            let requested = request.requestedFieldNames.map { meta.credentials[id]?.resolveFieldName($0) ?? $0 }
+            request = ValueRequest(credentialId: id, fieldName: field, sessionId: request.sessionId,
+                                   requestedFieldNames: requested)
+        }
         guard let meta = try? metaStore.load(),
               let cred = meta.credentials[request.credentialId],
               let field = cred.fields[request.fieldName],
@@ -857,4 +899,9 @@ final class IPCServer: ObservableObject {
         try? IPCMessage.writeMessage(fd: clientFd, message: response)
         close(clientFd)
     }
+}
+
+extension Notification.Name {
+    /// Posted with a `MetadataChangeRecord` after an agent or script renamed or re-described a key.
+    static let metadataEditedByCaller = Notification.Name("KeyKeeper.metadataEditedByCaller")
 }

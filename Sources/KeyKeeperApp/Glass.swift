@@ -1,27 +1,56 @@
 import AppKit
 import SwiftUI
 
-/// KeyKeeper's frosted-glass look: pure frosted glass, like a system panel. The blue and
-/// yellow in the mockups were only the "desktop" behind the glass to show its texture;
-/// the app itself adds no tint (yyt, 2026-09-11).
-enum Glass {
-    static let selectionStroke = Color(red: 1.0, green: 0.75, blue: 0.0)
+// MARK: - Glass design system
+//
+// KeyKeeper is pure frosted glass, like a system panel: no tint, no brand wash (the blue and
+// yellow in the mockups were only the "desktop" behind the glass). Every translucent white in
+// the app comes from the five surfaces below — nothing else picks its own opacity.
+//
+// | Surface     | Where                                         | Light                      | Dark                       |
+// |-------------|-----------------------------------------------|----------------------------|----------------------------|
+// | .base       | window / popover / panel backdrop             | blur + white 50 %          | blur + black 38 %          |
+// | .card       | list rows, content cards, tiles, info cards   | white 30 % + white hairline| white 6 % + white hairline |
+// | .raised     | the selected row, sidebar item, primary tile  | white 92 % + soft shadow   | white 16 % + soft shadow   |
+// | .inset      | search field, command box, value wells        | black 4.5 % (sunken)       | white 6 % (sunken)         |
+// | .attention  | requests waiting for the user                 | orange 10 % over card      | orange 16 % over card      |
+//
+// Selection is shown by lifting (.raised), never by a coloured ring. Separators inside cards
+// use `Glass.separator`. Designed 2026-09-11 after yyt: "several different whites — we need a
+// system that says which white goes where".
+enum Surface {
+    case base, card, raised, inset, attention
+}
 
-    // What makes system glass look refined: heavy blur, then an even veil so whatever is
-    // behind reads only as soft colour, never as shapes. Cards sit on that veil and are
-    // nearly opaque, so text never floats over a dark patch of the desktop.
+enum Glass {
     static func veil(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.black.opacity(0.28) : Color.white.opacity(0.5)
+        scheme == .dark ? Color.black.opacity(0.38) : Color.white.opacity(0.5)
     }
-    static func cardFill(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.78)
+
+    static func fill(_ surface: Surface, _ scheme: ColorScheme) -> Color {
+        let dark = scheme == .dark
+        switch surface {
+        case .base: return veil(scheme)
+        case .card: return dark ? Color.white.opacity(0.06) : Color.white.opacity(0.30)
+        case .raised: return dark ? Color.white.opacity(0.16) : Color.white.opacity(0.92)
+        case .inset: return dark ? Color.white.opacity(0.06) : Color.black.opacity(0.045)
+        case .attention: return Color.orange.opacity(dark ? 0.16 : 0.10)
+        }
     }
-    static func cardStroke(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.white.opacity(0.12) : Color.white.opacity(0.95)
+
+    static func stroke(_ surface: Surface, _ scheme: ColorScheme) -> Color {
+        let dark = scheme == .dark
+        switch surface {
+        case .card, .raised: return dark ? Color.white.opacity(0.10) : Color.white.opacity(0.55)
+        case .attention: return Color.orange.opacity(0.28)
+        case .base, .inset: return .clear
+        }
     }
-    // Light-mode values, for the few call sites without an environment.
-    static let cardFill = Color.white.opacity(0.78)
-    static let cardStroke = Color.white.opacity(0.95)
+
+    /// Hairline between rows inside a card, and between window columns.
+    static func separator(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.07)
+    }
 }
 
 /// Behind-window blur for a whole window or panel.
@@ -41,7 +70,7 @@ struct GlassBackdrop: NSViewRepresentable {
     }
 }
 
-/// Blur and an even veil — the whole backdrop of a window, panel or popover. No tint.
+/// `.base`: blur and an even veil — the whole backdrop of a window, panel or popover.
 struct GlassSurface: View {
     var intensity: Double = 1   // kept for call sites; the surface carries no colour wash
     @Environment(\.colorScheme) private var scheme
@@ -55,36 +84,51 @@ struct GlassSurface: View {
     }
 }
 
-private struct GlassCardModifier: ViewModifier {
+private struct SurfaceModifier: ViewModifier {
+    let surface: Surface
     let radius: CGFloat
-    let selected: Bool
     @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
         content
             .background(
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(selected ? Color.white.opacity(scheme == .dark ? 0.16 : 0.97) : Glass.cardFill(scheme))
+                    .fill(Glass.fill(surface, scheme))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(selected ? Glass.selectionStroke.opacity(0.9) : Glass.cardStroke(scheme),
-                                  lineWidth: selected ? 1.5 : 0.75)
+                    .strokeBorder(Glass.stroke(surface, scheme), lineWidth: 0.75)
             )
-            .shadow(color: .black.opacity(selected ? 0.08 : 0.04), radius: selected ? 8 : 3, y: selected ? 3 : 1)
+            .shadow(color: .black.opacity(surface == .raised ? 0.10 : 0), radius: 8, y: 3)
+    }
+}
+
+/// A hairline divider using the design system's separator.
+struct GlassSeparator: View {
+    var vertical = false
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Rectangle()
+            .fill(Glass.separator(scheme))
+            .frame(width: vertical ? 1 : nil, height: vertical ? nil : 1)
     }
 }
 
 extension View {
-    /// Frosted card: nearly opaque white with a hairline white edge. `selected` adds the
-    /// icon-yellow ring used for the current row.
+    /// Paint this view as one of the design system's surfaces.
+    func surface(_ surface: Surface, radius: CGFloat = DS.Radius.md) -> some View {
+        modifier(SurfaceModifier(surface: surface, radius: radius))
+    }
+
+    /// Card, or raised when selected — the common case of `surface(_:)`.
     func glassCard(radius: CGFloat = DS.Radius.md, selected: Bool = false, padding: CGFloat? = nil) -> some View {
         self
             .padding(padding ?? 0)
-            .modifier(GlassCardModifier(radius: radius, selected: selected))
+            .surface(selected ? .raised : .card, radius: radius)
     }
 
-    /// Full-window glass: blur and veil.
+    /// Full-window glass (`.base`).
     func glassWindowBackground(intensity: Double = 1) -> some View {
         self.background(GlassSurface(intensity: intensity))
     }

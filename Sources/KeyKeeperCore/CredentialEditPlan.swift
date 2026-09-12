@@ -49,6 +49,9 @@ public struct CredentialEditPlan: Sendable {
 
     public var valueWrites: [ValueWrite]
     public var valueRenames: [ValueRename]
+    /// Every field whose name changed, old → new, whether or not its value moved. Earlier
+    /// names are kept as aliases, and approvals listing them are moved by the caller.
+    public var fieldRenames: [String: String]
     public var valueDeletions: [String]
     public var metadata: Metadata
 
@@ -59,12 +62,33 @@ public struct CredentialEditPlan: Sendable {
     ) {
         var valueWrites: [ValueWrite] = []
         var valueRenames: [ValueRename] = []
+        var fieldRenames: [String: String] = [:]
         var metadataFields: [String: CredentialField] = [:]
+
+        /// The field as it existed, renamed: the old name joins its aliases.
+        func carried(_ existing: CredentialField, from original: String, to name: String) -> CredentialField {
+            var field = existing
+            guard original != name else { return field }
+            var aliases = (field.aliases ?? []).filter { $0 != name }
+            if !aliases.contains(original) { aliases.append(original) }
+            field.aliases = aliases
+            return field
+        }
 
         for field in inputFields where !field.name.isEmpty {
             if !field.value.isEmpty {
                 valueWrites.append(.init(fieldName: field.name, value: field.value))
-                metadataFields[field.name] = CredentialField(secret: true)
+                // A new value for a field that already existed keeps its display name and old names.
+                if let original = field.originalName, let existing = existingFields[original] {
+                    var kept = carried(existing, from: original, to: field.name)
+                    kept.secret = true
+                    kept.fileFormat = nil
+                    kept.value = nil
+                    metadataFields[field.name] = kept
+                    if original != field.name { fieldRenames[original] = field.name }
+                } else {
+                    metadataFields[field.name] = CredentialField(secret: true)
+                }
             } else if metadataFields[field.name] == nil, let existingField = existingFields[field.name] {
                 metadataFields[field.name] = existingField
             } else if metadataFields[field.name] == nil,
@@ -74,12 +98,14 @@ public struct CredentialEditPlan: Sendable {
                 if existingField.secret {
                     valueRenames.append(.init(from: original, to: field.name))
                 }
-                metadataFields[field.name] = existingField
+                metadataFields[field.name] = carried(existingField, from: original, to: field.name)
+                fieldRenames[original] = field.name
             }
         }
 
         self.valueWrites = valueWrites
         self.valueRenames = valueRenames
+        self.fieldRenames = fieldRenames
         self.valueDeletions = existingFields
             .filter { $0.value.secret && metadataFields[$0.key] == nil }
             .map(\.key)

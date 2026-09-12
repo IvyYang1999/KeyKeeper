@@ -8,11 +8,14 @@ struct CredentialDetailView: View {
     var onUpdate: () -> Void
     /// Deletes the credential. Returns an error message, or nil when it succeeded.
     var onDelete: () -> String?
+    /// Called with the new group ID after a save renamed the credential.
+    var onRenamed: (String) -> Void = { _ in }
 
     @State private var showDeleteConfirmation = false
     @State private var showDiscardConfirmation = false
     @State private var copiedFieldIndex: Int?
     @State private var copiedPrompt = false
+    @State private var summaries: [String: ServiceAccountSummary] = [:]
     @Environment(\.panelLayout) private var layout
 
     init(
@@ -21,7 +24,8 @@ struct CredentialDetailView: View {
         session: any CredentialSessionManaging,
         onBack: @escaping () -> Void,
         onUpdate: @escaping () -> Void,
-        onDelete: @escaping () -> String?
+        onDelete: @escaping () -> String?,
+        onRenamed: @escaping (String) -> Void = { _ in }
     ) {
         self.credentialId = credentialId
         _vm = StateObject(wrappedValue: CredentialDetailViewModel(
@@ -32,6 +36,7 @@ struct CredentialDetailView: View {
         self.onBack = onBack
         self.onUpdate = onUpdate
         self.onDelete = onDelete
+        self.onRenamed = onRenamed
     }
 
     var body: some View {
@@ -84,21 +89,30 @@ struct CredentialDetailView: View {
                         SectionLabel(text: L("Name"))
                         TextField(L("Name"), text: $vm.credential.label)
                             .textFieldStyle(.roundedBorder)
+                        SectionLabel(text: L("Group ID"), hint: L("what keykeeper run -c uses; old IDs keep working"))
+                            .padding(.top, 6)
+                        TextField(L("Group ID"), text: $vm.groupIdDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.callout.monospaced())
                     }
                 } else if layout == .embedded {
                     HStack(alignment: .center, spacing: 14) {
-                        Image(nsImage: NSApp.applicationIconImage)
-                            .resizable()
-                            .frame(width: 46, height: 46)
+                        KeyAvatar(credential: vm.credential, size: 46)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(vm.credential.label).font(.system(size: 23, weight: .bold))
                             HStack(spacing: 6) {
-                                Text(L("ID \(credentialId)")).font(.callout.monospaced()).textSelection(.enabled)
+                                Text(L("Group ID \(credentialId)")).font(.callout.monospaced()).textSelection(.enabled)
+                                    .help(L("The name scripts and agents pass to keykeeper run -c. It is not a key name."))
+                                CopyTextButton(text: credentialId, help: L("Copy group ID"))
                                 Text("·")
                                 Text(SecurityLevelPresentation.badge(vm.credential.security))
                             }
                             .font(.callout)
                             .foregroundColor(.secondary)
+                            if let aliases = vm.credential.aliases, !aliases.isEmpty {
+                                Text(L("Also answers to \(aliases.joined(separator: ", ")) (old IDs keep working)"))
+                                    .font(.caption).foregroundColor(.secondary)
+                            }
                         }
                     }
                 } else {
@@ -110,121 +124,33 @@ struct CredentialDetailView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
-                        Text(L("ID \(credentialId)"))
+                        Text(L("Group ID \(credentialId)"))
                             .font(.caption.monospaced())
                             .foregroundColor(.secondary)
                             .textSelection(.enabled)
                     }
                 }
 
-                if !vm.isEditing {
-                    agentHandoff
-                }
-
-                // Description
-                if vm.isEditing {
-                    DescriptionEditor(text: $vm.credential.notes)
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        SectionLabel(text: L("Description"), hint: L("visible to AI"))
-                        if vm.credential.notes.isEmpty {
-                            Text(L("No description"))
-                                .font(.callout).foregroundColor(.secondary)
-                        } else {
-                            Text(vm.credential.notes)
-                                .font(.callout).foregroundColor(.secondary)
-                                .textSelection(.enabled)
-                        }
-                    }
-                }
-
-                // Keys
+                // What you stored comes first, then what your agent gets.
                 if vm.isEditing {
                     KeyFieldsEditor(
                         fields: $vm.fields,
+                        showsDisplayName: true,
                         revealStoredValue: { entry in try vm.storedValue(for: entry) },
                         onRevealError: { vm.reportRevealFailure($0) }
                     )
+                    DescriptionEditor(text: $vm.credential.notes)
                 } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        SectionLabel(text: L("Keys"))
-
-                        ForEach(Array(vm.fields.enumerated()), id: \.offset) { index, field in
-                            if field.fileFormat != nil {
-                                Label(L("\(field.name) · Service-account JSON"), systemImage: "doc.badge.gearshape")
-                                    .font(.callout).fixedSize(horizontal: false, vertical: true)
-                                Text(L("Contents hidden. Used through a private temporary file; the downloaded original is not managed or deleted."))
-                                    .font(.caption2).foregroundColor(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            } else {
-                            HStack(spacing: 6) {
-                                Text(field.name)
-                                    .font(.callout.monospaced())
-                                    .frame(width: 100, alignment: .leading)
-
-                                Text(field.visible && !field.value.isEmpty
-                                     ? field.value
-                                     : "••••••••••")
-                                    .font(.callout.monospaced())
-                                    .foregroundColor(field.visible ? .primary : .secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                                Button(action: {
-                                    vm.toggleFieldVisibility(at: index)
-                                }) {
-                                    Image(systemName: field.visible ? "eye.fill" : "eye.slash.fill")
-                                        .foregroundColor(.secondary)
-                                        .frame(width: 18)
-                                }
-                                .buttonStyle(.plain)
-
-                                Button(action: {
-                                    if let value = vm.copyFieldValue(field.name) {
-                                        let changeCount = SecretPasteboard.write(value)
-                                        SecretPasteboard.scheduleClear(after: changeCount)
-                                        copiedFieldIndex = index
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                                            if copiedFieldIndex == index { copiedFieldIndex = nil }
-                                        }
-                                    }
-                                }) {
-                                    Image(systemName: copiedFieldIndex == index ? "checkmark" : "doc.on.doc")
-                                        .foregroundColor(copiedFieldIndex == index ? .green : .secondary)
-                                        .frame(width: 18)
-                                }
-                                .buttonStyle(.plain)
-                                .help(L("Copy value (clipboard is cleared after \(Int(SecretPasteboard.clearDelay)) s)"))
-                            }
-                            }
-                        }
-
-                        if copiedFieldIndex != nil {
-                            Text(L("Copied. The clipboard clears itself in \(Int(SecretPasteboard.clearDelay)) s unless you copy something else."))
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-
-                // How to use it (view mode)
-                if !vm.isEditing {
-                    VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-                        SectionLabel(text: L("Use in terminal"), hint: L("text values or private file paths"))
-                        CopyableCommand(CredentialUsageCopy.runCommand(credentialId: credentialId, credential: vm.credential)
-                            .replacingOccurrences(of: "<your command>", with: L("<your command>")))
-                        let names = CredentialUsageCopy.environmentNames(for: vm.credential)
-                        if !names.isEmpty {
-                            Text(names.joined(separator: "  "))
-                                .font(.caption2.monospaced())
-                                .foregroundColor(.secondary)
-                                .lineLimit(2)
-                        }
-                    }
+                    keysCard
+                    agentHandoff
                 }
 
                 // Who is approved (view mode): terminal sessions and background callers in one list
                 if !vm.isEditing {
                     AccessSection(credentialId: credentialId, security: vm.credential.security)
+                        .padding(layout == .embedded ? 14 : 0)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .modifier(EmbeddedCard(layout: layout))
                 }
 
                 // Advanced (edit mode only)
@@ -244,6 +170,7 @@ struct CredentialDetailView: View {
                         Button(L("Save")) {
                             if vm.saveChanges() {
                                 onUpdate()
+                                if let renamed = vm.renamedGroupId { onRenamed(renamed) }
                             }
                         }
                         .buttonStyle(.borderedProminent)
@@ -291,16 +218,152 @@ struct CredentialDetailView: View {
         .panelFrame()
     }
 
-    /// The one thing most people do with a stored key: tell their agent to use it.
+    /// Field names with masked values; the eye reveals, the copy button clears itself.
+    private var keysCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionLabel(text: L("Keys"))
+
+            ForEach(Array(vm.fields.enumerated()), id: \.offset) { index, field in
+                if index > 0 { GlassSeparator() }
+                if field.fileFormat != nil {
+                    fileRows(field)
+                } else {
+                    fieldRow(index: index, field: field)
+                        .contextMenu {
+                            Button(L("Copy field name")) { PlainPasteboard.copy(field.name) }
+                            Button(L("Copy environment variable name")) { PlainPasteboard.copy(EnvironmentVariableName.from(fieldName: field.name)) }
+                        }
+                }
+            }
+
+            if copiedFieldIndex != nil {
+                Text(L("Copied. The clipboard clears itself in \(Int(SecretPasteboard.clearDelay)) s unless you copy something else."))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(layout == .embedded ? 14 : 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(EmbeddedCard(layout: layout))
+    }
+
+    /// A service-account file: marked as a file, contents hidden, plus the two non-secret
+    /// facts people need — the robot's email (to grant it access) and its project.
+    @ViewBuilder
+    private func fileRows(_ field: FieldEntry) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.text.fill").foregroundColor(.blue.opacity(0.8))
+                Text(field.name).font(.callout.monospaced()).textSelection(.enabled)
+                Text(L("Service-account JSON file")).font(.callout).foregroundColor(.secondary)
+                Image(systemName: "lock.fill").font(.caption).foregroundColor(.secondary)
+                Spacer(minLength: 0)
+            }
+            Text(L("The file's contents are never shown or copied. Agents use it through keykeeper run --file, which hands the process a private temporary file."))
+                .font(.caption2).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let summary = summaries[field.name] {
+                summaryRow("client_email", summary.clientEmail)
+                if let project = summary.projectId { summaryRow("project_id", project) }
+            }
+        }
+        .task { if summaries[field.name] == nil, let s = vm.serviceAccountSummary(fieldName: field.name) { summaries[field.name] = s } }
+    }
+
+    private func summaryRow(_ name: String, _ value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(name)
+                .font(.callout.monospaced())
+                .frame(width: layout == .embedded ? 190 : 110, alignment: .leading)
+            Text(value).font(.callout).foregroundColor(.secondary)
+                .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            CopyTextButton(text: value, help: L("Copy value"))
+        }
+    }
+
+    private func fieldRow(index: Int, field: FieldEntry) -> some View {
+        HStack(spacing: 8) {
+            FieldNameLabel(field: field, credential: vm.credential)
+                .frame(width: layout == .embedded ? 190 : 110, alignment: .leading)
+
+            Text(field.visible && !field.value.isEmpty ? field.value : "••••••••••")
+                .font(.callout.monospaced())
+                .foregroundColor(field.visible ? .primary : .secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: { vm.toggleFieldVisibility(at: index) }) {
+                Image(systemName: field.visible ? "eye.fill" : "eye.slash.fill")
+                    .foregroundColor(.secondary)
+                    .frame(width: 18)
+            }
+            .buttonStyle(.plain)
+            .help(field.visible ? L("Hide") : L("Show"))
+
+            Button(action: {
+                if let value = vm.copyFieldValue(field.name) {
+                    let changeCount = SecretPasteboard.write(value)
+                    SecretPasteboard.scheduleClear(after: changeCount)
+                    copiedFieldIndex = index
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        if copiedFieldIndex == index { copiedFieldIndex = nil }
+                    }
+                }
+            }) {
+                Image(systemName: copiedFieldIndex == index ? "checkmark" : "doc.on.doc")
+                    .foregroundColor(copiedFieldIndex == index ? .green : .secondary)
+                    .frame(width: 18)
+            }
+            .buttonStyle(.plain)
+            .help(L("Copy value (clipboard is cleared after \(Int(SecretPasteboard.clearDelay)) s)"))
+        }
+    }
+
+    /// The one thing most people do with a stored key: tell their agent to use it. The note
+    /// (the "visible to AI" description) travels inside the prompt, so it lives here too.
     private var agentHandoff: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+        VStack(alignment: .leading, spacing: 10) {
             SectionLabel(text: L("Hand it to your agent"), hint: L("names only, never the value"))
-            Text(AgentPromptCopy.prompt(credentialId: credentialId, credential: vm.credential))
+
+            Text(AgentPromptCopy.prompt(credentialId: credentialId, credential: vm.credential, includeNote: false))
                 .font(.callout)
                 .foregroundColor(.secondary)
-                .lineLimit(layout == .embedded ? 6 : 3)
+                .lineLimit(layout == .embedded ? 5 : 3)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(L("Note for your agent"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
+                    Text(L("added to the end of the prompt"))
+                        .font(.caption2)
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+                if vm.credential.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(L("No note yet. Add what it is for, its limits or which environment to use; it goes into the prompt."))
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(L("Add a note\u{2026}")) { vm.isEditing = true }
+                        .buttonStyle(.plain)
+                        .font(.callout)
+                        .foregroundColor(.accentColor)
+                } else {
+                    Text(NoteText.attributed(vm.credential.notes))
+                        .font(.callout)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .surface(.inset, radius: DS.Radius.sm)
+
             Button {
                 PlainPasteboard.copy(AgentPromptCopy.prompt(credentialId: credentialId, credential: vm.credential))
                 copiedPrompt = true
@@ -311,14 +374,28 @@ struct CredentialDetailView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(layout == .embedded ? .large : .regular)
+
+            // The agent types this, not you; it stays folded for the rare manual run.
+            DisclosureGroup(L("Run it yourself in a terminal")) {
+                VStack(alignment: .leading, spacing: 4) {
+                    CopyableCommand(CredentialUsageCopy.runCommand(credentialId: credentialId, credential: vm.credential)
+                        .replacingOccurrences(of: "<your command>", with: L("<your command>")))
+                    let names = CredentialUsageCopy.environmentNames(for: vm.credential)
+                    if !names.isEmpty {
+                        Text(L("Environment variables: \(names.joined(separator: "  "))"))
+                            .font(.caption2.monospaced())
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                .padding(.top, 6)
+            }
+            .font(.caption)
+            .foregroundColor(.secondary)
         }
         .padding(layout == .embedded ? 14 : 0)
-        .background {
-            if layout == .embedded {
-                RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous).fill(Glass.cardFill)
-                RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous).strokeBorder(Glass.cardStroke)
-            }
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(EmbeddedCard(layout: layout))
     }
 }
 
@@ -338,5 +415,44 @@ enum CredentialUsageCopy {
             .keys
             .sorted()
             .map { EnvironmentVariableName.from(fieldName: $0) }
+    }
+}
+
+/// In the main window the detail sections sit on cards; in the popover they stay flat.
+private struct EmbeddedCard: ViewModifier {
+    let layout: PanelLayout
+    func body(content: Content) -> some View {
+        if layout == .embedded {
+            content.surface(.card)
+        } else {
+            content
+        }
+    }
+}
+
+/// The display name people wrote, with the machine name (and earlier names) under it; or just
+/// the machine name when there is no display name.
+struct FieldNameLabel: View {
+    let field: FieldEntry
+    let credential: Credential
+
+    var body: some View {
+        let display = field.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let aliases = credential.fields[field.name]?.aliases ?? []
+        VStack(alignment: .leading, spacing: 1) {
+            if display.isEmpty {
+                Text(field.name).font(.callout.monospaced())
+            } else {
+                Text(display).font(.callout)
+                Text(field.name).font(.caption.monospaced()).foregroundColor(.secondary)
+            }
+            if !aliases.isEmpty {
+                Text(L("was \(aliases.joined(separator: ", "))")).font(.caption2.monospaced()).foregroundColor(.secondary.opacity(0.8))
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .textSelection(.enabled)
+        .help(field.name)
     }
 }

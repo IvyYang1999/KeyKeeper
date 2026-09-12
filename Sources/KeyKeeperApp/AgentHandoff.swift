@@ -8,7 +8,9 @@ import KeyKeeperCore
 /// short paragraph to paste into the agent: which ID to use, how it arrives, and the rule
 /// that the value never enters the conversation. It contains names only, never a value.
 enum AgentPromptCopy {
-    static func prompt(credentialId: String, credential: Credential, language: String = AppL10n.language) -> String {
+    /// `includeNote: false` is only for the on-screen preview, which shows the note separately.
+    static func prompt(credentialId: String, credential: Credential, language: String = AppL10n.language,
+                       includeNote: Bool = true) -> String {
         let chinese = language == "zh-Hans"
         let command = CredentialUsageCopy.runCommand(credentialId: credentialId, credential: credential)
             .replacingOccurrences(of: "<your command>", with: chinese ? "<命令>" : "<command>")
@@ -31,14 +33,21 @@ enum AgentPromptCopy {
         }
         let arrivalText = arrivals.joined(separator: chinese ? "，" : ", ")
 
+        // The note is the user's "visible to AI" description: purpose, limits, renewal links.
+        let note = includeNote ? credential.notes.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+
         if chinese {
             return "我在 KeyKeeper 里存了一把 key，ID 是 `\(credentialId)`（\(arrivalText)）。"
                 + "需要用它时，请通过 `\(command)` 运行，让 key 只注入到那个进程里。"
                 + "不要向我索要这个值，也不要把它打印出来、写进文件或对话。"
+                + "如果组 ID 或字段名不够规范，可以用 `keykeeper edit` 改（旧名会一直可用），改完告诉我。"
+                + (note.isEmpty ? "" : "\n备注：\(note)")
         }
         return "I keep an API key in KeyKeeper under the ID `\(credentialId)` (\(arrivalText)). "
             + "When you need it, run the command through `\(command)` so the key is injected only into that process. "
-            + "Never ask me for the value, print it, or write it into files or the chat."
+            + "Never ask me for the value, print it, or write it into files or the chat. "
+            + "If the group ID or field names are unclear, you may rename them with `keykeeper edit` (old names keep working); tell me what you changed."
+            + (note.isEmpty ? "" : "\nNote: \(note)")
     }
 }
 

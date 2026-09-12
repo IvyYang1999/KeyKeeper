@@ -54,12 +54,16 @@ public enum IPCRequest: Codable, Sendable {
     case value(ValueRequest)
     case serviceRequests(ServiceRequestsListRequest)
     case sessionControl(SessionControlRequest)
+    case metadataEdit(MetadataEditRequest)
 
     private enum CodingKeys: String, CodingKey { case type, data }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .metadataEdit(let r):
+            try c.encode("metadataEdit", forKey: .type)
+            try c.encode(r, forKey: .data)
         case .browserSession(let r):
             try c.encode("browserSession", forKey: .type)
             try c.encode(r, forKey: .data)
@@ -102,6 +106,7 @@ public enum IPCRequest: Codable, Sendable {
         case "value": self = .value(try c.decode(ValueRequest.self, forKey: .data))
         case "serviceRequests": self = .serviceRequests(try c.decode(ServiceRequestsListRequest.self, forKey: .data))
         case "sessionControl": self = .sessionControl(try c.decode(SessionControlRequest.self, forKey: .data))
+        case "metadataEdit": self = .metadataEdit(try c.decode(MetadataEditRequest.self, forKey: .data))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: c, debugDescription: "Unknown IPC request type")
@@ -117,12 +122,16 @@ public enum IPCResponse: Codable, Sendable {
     case value(ValueResponse)
     case serviceRequests(ServiceRequestsListResponse)
     case sessionControl(SessionControlResponse)
+    case metadataEdit(MetadataEditResponse)
 
     private enum CodingKeys: String, CodingKey { case type, data }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .metadataEdit(let r):
+            try c.encode("metadataEdit", forKey: .type)
+            try c.encode(r, forKey: .data)
         case .browserSession(let r):
             try c.encode("browserSession", forKey: .type)
             try c.encode(r, forKey: .data)
@@ -157,6 +166,7 @@ public enum IPCResponse: Codable, Sendable {
         case "value": self = .value(try c.decode(ValueResponse.self, forKey: .data))
         case "serviceRequests": self = .serviceRequests(try c.decode(ServiceRequestsListResponse.self, forKey: .data))
         case "sessionControl": self = .sessionControl(try c.decode(SessionControlResponse.self, forKey: .data))
+        case "metadataEdit": self = .metadataEdit(try c.decode(MetadataEditResponse.self, forKey: .data))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: c, debugDescription: "Unknown IPC response type")
@@ -462,5 +472,35 @@ public enum IPCError: Error, LocalizedError {
     private static func detail(_ message: String?) -> String {
         guard let message, !message.isEmpty else { return "" }
         return ": \(message)"
+    }
+}
+
+// MARK: - Metadata edits (names and notes, never values)
+
+/// `keykeeper edit`: rename a credential or its fields, or change title, notes and field
+/// display names. Applied by the App without a prompt and recorded in its change log.
+public struct MetadataEditRequest: Codable, Sendable, Equatable {
+    /// Current or earlier group ID.
+    public var groupId: String
+    public var edit: MetadataEdit
+
+    public init(groupId: String, edit: MetadataEdit) {
+        self.groupId = groupId
+        self.edit = edit
+    }
+}
+
+public struct MetadataEditResponse: Codable, Sendable, Equatable {
+    public var success: Bool
+    public var error: String?
+    /// The group ID after the edit.
+    public var groupId: String?
+    public var changes: [MetadataChange]
+
+    public init(success: Bool, error: String? = nil, groupId: String? = nil, changes: [MetadataChange] = []) {
+        self.success = success
+        self.error = error
+        self.groupId = groupId
+        self.changes = changes
     }
 }

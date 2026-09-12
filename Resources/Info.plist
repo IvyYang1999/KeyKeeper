@@ -8,6 +8,8 @@
     <string>com.keykeeper.app</string>
     <key>CFBundleName</key>
     <string>KeyKeeper</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>CFBundleIconFile</key>
     <string>KeyKeeper.icns</string>
     <key>CFBundlePackageType</key>

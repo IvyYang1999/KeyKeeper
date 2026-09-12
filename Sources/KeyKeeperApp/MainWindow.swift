@@ -140,8 +140,7 @@ struct MainWindowView: View {
         HStack(spacing: 0) {
             sidebar
                 .frame(width: 196)
-                .background(Color.white.opacity(0.14))
-            Rectangle().fill(Color.white.opacity(0.55)).frame(width: 1)
+            GlassSeparator(vertical: true)
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -157,7 +156,9 @@ struct MainWindowView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Color.clear.frame(height: 44) // traffic lights
+            // The title bar safe area already clears the traffic lights; 12 matches the list
+            // column's top padding so the first item lines up with the search field.
+            Color.clear.frame(height: 9) // + 3 stack spacing = 12
             ForEach([MainWindowRouter.Section.keys, .sessions, .access, .activity], id: \.self) { section in
                 sidebarItem(section, count: count(for: section))
             }
@@ -197,9 +198,7 @@ struct MainWindowView: View {
             .frame(height: 32)
             .contentShape(Rectangle())
             .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(selected ? Color.white.opacity(0.78) : .clear)
-                    .shadow(color: .black.opacity(selected ? 0.06 : 0), radius: 6, y: 2)
+                Group { if selected { Color.clear.surface(.raised, radius: 9) } }
             )
         }
         .buttonStyle(.plain)
@@ -215,7 +214,7 @@ struct MainWindowView: View {
         case .sessions:
             if let browserSessions {
                 BrowserSessionManagerView(controller: browserSessions)
-                    .padding(.top, 28)
+                    .padding(.top, 12)
             } else {
                 UnavailablePage(text: L("The website session store or browser is unavailable. No automatic reset was attempted. Do not blindly retry an uncertain import."))
             }
@@ -230,7 +229,7 @@ struct MainWindowView: View {
                 onShowServiceGrants: { router.section = .access },
                 onShowSetup: onShowSetup
             )
-            .padding(.top, 28)
+            .padding(.top, 12)
             .frame(maxWidth: 640, alignment: .leading)
         }
     }
@@ -263,7 +262,7 @@ private struct KeysPage: View {
         HStack(spacing: 0) {
             list
                 .frame(width: 280)
-            Rectangle().fill(Color.white.opacity(0.55)).frame(width: 1)
+            GlassSeparator(vertical: true)
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -278,15 +277,15 @@ private struct KeysPage: View {
                         .textFieldStyle(.plain)
                 }
                 .padding(.horizontal, 10)
-                .frame(height: 30)
-                .glassCard(radius: 9)
+                .frame(height: 32)
+                .surface(.inset, radius: 9)
 
                 Button {
                     addVM.reset()
                     router.isAdding = true
                     router.selectedCredentialId = nil
                 } label: {
-                    Image(systemName: "plus").frame(width: 30, height: 30)
+                    Image(systemName: "plus").frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)
                 .glassCard(radius: 9)
@@ -338,6 +337,8 @@ private struct KeysPage: View {
             router.isAdding = false
             router.selectedCredentialId = id
         } label: {
+            HStack(spacing: 10) {
+            KeyAvatar(credential: credential, size: 30)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(credential.label).font(.callout.weight(.semibold)).lineLimit(1)
@@ -354,6 +355,7 @@ private struct KeysPage: View {
                     .font(.caption.monospaced())
                     .foregroundColor(.secondary)
                     .lineLimit(1)
+            }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
@@ -372,10 +374,10 @@ private struct KeysPage: View {
     }
 
     private func subtitle(_ credential: Credential) -> String {
-        if credential.fields.values.contains(where: { $0.fileFormat != nil }) {
-            return L("Service-account JSON")
+        if CredentialKind(credential) == .serviceAccountFile {
+            return L("Service-account JSON file")
         }
-        return credential.fields.keys.sorted().joined(separator: " · ")
+        return credential.fieldSummary
     }
 
     private func label(for id: String?) -> String {
@@ -406,9 +408,9 @@ private struct KeysPage: View {
             )
             .frame(maxWidth: 560, alignment: .leading)
             .padding(.horizontal, 12)
-            .padding(.top, 20)
         } else if let id = router.selectedCredentialId,
-                  let item = listVM.credentials.first(where: { $0.id == id }) {
+                  let item = listVM.credentials.first(where: { $0.id == id })
+                    ?? listVM.credentials.first(where: { $0.credential.aliases?.contains(id) == true }) {
             CredentialDetailView(
                 credentialId: item.id,
                 credential: item.credential,
@@ -425,12 +427,16 @@ private struct KeysPage: View {
                     router.selectedCredentialId = nil
                     NotificationCenter.default.post(name: .credentialsChanged, object: nil)
                     return nil
+                },
+                onRenamed: { newId in
+                    listVM.load()
+                    router.selectedCredentialId = newId
+                    NotificationCenter.default.post(name: .credentialsChanged, object: nil)
                 }
             )
             .id(item.id)
             .frame(maxWidth: 620, alignment: .leading)
             .padding(.horizontal, 12)
-            .padding(.top, 20)
         } else {
             VStack(spacing: 10) {
                 Spacer()

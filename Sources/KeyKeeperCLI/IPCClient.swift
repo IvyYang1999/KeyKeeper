@@ -12,7 +12,7 @@ import KeyKeeperCore
 enum IPCLaunchPolicy {
     static func shouldLaunchApp(for request: IPCRequest) -> Bool {
         switch request {
-        case .value, .auth, .clipboardSave, .browserImport, .fileImport, .sourceImport, .browserSession:
+        case .value, .auth, .clipboardSave, .browserImport, .fileImport, .sourceImport, .browserSession, .metadataEdit:
             return true
         case .sessionControl, .serviceRequests:
             return false
@@ -172,6 +172,25 @@ enum IPCClient {
             throw IPCError.appNotResponding
         }
         return listResponse.requests
+    }
+
+    static func requestMetadataEdit(_ request: MetadataEditRequest) throws -> MetadataEditResponse {
+        let fd = try connectWithRetry(launchIfNeeded: true)
+        defer { close(fd) }
+        var timeout = timeval(tv_sec: 30, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        try IPCMessage.writeMessage(fd: fd, message: IPCRequest.metadataEdit(request))
+        guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else {
+            throw IPCError.appNotResponding
+        }
+        switch response {
+        case .metadataEdit(let editResponse):
+            return editResponse
+        case .value(let valueResponse) where valueResponse.errorCode == .invalidRequest:
+            throw IPCError.appVersionTooOld
+        default:
+            throw IPCError.appNotResponding
+        }
     }
 
     static func requestSessionControl(

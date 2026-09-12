@@ -130,4 +130,25 @@ final class CredentialEditPlanTests: XCTestCase {
         XCTAssertEqual(plan.valueDeletions, [])
         XCTAssertEqual(Set(plan.metadata.fields.keys), ["api_key"])
     }
+
+    /// yyt 2026-09-11：旧名一直保留。界面上改字段名也要把旧名记进 aliases，显示名跟着走。
+    func test界面改字段名会记下旧名并保留显示名() {
+        let existing = ["cc": CredentialField(secret: true, displayName: "千帆 Key")]
+        let moved = CredentialEditPlan(inputFields: [.init(name: "api-key", value: "", originalName: "cc")],
+                                       existingFields: existing, security: .standard)
+        XCTAssertEqual(moved.metadata.fields["api-key"]?.aliases, ["cc"])
+        XCTAssertEqual(moved.metadata.fields["api-key"]?.displayName, "千帆 Key")
+        XCTAssertEqual(moved.fieldRenames, ["cc": "api-key"])
+
+        let rewritten = CredentialEditPlan(inputFields: [.init(name: "api-key", value: "fresh", originalName: "cc")],
+                                           existingFields: existing, security: .standard)
+        XCTAssertEqual(rewritten.metadata.fields["api-key"]?.aliases, ["cc"], "填了新值也是同一个字段改了名")
+        XCTAssertEqual(rewritten.metadata.fields["api-key"]?.displayName, "千帆 Key")
+        XCTAssertNil(rewritten.metadata.fields["api-key"]?.fileFormat)
+
+        let same = CredentialEditPlan(inputFields: [.init(name: "cc", value: "fresh", originalName: "cc")],
+                                      existingFields: existing, security: .standard)
+        XCTAssertNil(same.metadata.fields["cc"]?.aliases)
+        XCTAssertEqual(same.metadata.fields["cc"]?.displayName, "千帆 Key", "只改值不丢显示名")
+    }
 }

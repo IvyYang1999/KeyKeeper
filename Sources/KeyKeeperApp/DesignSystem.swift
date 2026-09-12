@@ -25,25 +25,20 @@ enum DS {
         static var size: CGSize { CGSize(width: width, height: height) }
     }
 
-    enum Fill {
-        static let card = Color.primary.opacity(0.06)
-        static let cardSecondary = Color.primary.opacity(0.04)
-        static let codeBlock = Color.black.opacity(0.06)
-    }
 }
 
 // MARK: - Card Modifier
 
 extension View {
+    /// Padded, full-width `.card` surface (see Glass.swift for the surface table).
     func dsCard(
         padding: CGFloat = DS.Spacing.lg,
-        fill: Color = DS.Fill.card,
         radius: CGFloat = DS.Radius.md
     ) -> some View {
         self
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(fill, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .surface(.card, radius: radius)
     }
 }
 

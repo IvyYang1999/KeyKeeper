@@ -10,6 +10,8 @@ struct FieldEntry: Identifiable {
     var fileFormat: CredentialFileFormat?
     /// Name at the time editing started (detail view only), so a rename keeps the stored value.
     var originalName: String?
+    /// Free-text label for people and agents (detail editor only; on Add the typed name is it).
+    var displayName: String = ""
 }
 
 @MainActor
@@ -77,7 +79,7 @@ class AddCredentialViewModel: ObservableObject {
         if credentialId.isEmpty {
             return L("Add letters or numbers to the name, or type an ID.")
         }
-        if credentialId != Self.sanitizeId(credentialId) {
+        if !CredentialNames.isValidGroupId(credentialId) {
             return L("IDs can only use lowercase letters, numbers and dashes.")
         }
         return nil
@@ -160,13 +162,20 @@ class AddCredentialViewModel: ObservableObject {
         }
     }
 
+    /// Group IDs are for machines: plain ASCII, Chinese turned into pinyin ("百度千帆" →
+    /// "bai-du-qian-fan"). The title keeps whatever the person wrote.
     static func sanitizeId(_ raw: String) -> String {
-        raw
-            .lowercased()
-            .replacingOccurrences(of: " ", with: "-")
-            .filter { $0.isLetter || $0.isNumber || $0 == "-" }
-            .replacing(#/-{2,}/#, with: "-")
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        CredentialNames.slug(raw)
+    }
+
+    /// The field name a machine uses for what the person typed: kept as is when it is already
+    /// a valid name ("api_key", "API_KEY"), otherwise made plain ("API Key " → "api-key").
+    /// What they typed is kept as the field's display name.
+    static func machineFieldName(_ typed: String) -> String {
+        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        if CredentialNames.isValidFieldName(trimmed) { return trimmed }
+        let slug = CredentialNames.slug(trimmed)
+        return slug.isEmpty ? "key" : slug
     }
 
     private var previousAutoId = ""
@@ -184,11 +193,18 @@ class AddCredentialViewModel: ObservableObject {
                   try ServiceGrantStore(directory: directory).grants(credentialId: credentialId).isEmpty else {
                 throw ClipboardSaveError.staleGrants
             }
-            let plan = CredentialEditPlan(
-                inputFields: fields.map { .init(name: $0.name, value: $0.value) },
+            let named = fields.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+            let machineNames = named.map { Self.machineFieldName($0.name) }
+            guard Set(machineNames).count == machineNames.count else { throw ClipboardSaveError.invalidTarget }
+            var plan = CredentialEditPlan(
+                inputFields: zip(named, machineNames).map { .init(name: $1, value: $0.value) },
                 existingFields: [:],
                 security: security
             )
+            for (entry, machine) in zip(named, machineNames) {
+                let typed = entry.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                if typed != machine { plan.metadata.fields[machine]?.displayName = typed }
+            }
             var values: [String: String] = [:]
             for write in plan.valueWrites {
                 guard values[write.fieldName] == nil else { throw ClipboardSaveError.invalidTarget }

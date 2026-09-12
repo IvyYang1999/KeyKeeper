@@ -34,6 +34,9 @@ public protocol CredentialSessionManaging: AnyObject {
         security: SecurityLevel
     ) throws
     func delete(credentialId: String, fieldName: String) throws
+    /// Rename support: copy values to new names keeping the originals, then drop the originals.
+    func copyValues(fromCredentialId: String, toCredentialId: String, fieldMap: [String: String]) throws
+    func dropValues(credentialId: String, fieldNames: [String]) throws
 }
 
 extension CredentialSessionManaging {
@@ -41,6 +44,13 @@ extension CredentialSessionManaging {
     public func validateStorage() throws {}
     // Older providers must opt into atomic create; never emulate it with overwrite-capable saves.
     public func createCredential(credentialId: String, values: [String: String], security: SecurityLevel) throws {
+        throw ClipboardSaveError.storageUnavailable
+    }
+    // Renames need the two-step copy/drop; providers without it refuse rather than emulate.
+    public func copyValues(fromCredentialId: String, toCredentialId: String, fieldMap: [String: String]) throws {
+        throw ClipboardSaveError.storageUnavailable
+    }
+    public func dropValues(credentialId: String, fieldNames: [String]) throws {
         throw ClipboardSaveError.storageUnavailable
     }
 }

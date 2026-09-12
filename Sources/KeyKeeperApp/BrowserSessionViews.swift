@@ -67,7 +67,8 @@ struct BrowserSessionManagerView: View {
                     VStack(spacing: 10) {
                         ForEach(controller.sessions) { item in
                             VStack(alignment: .leading, spacing: 8) {
-                                HStack {
+                                HStack(spacing: 10) {
+                                    KeyAvatar(label: item.label, kind: .session, size: 30)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(item.label).font(.callout.weight(.semibold))
                                         Text(item.origin).font(.caption.monospaced()).foregroundColor(.secondary)

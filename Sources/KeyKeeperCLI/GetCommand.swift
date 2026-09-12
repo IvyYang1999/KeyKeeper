@@ -36,11 +36,12 @@ struct GetCommand: ParsableCommand {
         let store = MetaStore.default
         let meta = try store.load()
 
-        guard let cred = meta.credentials[credentialId] else {
-            throw CommandFailure("Credential '\(credentialId)' not found. Run 'keykeeper list' to see the available IDs.")
+        // Earlier group IDs and field names keep working.
+        guard let credentialId = meta.resolveGroupId(self.credentialId), let cred = meta.credentials[credentialId] else {
+            throw CommandFailure("Credential '\(self.credentialId)' not found. Run 'keykeeper list' to see the available IDs.")
         }
-        guard let field = cred.fields[fieldName] else {
-            throw CommandFailure("Field '\(fieldName)' not found in '\(credentialId)'. Run 'keykeeper list --detail' to see its fields.")
+        guard let fieldName = cred.resolveFieldName(self.fieldName), let field = cred.fields[fieldName] else {
+            throw CommandFailure("Field '\(self.fieldName)' not found in '\(credentialId)'. Run 'keykeeper list --detail' to see its fields.")
         }
 
         if field.secret {

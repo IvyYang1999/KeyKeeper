@@ -314,7 +314,7 @@ struct AuthorizationView: View {
                 callerKindIcon
                     .scaleEffect(0.55)
                     .frame(width: 24, height: 24)
-                    .background(Circle().fill(Color.white.opacity(0.9)))
+                    .background(Circle().fill(.background))
                     .offset(x: 4, y: 4)
             }
             VStack(alignment: .leading, spacing: 3) {
