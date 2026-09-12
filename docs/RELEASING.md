@@ -5,6 +5,15 @@ installation is off by default; users can turn it on in Settings. The Sparkle pr
 key stays in the macOS login Keychain under account `com.keykeeper.app`. Never export it
 into the repository or pass it on a command line.
 
+The 0.3.0 candidate's update-signing identity was explicitly re-established on
+2026-09-12 after the previous private key could not be found. Its public key is in
+`Resources/Info.plist`; internal builds with the previous public key require a
+one-time manual installation. Do not silently generate a replacement key during
+future releases. Before packaging, use `generate_keys --account com.keykeeper.app -p`
+to check that the existing public key matches the plist; this command does not
+export the private key or create a new one. A missing or mismatched key is a stop
+condition requiring recovery or an explicitly approved signing-identity change.
+
 On the first run of `prepare-update.sh`, macOS may ask whether `generate_appcast` may
 access that key. Choose **Always Allow** once; never paste the private key into a terminal
 or chat.

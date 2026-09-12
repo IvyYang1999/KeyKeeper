@@ -35,7 +35,7 @@
     <key>SUFeedURL</key>
     <string>https://raw.githubusercontent.com/IvyYang1999/KeyKeeper/main/appcast.xml</string>
     <key>SUPublicEDKey</key>
-    <string>4YmHXn1y4/NOrCNGZS5JGDPowY5c7AGnTphLMdEKDkk=</string>
+    <string>6kGALUOSefFocM3h+bdt7kLRRSNUMauMHeaj5k+7ceE=</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>SUAutomaticallyUpdate</key>
