@@ -5,12 +5,25 @@ import KeyKeeperCore
 /// There is no unlock/lock any more: the keychain opens with the user's login
 /// (decision 2026-09-03). `status` only reports whether the app is reachable.
 struct StatusCommand: ParsableCommand {
+    @Flag(name: .long, help: "Check local value presence without prompts; no provider validation or read grant")
+    var checkValues = false
     static let configuration = CommandConfiguration(
         commandName: "status",
         abstract: "Show whether the KeyKeeper app is reachable"
     )
 
     func run() throws {
+        if checkValues {
+            let meta = try MetaStore.default.load()
+            let inventory = ValueAvailabilityQuery.inventory()
+            let result = Dictionary(uniqueKeysWithValues: meta.credentials.map { id, record in
+                (id, ValueAvailabilityQuery.result(id: id, record: record, inventory: inventory))
+            })
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            print(String(decoding: try encoder.encode(result), as: UTF8.self))
+            return
+        }
         print(Self.report(
             query: { try IPCClient.requestSessionControl(
                 SessionControlRequest(action: .status),

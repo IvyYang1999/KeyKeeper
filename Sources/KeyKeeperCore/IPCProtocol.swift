@@ -185,10 +185,12 @@ public enum SessionControlAction: String, Codable, Sendable, Equatable {
 public struct SessionControlRequest: Codable, Sendable, Equatable {
     public var action: SessionControlAction
     public var passphrase: String?
+    public var inspectValues: Bool?
 
-    public init(action: SessionControlAction, passphrase: String? = nil) {
+    public init(action: SessionControlAction, passphrase: String? = nil, inspectValues: Bool? = nil) {
         self.action = action
         self.passphrase = passphrase
+        self.inspectValues = inspectValues
     }
 }
 
@@ -204,6 +206,8 @@ public enum SessionControlErrorCode: String, Codable, Sendable, Equatable {
 }
 
 public struct SessionControlResponse: Codable, Sendable, Equatable {
+    /// Optional for old peers. Only field names; no secret values or grants.
+    public var valueInventory: [String: [String]]?
     public var success: Bool
     public var state: SessionControlState?
     public var expiresAt: Date?

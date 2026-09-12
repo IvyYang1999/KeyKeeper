@@ -6,8 +6,14 @@ import Security
 public protocol KeychainBlobIO: AnyObject, Sendable {
     /// Returns the stored blob, or nil when no item exists yet.
     func readBlob() throws -> Data?
+    /// Diagnostic reads must fail rather than show an authentication dialog.
+    func readBlobWithoutInteraction() throws -> Data?
     /// Never create after a successful read, or overwrite an item created by another writer.
     func writeBlob(_ data: Data, replacingExisting: Bool) throws
+}
+
+extension KeychainBlobIO {
+    public func readBlobWithoutInteraction() throws -> Data? { throw KeychainError.unexpectedData }
 }
 
 /// Real keychain IO: one generic-password item holds the whole credential store.
@@ -42,12 +48,26 @@ public final class SecItemBlobIO: KeychainBlobIO, @unchecked Sendable {
     }
 
     public func readBlob() throws -> Data? {
-        let query: [String: Any] = [
+        try readBlob(allowInteraction: true)
+    }
+
+    public func readBlobWithoutInteraction() throws -> Data? {
+        try readBlob(allowInteraction: false)
+    }
+
+    static func readQuery(service: String, allowInteraction: Bool) -> [String: Any] {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: "keykeeper",
             kSecReturnData as String: true,
         ]
+        if !allowInteraction { query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail }
+        return query
+    }
+
+    private func readBlob(allowInteraction: Bool) throws -> Data? {
+        let query = Self.readQuery(service: service, allowInteraction: allowInteraction)
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         switch status {
@@ -215,6 +235,15 @@ public final class KeychainBlobStore: @unchecked Sendable {
         }
     }
 
+    /// Does not change observed-store state, metadata or values. Missing item is an
+    /// empty inventory; permission/lock/corruption errors are never treated as missing.
+    public func inspectValueInventory() throws -> [String: Set<String>] {
+        try withLock {
+            guard let data = try io.readBlobWithoutInteraction() else { return [:] }
+            return try decodeBlob(data).credentials.mapValues { Set($0.keys) }
+        }
+    }
+
     /// Called once before a GUI mutation, while metadata still describes the pre-edit values.
     /// Per-field deletion intentionally precedes metadata commits, so don't repeat this
     /// inventory check halfway through a multi-field edit.
@@ -242,6 +271,10 @@ public final class KeychainBlobStore: @unchecked Sendable {
             return .empty
         }
         hasObservedStore = true
+        return try decodeBlob(data)
+    }
+
+    private func decodeBlob(_ data: Data) throws -> Blob {
         do {
             let blob = try JSONDecoder().decode(Blob.self, from: data)
             guard blob.version == 1 else { throw KeychainError.unexpectedData }
@@ -285,6 +318,10 @@ public final class KeychainCredentialService: @unchecked Sendable {
 
     public func status() -> SessionStatus {
         .unlocked(expiresAt: nil)
+    }
+
+    public func inspectValueInventory() throws -> [String: Set<String>] {
+        try store.inspectValueInventory()
     }
 
     public func validateStorage() throws {

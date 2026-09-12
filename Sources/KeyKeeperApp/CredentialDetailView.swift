@@ -3,6 +3,8 @@ import KeyKeeperCore
 
 struct CredentialDetailView: View {
     let credentialId: String
+    var valueAvailability: CredentialValueAvailability
+    var onCheckValues: () -> Void
     @StateObject private var vm: CredentialDetailViewModel
     var onBack: () -> Void
     var onUpdate: () -> Void
@@ -22,12 +24,16 @@ struct CredentialDetailView: View {
         credentialId: String,
         credential: Credential,
         session: any CredentialSessionManaging,
+        valueAvailability: CredentialValueAvailability = .init(state: .unchecked),
+        onCheckValues: @escaping () -> Void = {},
         onBack: @escaping () -> Void,
         onUpdate: @escaping () -> Void,
         onDelete: @escaping () -> String?,
         onRenamed: @escaping (String) -> Void = { _ in }
     ) {
         self.credentialId = credentialId
+        self.valueAvailability = valueAvailability
+        self.onCheckValues = onCheckValues
         _vm = StateObject(wrappedValue: CredentialDetailViewModel(
             credentialId: credentialId,
             credential: credential,
@@ -222,6 +228,11 @@ struct CredentialDetailView: View {
     private var keysCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel(text: L("Keys"))
+            HStack {
+                CredentialAvailabilityBadge(availability: valueAvailability)
+                Spacer()
+                Button(L("Check again"), action: onCheckValues).font(.caption)
+            }
 
             ForEach(Array(vm.fields.enumerated()), id: \.offset) { index, field in
                 if index > 0 { GlassSeparator() }
@@ -287,7 +298,7 @@ struct CredentialDetailView: View {
             FieldNameLabel(field: field, credential: vm.credential)
                 .frame(width: layout == .embedded ? 190 : 110, alignment: .leading)
 
-            Text(field.visible && !field.value.isEmpty ? field.value : "••••••••••")
+            Text(field.visible && !field.value.isEmpty ? field.value : (valueAvailability.missingFields.contains(field.name) ? L("Value missing") : "••••••••••"))
                 .font(.callout.monospaced())
                 .foregroundColor(field.visible ? .primary : .secondary)
                 .lineLimit(1)

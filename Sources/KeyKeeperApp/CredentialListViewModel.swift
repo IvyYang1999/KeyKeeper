@@ -6,6 +6,9 @@ class CredentialListViewModel: ObservableObject {
     @Published var credentials: [(id: String, credential: Credential)] = []
     @Published var searchText = ""
     @Published var errorMessage: String?
+    @Published private(set) var valueAvailability: [String: CredentialValueAvailability] = [:]
+    @Published private(set) var isCheckingValues = false
+    private var inspectionGeneration = 0
     /// Set when meta.json exists but cannot be read. Distinct from "no credentials yet":
     /// a secrets manager must never tell the user their data is gone when a file is merely unreadable.
     @Published private(set) var loadFailure: LoadFailure?
@@ -52,13 +55,38 @@ class CredentialListViewModel: ObservableObject {
     }
 
     func load() {
+        inspectionGeneration += 1
+        valueAvailability = [:]
         do {
             let meta = try store.load()
             credentials = Self.sorted(meta.credentials.map { (id: $0.key, credential: $0.value) })
             loadFailure = nil
+            checkValues()
         } catch {
             credentials = []
             loadFailure = LoadFailure(fileURL: store.fileURL, reason: error.localizedDescription)
+        }
+    }
+
+    /// One in-flight read per model; reloads coalesce and stale results are discarded.
+    private func checkValues() {
+        guard !isCheckingValues, !credentials.isEmpty, loadFailure == nil else { return }
+        isCheckingValues = true
+        let generation = inspectionGeneration
+        let probe = ValueInventoryProbe(session: session)
+        Task { [weak self] in
+            let inventory = await Task.detached(priority: .utility) { probe.read() }.value
+            guard let self else { return }
+            self.isCheckingValues = false
+            guard generation == self.inspectionGeneration else {
+                self.checkValues()
+                return
+            }
+            self.valueAvailability = Dictionary(uniqueKeysWithValues: self.credentials.map { item in
+                (item.id, inventory.map {
+                    CredentialValueAvailability.check(item.credential, presentFields: $0[item.id] ?? [])
+                } ?? .init(state: .unavailable))
+            })
         }
     }
 
@@ -91,4 +119,11 @@ class CredentialListViewModel: ObservableObject {
             return false
         }
     }
+}
+
+/// Production session owns a locked store. The task returns names only, never values.
+private final class ValueInventoryProbe: @unchecked Sendable {
+    let session: any CredentialSessionManaging
+    init(session: any CredentialSessionManaging) { self.session = session }
+    func read() -> [String: Set<String>]? { try? session.inspectValueInventory() }
 }

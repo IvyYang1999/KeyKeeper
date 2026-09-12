@@ -2,6 +2,8 @@
 
 ## 0.3.0 - 2026-09-12
 
+- Show non-interactive local value-presence checks in the main window and menu bar, with explicit missing-field recovery guidance. `meta` includes `valueStatus`; `status --check-values` reports all credential states without exposing values.
+
 - Add signed in-app updates with daily update notifications and optional automatic installation.
 - Add a dedicated main window for keys, website sessions, caller access, activity and settings, alongside a compact menu bar.
 - Add Simplified Chinese and English interfaces, with an independent language preference.

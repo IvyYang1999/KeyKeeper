@@ -16,9 +16,16 @@ which starts automatically when a key is requested.
 keykeeper list               # credential IDs and labels; no secret values
 keykeeper meta <id>          # one credential as JSON, no secret values
 keykeeper status             # is the app reachable (it starts on demand anyway)
+keykeeper status --check-values # local value-presence states only; never prints values
 ```
 
 The **ID** (left of the `|` in `keykeeper list`) is what you pass to `-c`.
+Current `meta` also reports `valueStatus`: `present` means the required fields existed
+in local storage at the time of inspection, NOT that a provider accepts them or that
+the caller has read permission. `missing` lists the absent field names; `unavailable`
+means the App could not check without prompting (or is unavailable/too old), not data
+loss. An older reply without `valueStatus` is unchecked. Plain `status` only says the
+App is reachable. Presence checks never restore, delete or overwrite values.
 Field names become environment variable names: `api-key` → `API_KEY`, `base url` → `BASE_URL`.
 
 ## Using credentials

@@ -434,7 +434,11 @@ final class IPCServer: ObservableObject {
             guard request.passphrase == nil else {
                 return invalidSessionControlResponse()
             }
-            return response(for: session.status())
+            var result = response(for: session.status())
+            if request.inspectValues == true, let inspector = session as? any CredentialSessionManaging {
+                result.valueInventory = (try? inspector.inspectValueInventory())?.mapValues { $0.sorted() }
+            }
+            return result
         }
     }
 

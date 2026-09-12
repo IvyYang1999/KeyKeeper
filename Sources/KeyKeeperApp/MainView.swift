@@ -77,6 +77,8 @@ struct MainView: View {
                             credentialId: item.id,
                             credential: item.credential,
                             session: session,
+                            valueAvailability: viewModel.valueAvailability[item.id] ?? .init(state: .unchecked),
+                            onCheckValues: { viewModel.load() },
                             onBack: { page = .home },
                             onOpenWindow: { openMainWindow(.keys, item.id) }
                         )
@@ -203,7 +205,8 @@ struct MainView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        PopoverKeyRow(credential: item.credential, subtitle: subtitle(item.id, item.credential)) {
+                        PopoverKeyRow(credential: item.credential, subtitle: subtitle(item.id, item.credential),
+                                      valueAvailability: viewModel.valueAvailability[item.id] ?? .init(state: .unchecked)) {
                             page = .detail(item.id)
                         }
                         if index < items.count - 1 {
@@ -385,6 +388,7 @@ struct PopoverKeyRow: View {
     static let height: CGFloat = 54
     let credential: Credential
     let subtitle: String
+    var valueAvailability: CredentialValueAvailability = .init(state: .unchecked)
     let action: () -> Void
     @State private var hovering = false
 
@@ -397,6 +401,7 @@ struct PopoverKeyRow: View {
                     Text(subtitle).font(.system(size: 12)).foregroundColor(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 6)
+                CredentialAvailabilityBadge(availability: valueAvailability, compact: true)
                 if credential.security == .strict {
                     Image(systemName: "hand.raised.fill")
                         .font(.system(size: 11))
@@ -422,6 +427,8 @@ struct PopoverKeyRow: View {
 /// main window.
 struct PopoverKeyDetail: View {
     let credentialId: String
+    var valueAvailability: CredentialValueAvailability
+    var onCheckValues: () -> Void
     @StateObject private var vm: CredentialDetailViewModel
     var onBack: () -> Void
     var onOpenWindow: () -> Void
@@ -430,8 +437,12 @@ struct PopoverKeyDetail: View {
     @State private var summaries: [String: ServiceAccountSummary] = [:]
 
     init(credentialId: String, credential: Credential, session: any CredentialSessionManaging,
+         valueAvailability: CredentialValueAvailability = .init(state: .unchecked),
+         onCheckValues: @escaping () -> Void = {},
          onBack: @escaping () -> Void, onOpenWindow: @escaping () -> Void) {
         self.credentialId = credentialId
+        self.valueAvailability = valueAvailability
+        self.onCheckValues = onCheckValues
         _vm = StateObject(wrappedValue: CredentialDetailViewModel(credentialId: credentialId, credential: credential, session: session))
         self.onBack = onBack
         self.onOpenWindow = onOpenWindow
@@ -463,6 +474,12 @@ struct PopoverKeyDetail: View {
                     CopyTextButton(text: credentialId, help: L("Copy group ID"))
                 }
                 .help(L("The name scripts and agents pass to keykeeper run -c. It is not a key name."))
+                HStack {
+                    CredentialAvailabilityBadge(availability: valueAvailability)
+                    Spacer()
+                    Button(L("Check again"), action: onCheckValues).font(.caption)
+                }
+                .padding(.vertical, 4)
                 ForEach(Array(vm.fields.enumerated()), id: \.offset) { index, field in
                     GlassSeparator()
                     if field.fileFormat != nil {
@@ -585,7 +602,7 @@ struct PopoverKeyDetail: View {
             Text(L("Service-account JSON")).font(.callout).foregroundColor(.secondary)
         } else {
             HStack(spacing: 8) {
-                Text(field.visible && !field.value.isEmpty ? field.value : "••••••••••••")
+                Text(field.visible && !field.value.isEmpty ? field.value : (valueAvailability.missingFields.contains(field.name) ? L("Value missing") : "••••••••••••"))
                     .font(.callout.monospaced())
                     .foregroundColor(.secondary)
                     .lineLimit(1)

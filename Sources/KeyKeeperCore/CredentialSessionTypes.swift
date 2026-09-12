@@ -21,6 +21,7 @@ public enum SessionManagerError: Error, LocalizedError, Sendable {
 
 /// Secret CRUD surface shared by GUI data models and the process-wide store owner.
 public protocol CredentialSessionManaging: AnyObject {
+    func inspectValueInventory() throws -> [String: Set<String>]
     func status() -> SessionStatus
     /// Check the pre-edit inventory before any value or metadata mutation begins.
     func validateStorage() throws
@@ -40,6 +41,7 @@ public protocol CredentialSessionManaging: AnyObject {
 }
 
 extension CredentialSessionManaging {
+    public func inspectValueInventory() throws -> [String: Set<String>] { throw KeychainError.unexpectedData }
     // Legacy/test session providers have no split metadata/blob inventory.
     public func validateStorage() throws {}
     // Older providers must opt into atomic create; never emulate it with overwrite-capable saves.

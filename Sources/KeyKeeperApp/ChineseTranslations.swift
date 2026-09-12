@@ -1,6 +1,15 @@
 // Central UI catalog: English templates → Simplified Chinese, never credential data.
 extension AppL10n {
     static let chinese: [String: String] = [
+        "Value not checked": "尚未检查值",
+        "Local value present": "本机值存在",
+        "Value missing · Recovery needed": "值缺失 · 待恢复",
+        "Unable to check value": "暂时无法检查值",
+        "Value missing": "值缺失",
+        "Missing fields: {0}": "缺失字段：{0}",
+        "The names were restored, but these values are absent from the current storage. Keep your old Keychain and backups. Restore the values or import replacements from the official provider; do not reset the Keychain.": "名称记录仍在，但当前存储中缺少这些值。请保留旧钥匙串和备份，恢复原值或从官方服务导入替代值；不要重置钥匙串。",
+        "Storage could not be checked without an authorization prompt. This does not mean the values are lost. No data was changed.": "未能在不弹出授权窗口的情况下检查存储。这不代表值已丢失，没有修改任何数据。",
+        "Present in local storage at the last check. Provider validity and caller permission have not been verified.": "上次检查时本机值存在；尚未验证它在服务商处是否有效，也不代表调用方已获授权。",
         "Website sessions": "网站登录态",
         "Save website login state?": "保存这个网站的登录态？",
         "Open an isolated logged-in window?": "打开独立的登录窗口？",

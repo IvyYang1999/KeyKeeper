@@ -351,10 +351,14 @@ private struct KeysPage: View {
                     }
                     Spacer(minLength: 0)
                 }
-                Text(subtitle(credential))
-                    .font(.caption.monospaced())
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+                HStack {
+                    Text(subtitle(credential))
+                        .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    CredentialAvailabilityBadge(availability: listVM.valueAvailability[id] ?? .init(state: .unchecked), compact: true)
+                }
             }
             }
             .padding(.horizontal, 12)
@@ -415,6 +419,8 @@ private struct KeysPage: View {
                 credentialId: item.id,
                 credential: item.credential,
                 session: session,
+                valueAvailability: listVM.valueAvailability[item.id] ?? .init(state: .unchecked),
+                onCheckValues: { listVM.load() },
                 onBack: { router.selectedCredentialId = nil },
                 onUpdate: {
                     listVM.load()
