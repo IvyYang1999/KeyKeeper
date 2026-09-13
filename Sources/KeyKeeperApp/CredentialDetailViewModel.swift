@@ -231,6 +231,7 @@ final class CredentialDetailViewModel: ObservableObject {
                 || !plan.valueWrites.isEmpty
                 || !plan.valueRenames.isEmpty
                 || displayNamesChanged
+                || credential.expires != meta.credentials[credentialId]?.expires
 
             credential.fields = plan.metadata.fields
             credential.security = plan.metadata.security

@@ -165,6 +165,7 @@ struct CredentialDetailView: View {
                         Text(L("The value leaves the macOS Keychain and is written into KeyKeeper's metadata file in the clear, where anything running as you — your agents included — can read it. Good for an account id, an email or a region. Never for a password, token or key."))
                     }
                     DescriptionEditor(text: $vm.credential.notes)
+                    ExpiryEditor(expires: $vm.credential.expires)
                 } else {
                     keysCard
                     agentHandoff
@@ -387,6 +388,11 @@ struct CredentialDetailView: View {
                 .textSelection(.enabled)
 
             VStack(alignment: .leading, spacing: 4) {
+                if let expiry = ExpiryPresentation.line(vm.credential.expires) {
+                    Label(expiry, systemImage: "calendar")
+                        .font(.callout)
+                        .foregroundColor(ExpiryPresentation.badge(vm.credential.expires)?.isExpired == true ? .red : .secondary)
+                }
                 HStack(spacing: 6) {
                     Text(L("Note for your agent"))
                         .font(.caption.weight(.semibold))

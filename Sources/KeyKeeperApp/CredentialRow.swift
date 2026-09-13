@@ -14,6 +14,7 @@ struct CredentialRow: View {
                 Spacer(minLength: DS.Spacing.sm)
                 // Only the exception is badged. When almost every row said "Background OK"
                 // the badge stopped informing and became noise; absence now means default.
+                ExpiryBadge(expires: credential.expires)
                 if credential.security == .strict {
                     SecurityBadge(level: credential.security)
                 }

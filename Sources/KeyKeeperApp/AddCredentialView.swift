@@ -127,7 +127,7 @@ struct AddCredentialView: View {
 
     /// Only ever opens the section: collapsing is the user's decision to keep.
     private func expandMoreOptionsIfNeeded() {
-        if !vm.notes.isEmpty || vm.security != SecurityLevelPresentation.defaultLevel {
+        if !vm.notes.isEmpty || vm.expires != nil || vm.security != SecurityLevelPresentation.defaultLevel {
             showMoreOptions = true
         }
     }
@@ -212,6 +212,7 @@ struct AddCredentialView: View {
         DisclosureGroup(isExpanded: $showMoreOptions) {
             VStack(alignment: .leading, spacing: DS.Spacing.lg) {
                 DescriptionEditor(text: $vm.notes)
+                ExpiryEditor(expires: $vm.expires)
                 AdvancedSecuritySection(security: $vm.security)
                 if onImportFile != nil, vm.sourceFile == nil {
                     Button(L("Import a service-account JSON file instead…")) {

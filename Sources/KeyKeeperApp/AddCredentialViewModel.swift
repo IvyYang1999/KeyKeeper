@@ -22,6 +22,8 @@ class AddCredentialViewModel: ObservableObject {
     @Published var label = ""
     @Published var credentialId = ""
     @Published var notes = ""
+    /// Last day the key works at its provider, YYYY-MM-DD; nil when the person did not record one.
+    @Published var expires: String?
     @Published var fields: [FieldEntry] = [FieldEntry(name: AddCredentialViewModel.defaultFieldName)]
     @Published var security: SecurityLevel = SecurityLevelPresentation.defaultLevel
     @Published var errorMessage: String?
@@ -110,6 +112,7 @@ class AddCredentialViewModel: ObservableObject {
         label = ""
         credentialId = ""
         notes = ""
+        expires = nil
         fields = [FieldEntry(name: Self.defaultFieldName)]
         security = SecurityLevelPresentation.defaultLevel
         errorMessage = nil
@@ -234,7 +237,7 @@ class AddCredentialViewModel: ObservableObject {
                 label: label, notes: notes,
                 links: [],
                 fields: plan.metadata.fields, security: plan.metadata.security,
-                created: now, updated: now
+                created: now, updated: now, expires: expires
             )
             do { try store.save(meta) }
             catch { throw ClipboardSaveError.metadataCommitFailed }
