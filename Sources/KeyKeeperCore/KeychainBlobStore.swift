@@ -34,10 +34,26 @@ public final class SecItemBlobIO: KeychainBlobIO, @unchecked Sendable {
 
     public convenience init(service: String? = nil) {
         self.init(service: service
-            ?? ProcessInfo.processInfo.environment[Self.serviceEnvironmentKey]
+            ?? (try? Self.serviceName(environment: ProcessInfo.processInfo.environment))
             ?? Self.defaultService,
                   updateItem: { SecItemUpdate($0, $1) },
                   addItem: { SecItemAdd($0, nil) })
+    }
+
+    /// Which Keychain item holds the credentials.
+    ///
+    /// 【安全审计 2026-09-13】This used to take the environment variable at face value, while the
+    /// two comparable switches (the IPC socket and the website-session store) both demand a
+    /// complete, obviously-test-shaped set before they will move. A shipped binary should not
+    /// carry an unguarded "read a different vault" lever, even where it does not raise privilege.
+    public static func serviceName(environment: [String: String]) throws -> String {
+        let keys = ["KEYKEEPER_DATA_DIR", Self.serviceEnvironmentKey, "KEYKEEPER_TEST_SOCKET"]
+        guard keys.contains(where: { environment[$0] != nil }) else { return Self.defaultService }
+        guard let service = environment[Self.serviceEnvironmentKey], service.hasPrefix("com.keykeeper.test."),
+              let socket = environment["KEYKEEPER_TEST_SOCKET"], socket.hasPrefix("/tmp/keykeeper-test-"),
+              IPCConstants.resolveSocketPath(environment: environment) == socket
+        else { throw KeychainError.unexpectedData }
+        return service
     }
 
     /// System-call seam for checking update/create failure paths without accessing Keychain.

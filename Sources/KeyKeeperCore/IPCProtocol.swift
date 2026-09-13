@@ -389,6 +389,17 @@ public struct PendingServiceRequestSummary: Codable, Sendable, Identifiable {
         self.requestedAt = requestedAt
         self.expiresAt = expiresAt
     }
+
+    /// The same entry with the one field only KeyKeeper itself needs removed.
+    ///
+    /// 【安全审计 2026-09-13】This list is readable by any local process, and it carried each
+    /// pending request's caller fingerprint — a ready-made answer to "what exactly do I have to
+    /// look like to be mistaken for them". The list stays; that field does not.
+    public func redactedForCaller() -> PendingServiceRequestSummary {
+        var copy = self
+        copy.subjectFingerprint = ""
+        return copy
+    }
 }
 
 public struct ServiceRequestsListResponse: Codable, Sendable {

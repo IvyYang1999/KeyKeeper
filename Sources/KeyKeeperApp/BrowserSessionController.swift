@@ -93,7 +93,12 @@ struct BrowserSessionPresentation {
             try request.validate()
             guard isConnected() else { throw BrowserSessionError.disconnected }
             if request.action == .stop {
-                if openingID == request.id || (pending?.request.action == .open && pending?.request.id == request.id) {
+                // Stopping a window is harmless, but it used to also tear down a pending approval
+                // for that session — so any local process could cancel a window the person was in
+                // the middle of allowing. Only whoever asked for it may take it back.
+                let ownsPending = pending == nil || pendingFingerprint == nil || pendingFingerprint == fingerprint
+                if ownsPending,
+                   openingID == request.id || (pending?.request.action == .open && pending?.request.id == request.id) {
                     finish(.init(success: false, errorCode: .denied))
                 }
                 runtime.stop(id: request.id!); objectWillChange.send()

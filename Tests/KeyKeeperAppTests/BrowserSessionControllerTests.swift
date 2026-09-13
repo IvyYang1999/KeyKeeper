@@ -207,3 +207,36 @@ private final class SessionControllerMarker: BrowserSessionMarker {
     func stop(id: String) { open.remove(id) }
     func stopAll() { open.removeAll() }
 }
+
+extension BrowserSessionControllerTests {
+    /// 【安全审计】`stop` 没有鉴权，而它会顺手把一条**待批的**开窗请求取消掉——于是任何
+    /// 本地进程都能打断你正在批准的那一次。停窗口本身无害，取消别人的待批不是。
+    func test别的调用方的stop不能取消你正在批的请求() throws {
+        let io = SessionControllerIO(), runtime = TestSessionRuntime()
+        let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
+        var results: [BrowserSessionResponse] = []
+        let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
+            present: { _, _ in }, dismiss: {})
+        let input = BrowserSessionImport(id: UUID().uuidString, origin: "https://example.com", label: "S", cookies: [
+            .init(name: "f", value: "synthetic", domain: "example.com", hostOnly: true,
+                  path: "/", secure: true, httpOnly: true, sameSite: "lax", expirationDate: nil)
+        ])
+        _ = try store.save(input)
+        controller.refresh()
+
+        controller.receive(.init(action: .open, id: input.id), caller: "Agent",
+                           fingerprint: "app:bundle=com.example.agent") { results.append($0) }
+        XCTAssertTrue(controller.isPending)
+
+        // 另一个调用方来 stop：窗口可以停，但不能替你把待批的那次否掉
+        controller.receive(.init(action: .stop, id: input.id), caller: "Other",
+                           fingerprint: "app:bundle=com.other") { _ in }
+        XCTAssertTrue(controller.isPending, "别人的 stop 不该取消你正在批的请求")
+        XCTAssertTrue(results.isEmpty)
+
+        // 自己来 stop 就可以
+        controller.receive(.init(action: .stop, id: input.id), caller: "Agent",
+                           fingerprint: "app:bundle=com.example.agent") { _ in }
+        XCTAssertEqual(results.first?.errorCode, .denied)
+    }
+}

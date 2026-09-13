@@ -783,7 +783,8 @@ final class IPCServer: ObservableObject {
                 }
             }
             self.send(
-                IPCResponse.serviceRequests(ServiceRequestsListResponse(requests: summaries)),
+                IPCResponse.serviceRequests(ServiceRequestsListResponse(
+                    requests: summaries.map { $0.redactedForCaller() })),
                 clientFd: clientFd
             )
         }
