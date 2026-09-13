@@ -240,3 +240,101 @@ extension BrowserSessionControllerTests {
         XCTAssertEqual(results.first?.errorCode, .denied)
     }
 }
+
+extension BrowserSessionControllerTests {
+    private func savedSession(_ store: BrowserSessionStore) throws -> BrowserSessionImport {
+        let input = BrowserSessionImport(id: UUID().uuidString, origin: "https://example.com", label: "S", cookies: [
+            .init(name: "f", value: "synthetic", domain: "example.com", hostOnly: true,
+                  path: "/", secure: true, httpOnly: true, sameSite: "lax", expirationDate: nil)
+        ])
+        _ = try store.save(input)
+        return input
+    }
+
+    /// yyt：「存 Cookie 这件事，就是把自己账号的登录权交给了 Agent。理应做到和 KeyKeeper 的其它体验一致。」
+    /// 于是登录态也能允许一次、一小时或始终——只记给这个调用方、这一个登录态。
+    func test开登录态可以按时长记住这个调用方() throws {
+        let runtime = TestSessionRuntime()
+        let store = BrowserSessionStore(io: SessionControllerIO(), marker: SessionControllerMarker())
+        var durationReply: ((ServiceGrantDuration?) -> Void)?
+        var offered: Bool?
+        var plainPrompts = 0
+        let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
+            present: { _, _ in plainPrompts += 1 }, dismiss: {},
+            presentWithDuration: { info, reply in offered = info.offersDurations; durationReply = reply })
+        let input = try savedSession(store)
+        controller.refresh()
+        let agent = "unsigned:path=agent"
+        var results: [BrowserSessionResponse] = []
+
+        controller.receive(.init(action: .open, id: input.id), caller: "Agent", fingerprint: agent) { results.append($0) }
+        XCTAssertEqual(offered, true)
+        durationReply?(.always)
+        XCTAssertEqual(results.last?.success, true)
+        XCTAssertEqual(controller.grants(for: input.id).map(\.subjectFingerprint), [agent])
+
+        runtime.stop(id: input.id)
+        durationReply = nil
+        controller.receive(.init(action: .open, id: input.id), caller: "Agent", fingerprint: agent) { results.append($0) }
+        XCTAssertNil(durationReply, "记住了就不再问")
+        XCTAssertEqual(results.last?.success, true)
+
+        runtime.stop(id: input.id)
+        controller.receive(.init(action: .open, id: input.id), caller: "Other", fingerprint: "unsigned:path=other") { results.append($0) }
+        XCTAssertNotNil(durationReply, "别的调用方照样要问")
+        XCTAssertEqual(plainPrompts, 0)
+
+        let grant = try XCTUnwrap(controller.grants(for: input.id).first)
+        controller.revokeGrant(id: grant.id)
+        XCTAssertTrue(controller.grants(for: input.id).isEmpty, "撤销之后就没了")
+    }
+
+    func test选仅这一次不留下授权() throws {
+        let runtime = TestSessionRuntime()
+        let store = BrowserSessionStore(io: SessionControllerIO(), marker: SessionControllerMarker())
+        var durationReply: ((ServiceGrantDuration?) -> Void)?
+        let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
+            present: { _, _ in }, dismiss: {}, presentWithDuration: { _, reply in durationReply = reply })
+        let input = try savedSession(store)
+        controller.refresh()
+        var result: BrowserSessionResponse?
+        controller.receive(.init(action: .open, id: input.id), caller: "Agent", fingerprint: "unsigned:path=agent") { result = $0 }
+        durationReply?(.once)
+        XCTAssertEqual(result?.success, true)
+        XCTAssertTrue(controller.grants(for: input.id).isEmpty)
+    }
+
+    func test认不出的调用方开登录态只能一次且不记() throws {
+        let runtime = TestSessionRuntime()
+        let store = BrowserSessionStore(io: SessionControllerIO(), marker: SessionControllerMarker())
+        var plainReply: ((Bool) -> Void)?
+        var durationAsked = false
+        let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
+            present: { _, reply in plainReply = reply }, dismiss: {},
+            presentWithDuration: { _, _ in durationAsked = true })
+        let input = try savedSession(store)
+        controller.refresh()
+        var result: BrowserSessionResponse?
+        controller.receive(.init(action: .open, id: input.id), caller: "?",
+                           fingerprint: CallerSubject.unverifiedPrefix + "no-code-object") { result = $0 }
+        XCTAssertFalse(durationAsked)
+        plainReply?(true)
+        XCTAssertEqual(result?.success, true)
+        XCTAssertTrue(controller.grants(for: input.id).isEmpty)
+    }
+}
+
+@MainActor final class SessionDurationPromptTests: XCTestCase {
+    func test菜单栏里不能替人选时长() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("Sources/KeyKeeperApp/TrustPrompt.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("opensWindow: asksDuration"))
+    }
+
+    func test新文案有中文() {
+        for template in ["Allow for", "Just this once", "1 hour", "Always",
+                         "Cookie values are never returned to the caller. Choosing longer than once lets this caller open this login again without asking, until the time is up or you revoke it on the Website sessions page."] {
+            XCTAssertNotEqual(AppL10n.render(template, language: "zh-Hans"), template, template)
+        }
+    }
+}

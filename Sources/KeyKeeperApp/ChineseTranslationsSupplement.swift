@@ -190,6 +190,8 @@ extension AppL10n {
         "Expired {0} · {1} days ago": "已于 {0} 过期 · {1} 天前",
         "Last day it works: {0} · today": "最后可用日：{0} · 就是今天",
         "Last day it works: {0} · in {1} days": "最后可用日：{0} · 还有 {1} 天",
+        "Allow for": "允许多久",
+        "Cookie values are never returned to the caller. Choosing longer than once lets this caller open this login again without asking, until the time is up or you revoke it on the Website sessions page.": "Cookie 的值不会交给调用方。选比「仅这一次」更长的时间，这个调用方之后再打开这个登录态就不再询问，直到时间到了或你在「网站登录态」页撤销。",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",

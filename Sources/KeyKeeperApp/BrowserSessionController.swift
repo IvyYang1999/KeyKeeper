@@ -22,6 +22,8 @@ struct BrowserSessionPresentation {
     let action: BrowserSessionRequest.Action
     let session: BrowserSessionSummary
     let caller: String
+    /// Offer "once / 1 hour / always". Only for opening, and only for a caller KeyKeeper can identify.
+    var offersDurations = false
 }
 
 @MainActor final class BrowserSessionController: ObservableObject {
@@ -49,12 +51,16 @@ struct BrowserSessionPresentation {
     private var humanApprovedOpen = true
     /// Who asked for the pending request, so an approval can be remembered for them alone.
     private var pendingFingerprint: String?
+    /// The prompt that also asks how long. Nil keeps every approval single-use.
+    private let presentWithDuration: ((BrowserSessionPresentation, @escaping (ServiceGrantDuration?) -> Void) -> Void)?
     var activeIDs: [String] { runtime.activeIDs }
 
     init(store: BrowserSessionStore, runtime: BrowserSessionRuntime, now: @escaping () -> Date = Date.init,
          present: @escaping (BrowserSessionPresentation, @escaping (Bool) -> Void) -> Void,
-         dismiss: @escaping () -> Void) {
+         dismiss: @escaping () -> Void,
+         presentWithDuration: ((BrowserSessionPresentation, @escaping (ServiceGrantDuration?) -> Void) -> Void)? = nil) {
         self.store = store; self.runtime = runtime; self.now = now; self.present = present; self.dismiss = dismiss
+        self.presentWithDuration = presentWithDuration
         // The protocol is @MainActor, so this already runs there: answering synchronously keeps
         // "Background OK" invisible — the veil goes up and comes down without a frame in between.
         runtime.setReauthorizationHandler { [weak self] id, decided in
@@ -76,6 +82,25 @@ struct BrowserSessionPresentation {
             self?.dismiss()
             decided(granted)
         }
+    }
+
+    /// "Just this once" stores nothing: it is this request. Longer answers become a grant for this
+    /// caller and this login only.
+    private func remember(_ duration: ServiceGrantDuration, sessionId: String, fingerprint: String, caller: String) {
+        if case .once = duration { return }
+        try? store.addGrant(.init(sessionId: sessionId, subjectFingerprint: fingerprint,
+                                  subjectDisplayName: caller, duration: duration, createdAt: now()))
+        objectWillChange.send()
+    }
+
+    /// Who may open this login without asking, for the sessions page.
+    func grants(for sessionId: String) -> [BrowserSessionGrant] {
+        ((try? store.grants(for: sessionId)) ?? []).filter { $0.isValid(now: now()) }
+    }
+
+    func revokeGrant(id: String) {
+        try? store.revokeGrant(id: id)
+        objectWillChange.send()
     }
 
     func refresh() {
@@ -140,7 +165,22 @@ struct BrowserSessionPresentation {
             }
             pendingFingerprint = fingerprint
             humanApprovedOpen = true
-            let displayCaller = String(caller.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.prefix(120))
+            let displayCaller = CallerStatedReason.printableLine(caller, limit: 120)
+            // Handing a login to an agent should work the way handing it a key does: once, for an
+            // hour, or until revoked — remembered for this caller and this login only. Saving and
+            // deleting still ask every time, and an unidentified caller only ever gets "once".
+            if request.action == .open, let presentWithDuration, let fingerprint,
+               GrantIssuancePolicy.mayRemember(subjectFingerprint: fingerprint) {
+                presentWithDuration(.init(action: request.action, session: summary, caller: displayCaller,
+                                          offersDurations: true)) { [weak self] duration in
+                    guard let self, self.pending?.ticket == ticket else { return }
+                    if let duration {
+                        self.remember(duration, sessionId: summary.id, fingerprint: fingerprint, caller: displayCaller)
+                    }
+                    self.resolve(approved: duration != nil)
+                }
+                return
+            }
             present(.init(action: request.action, session: summary, caller: displayCaller)) { [weak self] approved in
                 guard self?.pending?.ticket == ticket else { return }
                 self?.resolve(approved: approved)

@@ -31,6 +31,8 @@ struct TrustPromptModel: Equatable {
     var details: [String]
     var confirmTitle: String
     var expiresAt: Date?
+    /// Ask how long, not just yes or no (opening a website login for an identified caller).
+    var offersDurations = false
 
     /// Caller names come from the requesting process; keep them to one printable line.
     ///
@@ -144,7 +146,9 @@ struct TrustPromptModel: Equatable {
             isDelete
                 ? L("This stops the managed window and deletes only this saved snapshot. Chrome and the website account remain unchanged.")
                 : L("This can grant account actions, not just reading. Only this site opens in a temporary window; cross-site navigation and file uploads are blocked. Closing it does not revoke the website session."),
-            L("One request only · expires in 90 seconds · Cookie values are never returned to the caller."),
+            info.offersDurations
+                ? L("Cookie values are never returned to the caller. Choosing longer than once lets this caller open this login again without asking, until the time is up or you revoke it on the Website sessions page.")
+                : L("One request only · expires in 90 seconds · Cookie values are never returned to the caller."),
         ]
         let confirm: String
         switch info.action {
@@ -166,7 +170,8 @@ struct TrustPromptModel: Equatable {
             tone: isDelete ? .destructive : .caution,
             details: details,
             confirmTitle: confirm,
-            expiresAt: expiresAt
+            expiresAt: expiresAt,
+            offersDurations: info.offersDurations
         )
     }
 }
@@ -177,7 +182,10 @@ struct TrustPromptView: View {
     let model: TrustPromptModel
     let onCancel: () -> Void
     let onConfirm: () -> Void
+    /// Set when the prompt asks how long; the confirm button then answers with the chosen duration.
+    var onConfirmDuration: ((ServiceGrantDuration) -> Void)? = nil
     @State private var showDetails = false
+    @State private var duration: SessionDurationOption = .once
     /// 【独立审计 2026-09-13】saves and website sessions had no settle delay: a click already on its
     /// way could land on a prompt that had only just appeared. Same rule as the authorization window.
     @State private var canConfirm = false
@@ -250,6 +258,15 @@ struct TrustPromptView: View {
                 Text(L("Details")).font(.caption).foregroundColor(.accentColor)
             }
 
+            if model.offersDurations {
+                Picker(L("Allow for"), selection: $duration) {
+                    ForEach(SessionDurationOption.allCases, id: \.self) { option in
+                        Text(AppL10n.text(option.rawValue)).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
             HStack(spacing: 10) {
                 if let expiresAt = model.expiresAt {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -266,7 +283,9 @@ struct TrustPromptView: View {
                     .controlSize(.large)
                 // ⌘↩ confirms. Plain Return deliberately does nothing, so a keystroke meant
                 // for the terminal can never approve a request that just stole focus.
-                Button(action: onConfirm) {
+                Button(action: {
+                    if let onConfirmDuration { onConfirmDuration(duration.grantDuration) } else { onConfirm() }
+                }) {
                     Text(model.confirmTitle).frame(minWidth: 52)
                 }
                 .keyboardShortcut(.return, modifiers: .command)
@@ -292,6 +311,7 @@ struct TrustPromptView: View {
 @MainActor final class TrustPromptPresenter: NSObject, NSWindowDelegate {
     private var panel: NSPanel?
     private var decide: ((Bool) -> Void)?
+    private var decideDuration: ((ServiceGrantDuration?) -> Void)?
     private var approvalID: UUID?
     private let center: ApprovalCenter
 
@@ -300,8 +320,21 @@ struct TrustPromptView: View {
     }
 
     func show(_ model: TrustPromptModel, symbol: String, decide: @escaping (Bool) -> Void) {
+        present(model, symbol: symbol, decide: decide, decideDuration: nil)
+    }
+
+    /// A prompt that also asks how long. Its entry in the menu-bar list can only bring the window
+    /// forward: approving from the list would mean picking a duration on the person's behalf.
+    func show(_ model: TrustPromptModel, symbol: String, decideDuration: @escaping (ServiceGrantDuration?) -> Void) {
+        present(model, symbol: symbol, decide: nil, decideDuration: decideDuration)
+    }
+
+    private func present(_ model: TrustPromptModel, symbol: String,
+                         decide: ((Bool) -> Void)?, decideDuration: ((ServiceGrantDuration?) -> Void)?) {
         dismiss()
         self.decide = decide
+        self.decideDuration = decideDuration
+        let asksDuration = decideDuration != nil
 
         let id = UUID()
         approvalID = id
@@ -313,8 +346,11 @@ struct TrustPromptView: View {
             expiresAt: model.expiresAt,
             confirmTitle: model.confirmTitle,
             destructive: model.tone == .destructive,
-            opensWindow: false,
-            confirm: { [weak self] in self?.resolve(true) },
+            opensWindow: asksDuration,
+            confirm: { [weak self] in
+                if asksDuration { NSApp.activate(ignoringOtherApps: true); self?.panel?.makeKeyAndOrderFront(nil) }
+                else { self?.resolve(true) }
+            },
             deny: { [weak self] in self?.resolve(false) }
         ))
 
@@ -336,7 +372,8 @@ struct TrustPromptView: View {
         let hosting = NSHostingView(rootView: TrustPromptView(
             model: model,
             onCancel: { [weak self] in self?.resolve(false) },
-            onConfirm: { [weak self] in self?.resolve(true) }
+            onConfirm: { [weak self] in self?.resolve(true) },
+            onConfirmDuration: asksDuration ? { [weak self] in self?.resolveDuration($0) } : nil
         ))
         panel.contentView = hosting
         panel.setContentSize(hosting.fittingSize)
@@ -350,18 +387,42 @@ struct TrustPromptView: View {
         if let approvalID { center.remove(id: approvalID) }
         approvalID = nil
         decide = nil
+        decideDuration = nil
         panel?.orderOut(nil)
         panel = nil
     }
 
     private func resolve(_ approved: Bool) {
-        let reply = decide
+        let reply = decide, durationReply = decideDuration
         decide = nil
-        reply?(approved)
+        decideDuration = nil
+        if let durationReply { durationReply(approved ? .once : nil) } else { reply?(approved) }
+    }
+
+    private func resolveDuration(_ duration: ServiceGrantDuration) {
+        let durationReply = decideDuration
+        decide = nil
+        decideDuration = nil
+        durationReply?(duration)
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         resolve(false)
         return false
+    }
+}
+
+/// How long one caller may open one website login without asking again.
+enum SessionDurationOption: String, CaseIterable {
+    case once = "Just this once"
+    case oneHour = "1 hour"
+    case always = "Always"
+
+    var grantDuration: ServiceGrantDuration {
+        switch self {
+        case .once: return .once
+        case .oneHour: return .timed(Date().addingTimeInterval(3600))
+        case .always: return .always
+        }
     }
 }

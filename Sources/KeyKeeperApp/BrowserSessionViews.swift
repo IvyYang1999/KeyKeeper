@@ -34,7 +34,8 @@ enum BrowserSessionCopy {
         let approval = self.approval
         if let store = try? BrowserSessionStore.production() {
             controller = BrowserSessionController(store: store, runtime: SessionBrowserRuntime(),
-                present: { approval.show($0, decide: $1) }, dismiss: { approval.dismiss() })
+                present: { approval.show($0, decide: $1) }, dismiss: { approval.dismiss() },
+                presentWithDuration: { approval.show($0, decideDuration: $1) })
         } else { controller = nil }
     }
 }
@@ -185,6 +186,11 @@ struct BrowserSessionManagerView: View {
         // which is also when it is presented.
         presenter.show(.browserSession(info, expiresAt: Date().addingTimeInterval(90)),
                        symbol: "globe", decide: decide)
+    }
+
+    func show(_ info: BrowserSessionPresentation, decideDuration: @escaping (ServiceGrantDuration?) -> Void) {
+        presenter.show(.browserSession(info, expiresAt: Date().addingTimeInterval(90)),
+                       symbol: "globe", decideDuration: decideDuration)
     }
 
     func dismiss() { presenter.dismiss() }
