@@ -120,9 +120,14 @@ public struct BrowserSessionSummary: Codable, Sendable, Equatable, Identifiable 
     public let label: String
     public let cookieCount: Int
     public let createdAt: Date
-    public init(snapshot: BrowserSessionImport, createdAt: Date) {
+    /// Same two levels a credential has. A saved login is a credential — it hands an agent the
+    /// ability to act as you on that site — so it gets the same choice rather than one
+    /// hard-coded behaviour.
+    public let security: SecurityLevel
+    public init(snapshot: BrowserSessionImport, createdAt: Date, security: SecurityLevel = .strict) {
         id = snapshot.id; origin = snapshot.origin; label = snapshot.label
         cookieCount = snapshot.cookies.count; self.createdAt = createdAt
+        self.security = security
     }
 }
 

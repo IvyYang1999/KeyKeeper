@@ -28,7 +28,14 @@ public final class FileBrowserSessionMarker: BrowserSessionMarker {
 /// App is the sole process owner. Public replies expose summaries; only the browser
 /// installation closure receives a snapshot in memory.
 public final class BrowserSessionStore {
-    private struct Record: Codable { let snapshot: BrowserSessionImport; let createdAt: Date }
+    private struct Record: Codable {
+        let snapshot: BrowserSessionImport
+        let createdAt: Date
+        /// Absent in files written before 0.3.4. Absent means "ask every time", which is what
+        /// those sessions have always done — a missing field must never quietly widen access.
+        var security: SecurityLevel?
+        var level: SecurityLevel { security ?? .strict }
+    }
     private struct Document: Codable { var version = 1; var records: [String: Record] = [:] }
     private let io: KeychainBlobIO
     private let marker: BrowserSessionMarker
@@ -53,7 +60,7 @@ public final class BrowserSessionStore {
 
     public func list() throws -> [BrowserSessionSummary] {
         lock.lock(); defer { lock.unlock() }
-        return try load().records.values.map { .init(snapshot: $0.snapshot, createdAt: $0.createdAt) }
+        return try load().records.values.map { .init(snapshot: $0.snapshot, createdAt: $0.createdAt, security: $0.level) }
             .sorted { $0.createdAt == $1.createdAt ? $0.id < $1.id : $0.createdAt < $1.createdAt }
     }
 
@@ -64,12 +71,13 @@ public final class BrowserSessionStore {
         var document = try load()
         if let existing = document.records[snapshot.id] {
             guard existing.snapshot == snapshot else { throw BrowserSessionError.conflict }
-            return .init(snapshot: existing.snapshot, createdAt: existing.createdAt)
+            return .init(snapshot: existing.snapshot, createdAt: existing.createdAt, security: existing.level)
         }
         guard document.records.count < 32 else { throw BrowserSessionError.capacity }
-        document.records[snapshot.id] = Record(snapshot: snapshot, createdAt: now)
+        // New sessions start at the strictest setting. Widening is a decision the person makes.
+        document.records[snapshot.id] = Record(snapshot: snapshot, createdAt: now, security: .strict)
         try write(document)
-        return .init(snapshot: snapshot, createdAt: now)
+        return .init(snapshot: snapshot, createdAt: now, security: .strict)
     }
 
     public func withSnapshot<T>(id: String, now: Date = Date(), _ install: (BrowserSessionImport) throws -> T) throws -> T {
@@ -77,6 +85,23 @@ public final class BrowserSessionStore {
         guard let record = try load().records[id] else { throw BrowserSessionError.notFound }
         try record.snapshot.validate(now: now)
         return try install(record.snapshot)
+    }
+
+    /// Changing how a saved login may be used. Never touches the cookies themselves.
+    public func setSecurity(id: String, to level: SecurityLevel) throws {
+        lock.lock(); defer { lock.unlock() }
+        var document = try load()
+        guard var record = document.records[id] else { throw BrowserSessionError.notFound }
+        record.security = level
+        document.records[id] = record
+        try write(document)
+    }
+
+    /// What the open path needs to know before deciding whether to ask.
+    public func security(id: String) throws -> SecurityLevel {
+        lock.lock(); defer { lock.unlock() }
+        guard let record = try load().records[id] else { throw BrowserSessionError.notFound }
+        return record.level
     }
 
     public func delete(id: String) throws {
