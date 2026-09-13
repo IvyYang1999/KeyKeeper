@@ -294,8 +294,25 @@ final class IPCServer: ObservableObject {
         // disconnected client raise SIGPIPE and terminate the healthy server being probed.
         guard Self.prepareAcceptedClient(clientFd) else { return }
         setReadTimeout(fd: clientFd, seconds: IPCConstants.serverReadTimeout)
-        let peerPID = peerPID(for: clientFd) ?? 0
-        let callerIdentity = CallerIdentityResolver.resolve(peerPID: peerPID)
+        // Identity is bound to the connection, not to whatever the pid becomes later. A caller
+        // whose token cannot be read is resolved the old way and comes back unverified, which
+        // matches no approval — it can still be allowed, but only by a person, every time.
+        let callerIdentity: CallerIdentity
+        if let token = peerAuditToken(for: clientFd) {
+            callerIdentity = CallerIdentityResolver.resolve(auditToken: token)
+        } else {
+            let pid = peerPID(for: clientFd) ?? 0
+            let resolved = CallerIdentityResolver.resolve(peerPID: pid)
+            callerIdentity = CallerIdentity(
+                peerPID: resolved.peerPID, executablePath: resolved.executablePath,
+                bundleIdentifier: resolved.bundleIdentifier, teamIdentifier: resolved.teamIdentifier,
+                signingIdentifier: resolved.signingIdentifier, parentChain: resolved.parentChain,
+                subject: CallerSubject(kind: resolved.subject.kind,
+                                       fingerprint: CallerSubject.unverifiedPrefix + "no-audit-token",
+                                       displayName: resolved.subject.displayName,
+                                       detail: resolved.subject.detail))
+        }
+        let peerPID = callerIdentity.peerPID
 
         // Read envelope
         guard let envelope = IPCMessage.readMessage(fd: clientFd, as: IPCRequest.self) else {
@@ -930,6 +947,22 @@ final class IPCServer: ObservableObject {
         let result = getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &length)
         guard result == 0 else { return nil }
         return Int32(pid)
+    }
+
+    /// The peer's audit token, taken from the socket itself.
+    ///
+    /// A pid alone says who is at the other end *right now*; by the time we look it up, that
+    /// process may have exec'd into something more trustworthy while a sibling holds this
+    /// connection. The token carries the pidversion too, so the code identity it resolves to is
+    /// the one that made the connection.
+    private func peerAuditToken(for fd: Int32) -> Data? {
+        var token = audit_token_t()
+        var length = socklen_t(MemoryLayout<audit_token_t>.size)
+        let result = withUnsafeMutablePointer(to: &token) { pointer in
+            getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, pointer, &length)
+        }
+        guard result == 0, length == socklen_t(MemoryLayout<audit_token_t>.size) else { return nil }
+        return withUnsafeBytes(of: token) { Data($0) }
     }
 
     private nonisolated static func writeAndClose(_ response: IPCResponse, clientFd: Int32) {

@@ -93,9 +93,131 @@ public struct CallerSubject: Codable, Equatable, Sendable {
         self.displayName = displayName
         self.detail = detail
     }
+
+    /// Prefix for a caller whose code identity could not be established.
+    ///
+    /// 【安全审计 2026-09-13】Identity used to be read from the pid *after* the connection was
+    /// accepted, so a process could connect, hand the socket to a sibling, and exec into a
+    /// trusted app bundle — the server then measured the trusted image while the attacker held
+    /// the connection. Anything not proven against the connection's own audit token now carries
+    /// this prefix, and nothing with this prefix may satisfy an approval.
+    public static let unverifiedPrefix = "unverified:"
+
+    public var isVerifiedCodeIdentity: Bool { !fingerprint.hasPrefix(Self.unverifiedPrefix) }
+
+    /// The fingerprint for a caller whose signature was actually checked. Nil unless the
+    /// signing information is complete: a partial identity is not an identity.
+    public static func verifiedFingerprint(teamIdentifier: String?,
+                                           bundleIdentifier: String?,
+                                           signingIdentifier: String?) -> String? {
+        guard let team = teamIdentifier, !team.isEmpty,
+              let bundle = bundleIdentifier, !bundle.isEmpty else { return nil }
+        return "app:team=\(team):bundle=\(bundle):signing=\(signingIdentifier ?? bundle)"
+    }
+
+    /// What this caller is, in three tiers.
+    ///
+    /// A signed, valid identity is the strong case. Most agents on a developer's Mac are not
+    /// that — unsigned or ad-hoc local programs — and refusing them any standing approval would
+    /// mean a prompt on every single call, which is the thing people click "Always" to stop. So
+    /// an unsigned caller that can still be located at connect time gets a weaker identity based
+    /// on its executable path: the exec-swap trick cannot steal it, because the path is measured
+    /// from the connection's own audit token. Only a caller that cannot be located at all is
+    /// unverified, and that one can never hold an approval.
+    public static func fingerprint(validSignature: Bool,
+                                   teamIdentifier: String?,
+                                   bundleIdentifier: String?,
+                                   signingIdentifier: String?,
+                                   mainExecutablePath: String?) -> String {
+        if validSignature,
+           let signed = verifiedFingerprint(teamIdentifier: teamIdentifier,
+                                            bundleIdentifier: bundleIdentifier,
+                                            signingIdentifier: signingIdentifier) {
+            return signed
+        }
+        guard let path = mainExecutablePath, !path.isEmpty else {
+            return unverifiedPrefix + "unlocatable"
+        }
+        let digest = SHA256.hash(data: Data(path.utf8))
+        return "unsigned:path=" + digest.map { String(format: "%02x", $0) }.joined()
+    }
 }
 
 public enum CallerIdentityResolver {
+    /// Identity proven against the connection's own audit token.
+    ///
+    /// The token is taken from the socket at accept time and carries the peer's pid *and* its
+    /// pidversion, so the code object it resolves to is the image that was running when the
+    /// connection was made. A process that connects and then execs into a trusted app bundle
+    /// still measures as itself — which is the whole point, because the alternative (reading the
+    /// pid's current executable) hands anyone the identity of any signed binary on the Mac.
+    ///
+    /// Anything that cannot be proven comes back marked unverified, and an unverified caller
+    /// matches no approval; it has to be allowed by a person, every time.
+    public static func resolve(auditToken: Data, maxDepth: Int = 12) -> CallerIdentity {
+        let pid = peerPID(fromAuditToken: auditToken) ?? -1
+        let processes = processChain(startingAt: pid, maxDepth: maxDepth)
+        let peer = processes.first
+        let subject = verifiedSubject(auditToken: auditToken, pid: pid, peer: peer)
+        return CallerIdentity(
+            peerPID: pid,
+            executablePath: peer?.executablePath,
+            bundleIdentifier: peer?.bundleIdentifier,
+            teamIdentifier: peer?.teamIdentifier,
+            signingIdentifier: peer?.signingIdentifier,
+            parentChain: processes,
+            subject: subject
+        )
+    }
+
+    static func peerPID(fromAuditToken token: Data) -> Int32? {
+        guard token.count == MemoryLayout<audit_token_t>.size else { return nil }
+        var value = audit_token_t()
+        _ = withUnsafeMutableBytes(of: &value) { token.copyBytes(to: $0) }
+        // val[5] is the pid; this is what audit_token_to_pid() reads, and reading it directly
+        // avoids linking libbsm for one accessor. val[7] is the pidversion, which is what makes
+        // the token immune to pid reuse — SecCode checks it for us.
+        return Int32(bitPattern: value.val.5)
+    }
+
+    private static func verifiedSubject(auditToken: Data, pid: Int32,
+                                        peer: CallerProcess?) -> CallerSubject {
+        func unverified(_ reason: String) -> CallerSubject {
+            CallerSubject(kind: .executable,
+                          fingerprint: CallerSubject.unverifiedPrefix + reason,
+                          displayName: peer?.bundleIdentifier ?? (peer?.executablePath as NSString?)?.lastPathComponent ?? "Unknown Caller",
+                          detail: peer?.executablePath ?? "")
+        }
+        var code: SecCode?
+        let attributes = [kSecGuestAttributeAudit: auditToken] as CFDictionary
+        guard SecCodeCopyGuestWithAttributes(nil, attributes, [], &code) == errSecSuccess,
+              let code else { return unverified("no-code-object") }
+        // Recorded, not required: an unsigned caller still gets a (weaker) identity below.
+        let validSignature = SecCodeCheckValidity(code, [], nil) == errSecSuccess
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess,
+              let staticCode else { return unverified("no-static-code") }
+        var information: CFDictionary?
+        let gotInfo = SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation),
+                                                    &information) == errSecSuccess
+        let info = (gotInfo ? information as? [String: Any] : nil) ?? [:]
+
+        let team = info[kSecCodeInfoTeamIdentifier as String] as? String
+        let signing = info[kSecCodeInfoIdentifier as String] as? String
+        let plist = info[kSecCodeInfoPList as String] as? [String: Any]
+        let bundle = plist?["CFBundleIdentifier"] as? String
+        // Measured from the audit token, so this is the image that opened the connection.
+        let executable = (info[kSecCodeInfoMainExecutable as String] as? URL)?.path
+            ?? peer?.executablePath
+        let fingerprint = CallerSubject.fingerprint(
+            validSignature: validSignature, teamIdentifier: team,
+            bundleIdentifier: bundle, signingIdentifier: signing, mainExecutablePath: executable)
+        return CallerSubject(kind: bundle == nil ? .executable : .app,
+                             fingerprint: fingerprint,
+                             displayName: bundle ?? (executable as NSString?)?.lastPathComponent ?? "Unknown Caller",
+                             detail: executable ?? "")
+    }
+
     public static func resolve(peerPID: Int32, maxDepth: Int = 12) -> CallerIdentity {
         let processes = processChain(startingAt: peerPID, maxDepth: maxDepth)
         let peer = processes.first

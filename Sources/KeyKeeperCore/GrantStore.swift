@@ -82,7 +82,8 @@ public final class GrantStore: Sendable {
             // so any process running as the user could take either with no prompt at all, and
             // the "pin it to whoever used it first" migration handed the approval to the
             // taker. Re-asking once per credential is the cheaper mistake.
-            guard let owner = grant.subjectFingerprint, owner == fingerprint else { return false }
+            guard let owner = grant.subjectFingerprint, owner == fingerprint,
+                  !owner.hasPrefix(CallerSubject.unverifiedPrefix) else { return false }
             return isValid(grant: grant, sessionId: sessionId, now: now)
         }
     }
@@ -99,7 +100,9 @@ public final class GrantStore: Sendable {
         let now = Date()
         return file.grants.contains { grant in
             grant.credentialId == credentialId
-                && grant.subjectFingerprint != nil   // unowned approvals no longer satisfy anyone
+                // Unowned approvals no longer satisfy anyone, and neither does an approval
+                // recorded against a caller whose code identity was never proven.
+                && (grant.subjectFingerprint.map { !$0.hasPrefix(CallerSubject.unverifiedPrefix) } ?? false)
                 && isValid(grant: grant, sessionId: sessionId, now: now)
         }
     }
