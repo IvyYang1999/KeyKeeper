@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.2 - unreleased
+## 0.3.2 - 2026-09-13
 
 - Fields can be marked plain instead of secret. Plain values live in `meta.json` in the clear, are injected by `keykeeper run` without an approval prompt, and can be written with `keykeeper edit --set/--unset`. A field can be converted either way in the app. Never put a password, token or key in a plain field.
 - A credential holding no secret fields no longer asks for approval at all.
@@ -8,6 +8,9 @@
 - Fix: the credential title is sanitised before it becomes the authorization window's headline — any local process can rename a credential without a prompt.
 - Fix: the save-time integrity check is scoped to the credential being edited, so one credential with missing values no longer blocks every other edit.
 - Fix: Chinese translations for the plain-field interface, including the destructive confirmation button.
+- Fix: a plain field's earlier names no longer claim an environment variable a current field name needs.
+- Fix: launch no longer reads the Keychain on every start to record that a store exists.
+- Release tooling: the generated appcast is now written where it is verified, the feed-signature check matches what Sparkle actually emits, `publish-update.sh` pushes `main` and refuses to upload a DMG the appcast did not sign.
 
 ## 0.3.1 - 2026-09-13
 
