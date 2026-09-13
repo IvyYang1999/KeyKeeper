@@ -58,7 +58,7 @@ struct BrowserSessionManagerView: View {
                 HStack(alignment: .firstTextBaseline) {
                     MainPageHeader(
                         title: L("Website sessions"),
-                        subtitle: L("Let an agent use a website you are already logged in to, without handing over your password. Every window needs your confirmation and closes after 15 minutes — and inside it, an agent can do anything you could, not just read.")
+                        subtitle: L("Let an agent use a website you are already logged in to, without handing over your password. Opening a window needs your approval — once, for an hour, or always, for that agent. Windows pause after 15 minutes until authorized again, and inside one an agent can do anything you could, not just read.")
                     )
                     Spacer()
                     if !controller.sessions.isEmpty {
@@ -88,6 +88,19 @@ struct BrowserSessionManagerView: View {
                                     .font(.caption.monospaced())
                                     .foregroundColor(.secondary)
                                     .textSelection(.enabled)
+                                // Anyone given more than "once" is listed here, with the way to take it back:
+                                // an approval nobody can see or revoke is not one anybody really gave.
+                                ForEach(controller.grants(for: item.id)) { grant in
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "checkmark.shield").foregroundColor(.secondary)
+                                        Text(SessionGrantCopy.line(grant))
+                                            .font(.caption).foregroundColor(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        Spacer()
+                                        Button(L("Revoke")) { controller.revokeGrant(id: grant.id) }
+                                            .buttonStyle(.link).font(.caption)
+                                    }
+                                }
                             }
                             .padding(14)
                             .glassCard()
@@ -377,3 +390,23 @@ struct BrowserExtensionSetupCard: View {
         pasteboard.setString(text, forType: .string)
     }
 }
+
+/// One line per standing approval on the sessions page.
+enum SessionGrantCopy {
+    static func line(_ grant: BrowserSessionGrant) -> String {
+        let who = CallerStatedReason.printableLine(grant.subjectDisplayName, limit: 80)
+        switch grant.duration {
+        case .always:
+            return L("\(who) can open it without asking")
+        case .timed(let until):
+            let formatter = DateFormatter()
+            formatter.locale = AppL10n.locale
+            formatter.dateStyle = .none
+            formatter.timeStyle = .short
+            return L("\(who) can open it without asking until \(formatter.string(from: until))")
+        case .once:
+            return L("\(who) can open it once more without asking")
+        }
+    }
+}
+

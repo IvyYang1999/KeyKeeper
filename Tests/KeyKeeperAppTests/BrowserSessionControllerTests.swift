@@ -338,3 +338,22 @@ extension BrowserSessionControllerTests {
         }
     }
 }
+
+extension SessionDurationPromptTests {
+    /// 给了「始终」却没处看、没处撤，等于没法收回。登录态页每条下面列出谁能不经询问打开，并能撤销。
+    func test登录态页列出长期授权并能撤销() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("Sources/KeyKeeperApp/BrowserSessionViews.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("controller.grants(for: item.id)"))
+        XCTAssertTrue(source.contains("controller.revokeGrant(id: grant.id)"))
+        let always = BrowserSessionGrant(sessionId: "s", subjectFingerprint: "unsigned:path=a",
+                                         subjectDisplayName: "codex\u{202E}\nx", duration: .always)
+        let line = SessionGrantCopy.line(always)
+        XCTAssertTrue(line.contains("codex"), line)
+        XCTAssertFalse(line.contains("\u{202E}"), line)
+        for template in ["{0} can open it without asking", "{0} can open it without asking until {1}",
+                         "{0} can open it once more without asking", "Revoke"] {
+            XCTAssertNotEqual(AppL10n.render(template, language: "zh-Hans"), template, template)
+        }
+    }
+}

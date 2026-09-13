@@ -40,7 +40,7 @@ extension AppL10n {
         "The keykeeper command is not installed": "还没装 keykeeper 命令行工具",
         "Agents use it to reach KeyKeeper. Installing it once now also keeps it current after every update.": "Agent 靠它找到 KeyKeeper。现在装一次，以后每次 App 更新它都自动跟着走。",
         // 网站登录态：先说这是干嘛的（0.3.4）
-        "Let an agent use a website you are already logged in to, without handing over your password. Every window needs your confirmation and closes after 15 minutes — and inside it, an agent can do anything you could, not just read.": "让 Agent 用你已经登录好的网站，而不用把账号密码交给它。每次打开都要你确认，15 分钟后自动关闭；窗口里它能做的事和你自己登录时一样，不只是看。",
+        "Let an agent use a website you are already logged in to, without handing over your password. Opening a window needs your approval — once, for an hour, or always, for that agent. Windows pause after 15 minutes until authorized again, and inside one an agent can do anything you could, not just read.": "让 Agent 使用你已经登录的网站，而不必交出密码。打开窗口需要你批准——可以只这一次、一小时或始终，只对那个 Agent 有效。窗口 15 分钟后会暂停，重新授权才能继续；在窗口里，Agent 能做你能做的任何事，不只是看。",
         "Log in here": "在 KeyKeeper 里登录",
         "KeyKeeper opens an empty window. You sign in there once, and it keeps that session. Nothing to install.": "KeyKeeper 打开一个空窗口，你在里面登一次，登录态就留在这儿。什么都不用装。",
         "Start": "开始",
