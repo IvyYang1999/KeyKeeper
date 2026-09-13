@@ -47,6 +47,8 @@ struct BrowserSessionPresentation {
     /// Whether a person just clicked Allow for the window about to open — the only case where it
     /// may take over the screen.
     private var humanApprovedOpen = true
+    /// Who asked for the pending request, so an approval can be remembered for them alone.
+    private var pendingFingerprint: String?
     var activeIDs: [String] { runtime.activeIDs }
 
     init(store: BrowserSessionStore, runtime: BrowserSessionRuntime, now: @escaping () -> Date = Date.init,
@@ -81,7 +83,11 @@ struct BrowserSessionPresentation {
         catch { sessions = []; errorCode = .unavailable }
     }
 
-    func receive(_ request: BrowserSessionRequest, caller: String, isConnected: @escaping () -> Bool = { true },
+    /// `fingerprint` identifies the calling program the way a service grant does. Without it a
+    /// standing permission would mean "any process on this Mac", which is not what anyone means
+    /// to grant — and is exactly what a strict key grant unfortunately does today.
+    func receive(_ request: BrowserSessionRequest, caller: String, fingerprint: String? = nil,
+                 isConnected: @escaping () -> Bool = { true },
                  completion: @escaping (BrowserSessionResponse) -> Void) {
         do {
             try request.validate()
@@ -119,6 +125,15 @@ struct BrowserSessionPresentation {
                 resolve(approved: true)
                 return
             }
+            // A standing permission this caller was already given, for this login only.
+            if request.action == .open, let fingerprint,
+               let grant = try? store.validGrant(sessionId: summary.id, fingerprint: fingerprint, now: now()) {
+                if case .once = grant.duration { try? store.consumeGrant(id: grant.id, now: now()) }
+                humanApprovedOpen = false
+                resolve(approved: true)
+                return
+            }
+            pendingFingerprint = fingerprint
             humanApprovedOpen = true
             let displayCaller = String(caller.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.prefix(120))
             present(.init(action: request.action, session: summary, caller: displayCaller)) { [weak self] approved in

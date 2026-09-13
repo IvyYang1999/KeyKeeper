@@ -316,6 +316,7 @@ final class IPCServer: ObservableObject {
                     Self.writeAndClose(.browserSession(.init(success: false, errorCode: .unavailable)), clientFd: clientFd); return
                 }
                 controller.receive(request, caller: callerIdentity.displayName,
+                                   fingerprint: callerIdentity.subject.fingerprint,
                     isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
                     completion: { response in self.send(.browserSession(response), clientFd: clientFd) })
             }

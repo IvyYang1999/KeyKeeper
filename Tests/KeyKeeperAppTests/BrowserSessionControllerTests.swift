@@ -163,6 +163,36 @@ private final class SessionControllerMarker: BrowserSessionMarker {
         controller.receive(.init(action: .open, id: input.id), caller: "Fixture") { _ in }
         XCTAssertEqual(runtime.lastBringToFront, false, "没人批准的窗口不该弹到人脸上")
     }
+
+    /// 有了这个调用方自己的授权，打开就不再问——但只对**这个调用方**、**这条登录态**生效。
+    func test已有授权的调用方打开不再弹窗() throws {
+        let io = SessionControllerIO(), runtime = FocusTrackingRuntime()
+        let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
+        var prompts = 0; var decide: ((Bool) -> Void)?
+        let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
+            present: { _, reply in prompts += 1; decide = reply }, dismiss: {})
+        let input = BrowserSessionImport(id: UUID().uuidString, origin: "https://example.com", label: "Synthetic", cookies: [
+            .init(name: "fixture", value: "synthetic", domain: "example.com", hostOnly: true,
+                  path: "/", secure: true, httpOnly: true, sameSite: "lax", expirationDate: nil)
+        ])
+        _ = try store.save(input)
+        try store.addGrant(.init(sessionId: input.id, subjectFingerprint: "app:bundle=com.example.agent",
+                                 subjectDisplayName: "Agent", duration: .always))
+        controller.refresh()
+
+        // 有授权的调用方：直接开，不问，而且不抢焦点
+        controller.receive(.init(action: .open, id: input.id), caller: "Agent",
+                           fingerprint: "app:bundle=com.example.agent") { _ in }
+        XCTAssertEqual(prompts, 0)
+        XCTAssertEqual(runtime.lastBringToFront, false)
+        runtime.stop(id: input.id)
+
+        // 换一个调用方：还是要问
+        controller.receive(.init(action: .open, id: input.id), caller: "Other",
+                           fingerprint: "app:bundle=com.other") { _ in }
+        XCTAssertEqual(prompts, 1)
+        decide?(false)
+    }
 }
 
 @MainActor private final class FocusTrackingRuntime: BrowserSessionRuntime {
