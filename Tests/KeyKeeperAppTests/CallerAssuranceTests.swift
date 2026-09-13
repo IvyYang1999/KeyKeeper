@@ -22,6 +22,9 @@ final class CallerAssuranceTests: XCTestCase {
             XCTAssertFalse(assurance.explanation.isEmpty, "\(assurance)")
         }
         // 未核实的那一档必须说清「记不住它」，否则人会以为选了「始终允许」就不再问
+        // 【独立审计 2026-09-13】断言英文原文，不依赖这台 Mac 的首选语言：中文优先的机器上 L() 直接给中文。
+        setenv("KEYKEEPER_UI_LANGUAGE", "en", 1)
+        defer { unsetenv("KEYKEEPER_UI_LANGUAGE") }
         XCTAssertTrue(CallerAssurance.unverified.explanation.contains("every time"),
                       CallerAssurance.unverified.explanation)
         let zh = AppL10n.render(CallerAssurance.unverified.explanation, language: "zh-Hans")

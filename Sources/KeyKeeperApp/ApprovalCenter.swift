@@ -23,6 +23,14 @@ final class ApprovalCenter: ObservableObject {
         let opensWindow: Bool
         let confirm: () -> Void
         let deny: () -> Void
+        var shownAt = Date()
+
+        /// 【独立审计 2026-09-13】the approval window waits out a settle delay; the same request in
+        /// this list approved on the first click, so the delay could be walked around entirely.
+        /// Items that open the full window get that window's delay instead.
+        func canConfirm(now: Date = Date()) -> Bool {
+            opensWindow || ApprovalReadiness.canApprove(shownAt: shownAt, now: now)
+        }
     }
 
     @Published private(set) var items: [Item] = []

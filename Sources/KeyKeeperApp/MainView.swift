@@ -286,12 +286,15 @@ struct MainView: View {
                         Spacer()
                         Button(L("Deny"), action: item.deny)
                             .controlSize(.small)
-                        Button(action: item.confirm) {
-                            Text(item.opensWindow ? "\(item.confirmTitle)…" : item.confirmTitle)
+                        TimelineView(.periodic(from: item.shownAt, by: 0.25)) { context in
+                            Button(action: item.confirm) {
+                                Text(item.opensWindow ? "\(item.confirmTitle)…" : item.confirmTitle)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(item.destructive ? .red : .accentColor)
+                            .controlSize(.small)
+                            .disabled(!item.canConfirm(now: context.date))
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(item.destructive ? .red : .accentColor)
-                        .controlSize(.small)
                     }
                 }
                 .padding(12)

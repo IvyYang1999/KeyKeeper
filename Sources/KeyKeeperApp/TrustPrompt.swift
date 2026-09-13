@@ -33,10 +33,13 @@ struct TrustPromptModel: Equatable {
     var expiresAt: Date?
 
     /// Caller names come from the requesting process; keep them to one printable line.
+    ///
+    /// 【独立审计 2026-09-13】this used to drop control characters only: private-use scalars were
+    /// drawn as-is and a newline silently glued two lines into one name. The authorization window
+    /// uses the strong sanitiser; the save prompts and the menu-bar list use it too now.
     static func sanitizedCaller(_ name: String) -> String {
-        let printable = String(name.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })
-        let trimmed = String(printable.prefix(80)).trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? L("Unknown Caller") : trimmed
+        let line = CallerStatedReason.printableLine(name, limit: 80)
+        return line.isEmpty ? L("Unknown Caller") : line
     }
 
     // MARK: Saves (clipboard, browser paste, service-account file, Python source)
@@ -157,6 +160,9 @@ struct TrustPromptView: View {
     let onCancel: () -> Void
     let onConfirm: () -> Void
     @State private var showDetails = false
+    /// 【独立审计 2026-09-13】saves and website sessions had no settle delay: a click already on its
+    /// way could land on a prompt that had only just appeared. Same rule as the authorization window.
+    @State private var canConfirm = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -246,6 +252,7 @@ struct TrustPromptView: View {
                     Text(model.confirmTitle).frame(minWidth: 52)
                 }
                 .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!canConfirm)
                 .buttonStyle(.borderedProminent)
                 .tint(model.tone == .destructive ? .red : .accentColor)
                 .controlSize(.large)
@@ -254,6 +261,9 @@ struct TrustPromptView: View {
         }
         .padding(24)
         .glassPanel(width: 440, intensity: 0.8)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + ApprovalReadiness.settleDelay) { canConfirm = true }
+        }
     }
 }
 

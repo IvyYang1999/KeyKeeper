@@ -232,7 +232,8 @@ struct AuthorizationView: View {
         self.onDeny = onDeny
         self.authenticationMethod = AuthenticationMethod.detect()
         _selectedDuration = State(initialValue: DurationOption.defaultSelection(
-            hasTerminalSession: prompt.hasTerminalSession
+            hasTerminalSession: prompt.hasTerminalSession,
+            canRemember: prompt.callerIdentity.map { CallerAssurance.of($0.subject).canRemember } ?? false
         ))
     }
 
@@ -251,13 +252,17 @@ struct AuthorizationView: View {
             }
         }
 
-        /// "This terminal session" is only offered when the caller actually has one.
-        static func available(hasTerminalSession: Bool) -> [DurationOption] {
-            allCases.filter { $0 != .session || hasTerminalSession }
+        /// "This terminal session" is only offered when the caller actually has one — and nothing but
+        /// "once" when the caller cannot be identified. 【独立审计 2026-09-13】a longer answer cannot be
+        /// remembered for it, so offering one promised what KeyKeeper would not do.
+        static func available(hasTerminalSession: Bool, canRemember: Bool = true) -> [DurationOption] {
+            guard canRemember else { return [.once] }
+            return allCases.filter { $0 != .session || hasTerminalSession }
         }
 
-        static func defaultSelection(hasTerminalSession: Bool) -> DurationOption {
-            hasTerminalSession ? .session : .oneHour
+        static func defaultSelection(hasTerminalSession: Bool, canRemember: Bool = true) -> DurationOption {
+            guard canRemember else { return .once }
+            return hasTerminalSession ? .session : .oneHour
         }
     }
 
@@ -356,6 +361,11 @@ struct AuthorizationView: View {
         .glassCard()
     }
 
+    /// The tier that decides what "Allow" can honestly promise.
+    private var callerAssurance: CallerAssurance {
+        prompt.callerIdentity.map { CallerAssurance.of($0.subject) } ?? .unverified
+    }
+
     /// What is actually known about the asker, next to its name.
     private func callerAssuranceRow(_ assurance: CallerAssurance) -> some View {
         HStack(alignment: .top, spacing: 6) {
@@ -438,7 +448,8 @@ struct AuthorizationView: View {
                 .font(.subheadline.bold())
 
             Picker(L("Duration"), selection: $selectedDuration) {
-                ForEach(DurationOption.available(hasTerminalSession: prompt.hasTerminalSession), id: \.self) { option in
+                ForEach(DurationOption.available(hasTerminalSession: prompt.hasTerminalSession,
+                                                 canRemember: callerAssurance.canRemember), id: \.self) { option in
                     Text(AppL10n.text(option.rawValue)).tag(option)
                 }
             }
@@ -447,7 +458,7 @@ struct AuthorizationView: View {
 
             // What an approval actually covers, next to the choice — a caller's note may
             // promise "just one field, just once", but the grant is per credential.
-            Text(L("Allowing lets \(callerName) read every key in this credential — only \(callerName), not other programs on this Mac. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it."))
+            Text(callerAssurance.scopeLine(caller: callerName, wholeCredential: true))
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -623,7 +634,7 @@ struct AuthorizationView: View {
 
             // The strict window has said this since 863d53e; this one never did, and "Always"
             // means the same thing in both.
-            Text(L("Allowing lets \(callerName) read this key — only \(callerName), not other programs on this Mac. \u{201C}Always\u{201D} lasts until you revoke it."))
+            Text(callerAssurance.scopeLine(caller: callerName, wholeCredential: false))
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -648,6 +659,7 @@ struct AuthorizationView: View {
                     }
                     .disabled(isAuthenticating || !canApprove)
 
+                    if callerAssurance.canRemember {
                     Button(L("1 Hour")) {
                         authenticate {
                             try onAuthorizeService?(.timed(Date().addingTimeInterval(3600)))
@@ -672,6 +684,7 @@ struct AuthorizationView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isAuthenticating || !canApprove)
+                    }
                 }
             }
         }
