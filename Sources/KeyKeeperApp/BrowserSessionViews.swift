@@ -43,6 +43,7 @@ enum BrowserSessionCopy {
 /// from a globe button in the menu bar; now it is a page beside the keys it relates to.
 struct BrowserSessionManagerView: View {
     @ObservedObject var controller: BrowserSessionController
+    @State private var setup = BrowserExtensionSetup.production()
 
     var body: some View {
         ScrollView {
@@ -57,12 +58,9 @@ struct BrowserSessionManagerView: View {
                         Button(L("Stop all windows")) { controller.stopAll() }
                     }
                 }
+                BrowserExtensionSetupCard(setup: $setup, showsNextStep: controller.sessions.isEmpty)
                 if controller.sessions.isEmpty {
-                    EmptyGlassCard(
-                        symbol: "globe",
-                        title: L("No website sessions yet"),
-                        text: L("Open the intended website in Chrome, then use the KeyKeeper extension to request an import. Keep your original browser login.")
-                    )
+                    EmptyView()
                 } else {
                     VStack(spacing: 10) {
                         ForEach(controller.sessions) { item in
@@ -120,4 +118,90 @@ struct BrowserSessionManagerView: View {
     }
 
     func dismiss() { presenter.dismiss() }
+}
+
+/// What to do when there is nothing here yet.
+///
+/// The page used to say "use the KeyKeeper extension to request an import" and stop — naming a
+/// thing the person had no way to get. The extension is not on the Chrome Web Store; it ships
+/// inside KeyKeeper.app and has to be loaded by hand. So say that, hand over the folder, and do
+/// the one step that is ours to do: wiring Chrome up to this Mac's KeyKeeper.
+struct BrowserExtensionSetupCard: View {
+    @Binding var setup: BrowserExtensionSetup
+    var showsNextStep: Bool
+    @State private var extensionID = ""
+    @State private var failure: String?
+
+    var body: some View {
+        switch setup.connection {
+        case .missingFromApp:
+            EmptyGlassCard(
+                symbol: "puzzlepiece.extension",
+                title: L("This build has no browser extension"),
+                text: L("Website sessions need the Chrome extension that ships inside KeyKeeper.app, and this copy does not contain it. Reinstall KeyKeeper from keykeeper.dev.")
+            )
+        case .notConnected:
+            connectCard
+        case .connected(let id):
+            if showsNextStep { nextStepCard(id: id) }
+        }
+    }
+
+    private var connectCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(L("Connect Chrome first"), systemImage: "puzzlepiece.extension").font(.headline)
+            Text(L("This needs a Chrome extension. It is not in the Chrome Web Store — it ships inside KeyKeeper.app, so you load it yourself: open chrome://extensions, turn on Developer mode, choose \"Load unpacked\" and pick this folder."))
+                .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button(L("Show the extension folder")) { setup.revealExtensionFolder() }
+                Button(L("Copy the folder path")) { copy(setup.extensionFolder?.path ?? "") }
+                Button(L("Copy chrome://extensions")) { copy("chrome://extensions") }
+            }
+            GlassSeparator()
+            Text(L("Then paste the extension's ID — the 32 letters Chrome shows under its name — so KeyKeeper knows which extension to trust."))
+                .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                TextField(L("32 letters from chrome://extensions"), text: $extensionID)
+                    .textFieldStyle(.roundedBorder).font(.callout.monospaced()).frame(maxWidth: 340)
+                Button(L("Connect")) { connect() }
+                    .disabled(extensionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            if let failure {
+                Text(failure).font(.callout).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private func nextStepCard(id: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(L("No website sessions yet"), systemImage: "globe").font(.headline)
+            Text(L("Open the intended website in Chrome and click the KeyKeeper extension. Pick that site, name it, and confirm here. Keep your original browser login."))
+                .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(L("Connected to extension \(id)"))
+                .font(.caption.monospaced()).foregroundColor(.secondary).textSelection(.enabled)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private func connect() {
+        do {
+            try setup.connect(extensionID: extensionID)
+            failure = nil
+            extensionID = ""
+            setup = setup   // re-read the registration so the card switches to "connected"
+        } catch {
+            failure = error.localizedDescription
+        }
+    }
+
+    private func copy(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
 }
