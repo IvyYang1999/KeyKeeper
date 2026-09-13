@@ -81,6 +81,13 @@ struct RunCommand: ParsableCommand {
         return result
     }
 
+    /// Variables a field's earlier names still set — minus any that would steer execution, which
+    /// are dropped rather than refused so that renaming such a field actually fixes it.
+    static func aliasEnvironmentNames(for credential: Credential, field: String, prefix: String) -> [String] {
+        credential.environmentNames(forField: field, prefix: prefix).dropFirst()
+            .filter { !EnvironmentVariableName.isReservedVariable($0) }
+    }
+
     /// The variable names a plain field claims under its current name (aliases are best effort).
     static func nonSecretCurrentNames(for credential: Credential, prefix: String) -> Set<String> {
         Set(credential.fields.filter { !$0.value.secret && $0.value.value?.isEmpty == false }
@@ -98,8 +105,12 @@ struct RunCommand: ParsableCommand {
                                  aliases: inout [String: String]) throws {
         let currentNames = nonSecretCurrentNames(for: credential, prefix: prefix)
         for (envName, value) in nonSecretEnvironment(for: credential, prefix: prefix).sorted(by: { $0.key < $1.key }) {
-            guard !EnvironmentVariableName.isReservedVariable(envName) else {
-                throw CommandFailure(EnvironmentVariableName.refusalMessage(envName))
+            if EnvironmentVariableName.isReservedVariable(envName) {
+                // A current name is refused; an earlier one is just not set, so the rename fixes it.
+                guard !currentNames.contains(envName) else {
+                    throw CommandFailure(EnvironmentVariableName.refusalMessage(envName))
+                }
+                continue
             }
             guard currentNames.contains(envName) else {
                 aliases[envName] = aliases[envName] ?? value
@@ -213,7 +224,7 @@ struct RunCommand: ParsableCommand {
                     secretValues.append(value)
                     // Earlier field names keep their variables, so scripts written before a
                     // rename still work. A current name always wins over an old one.
-                    for oldName in cred.environmentNames(forField: fieldName, prefix: prefix).dropFirst() {
+                    for oldName in Self.aliasEnvironmentNames(for: cred, field: fieldName, prefix: prefix) {
                         aliasEnv[oldName] = aliasEnv[oldName] ?? value
                     }
                 }

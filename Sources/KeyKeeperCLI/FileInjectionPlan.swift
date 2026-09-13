@@ -34,10 +34,15 @@ struct FileInjectionPlan {
             for (field, entry) in credential.fields {
                 // 【独立审计 2026-09-13】checked where names become variables, not at one of the ways
                 // a name gets in: a prefix, or a field's earlier name, can produce one too.
+                //
+                // Only the current name is refused. An earlier name that would steer execution is
+                // simply not set (see RunCommand.aliasEnvironmentNames): renaming the field is how
+                // anyone fixes this, and a rename keeps the old name as an alias forever — refusing
+                // aliases too made the fix impossible. 【独立审计第二轮】
                 if entry.fileFormat == nil, entry.secret || entry.value?.isEmpty == false {
-                    for variable in credential.environmentNames(forField: field, prefix: prefix)
-                    where EnvironmentVariableName.isReservedVariable(variable) {
-                        throw CommandFailure(EnvironmentVariableName.refusalMessage(variable))
+                    let current = EnvironmentVariableName.from(fieldName: field, prefix: prefix)
+                    if EnvironmentVariableName.isReservedVariable(current) {
+                        throw CommandFailure(EnvironmentVariableName.refusalMessage(current))
                     }
                 }
                 guard entry.secret else {

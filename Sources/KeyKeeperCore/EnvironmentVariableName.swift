@@ -33,10 +33,19 @@ public enum EnvironmentVariableName {
         "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME", "NODE_OPTIONS", "NODE_PATH",
         "PERL5OPT", "PERL5LIB", "RUBYOPT", "RUBYLIB", "JAVA_TOOL_OPTIONS",
         "EDITOR", "VISUAL", "PAGER", "TMPDIR", "HOME",
+        // 【独立审计第二轮】same class, missed the first time: config files, askpass helpers and shell
+        // hooks run code just as surely as GIT_SSH_COMMAND does.
+        "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+        "GIT_ASKPASS", "SSH_ASKPASS", "GIT_EXEC_PATH", "GIT_TEMPLATE_DIR", "GIT_PROXY_COMMAND",
+        "ZDOTDIR", "LESSOPEN", "LESSCLOSE", "PROMPT_COMMAND", "SHELLOPTS", "BASHOPTS", "PS4", "BROWSER",
+        "PYTHONBREAKPOINT", "PYTHONINSPECT", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS", "CLASSPATH",
+        "PERL5DB", "PERLLIB", "RUSTC_WRAPPER", "GEM_HOME", "GEM_PATH", "LUA_INIT", "XDG_CONFIG_HOME",
         // Not USER or LOGNAME: they name someone, they do not decide what runs. And a credential
         // on the maintainer's own Mac has a field called `User` — refusing it at injection would
         // make that credential unusable for no gain.
     ]
+
+    static let reservedPrefixes = ["DYLD_", "LD_", "GIT_CONFIG_", "BASH_FUNC_", "NPM_CONFIG_"]
 
     public static func isReserved(fieldName: String, prefix: String = "") -> Bool {
         isReservedVariable(from(fieldName: fieldName, prefix: prefix))
@@ -44,7 +53,7 @@ public enum EnvironmentVariableName {
 
     /// For a finished variable name — what `run` is about to set.
     public static func isReservedVariable(_ name: String) -> Bool {
-        reservedNames.contains(name) || name.hasPrefix("DYLD_") || name.hasPrefix("LD_")
+        reservedNames.contains(name) || reservedPrefixes.contains { name.hasPrefix($0) }
     }
 
     public static func refusalMessage(_ name: String) -> String {
