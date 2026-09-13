@@ -192,12 +192,10 @@ struct RunCommand: ParsableCommand {
                 }
 
                 // Read secret via IPC — App owns the unlocked age session
-                let value = try IPCClient.requestValue(
-                    credentialId: credId,
-                    fieldName: fieldName,
-                    sessionId: session.id,
-                    requestedFieldNames: secretFieldNames,
-                    statedReason: statedReason()
+                let value = try Self.readSecret(
+                    credentialId: credId, credential: cred, fieldName: fieldName,
+                    requestedFieldNames: secretFieldNames, grantStore: grantStore,
+                    session: session, statedReason: statedReason()
                 )
                 if let format = cred.fields[fieldName]?.fileFormat {
                     _ = try format.validate(Data(value.utf8))
@@ -320,13 +318,44 @@ struct RunCommand: ParsableCommand {
 
     /// Ensure a valid grant exists for a strict credential.
     /// If no valid grant, request authorization via IPC to the app.
+    /// The CLI's pre-check is looser than the app's (it cannot compute its own identity), so the
+    /// app can refuse a request the pre-check waved through. Then the honest move is to ask once.
+    static func shouldRequestAuthorizationAfterRefusal(_ error: Error, security: SecurityLevel,
+                                                       alreadyRetried: Bool) -> Bool {
+        guard !alreadyRetried, security == .strict, case IPCError.noAuthorization = error else { return false }
+        return true
+    }
+
+    /// Reads a secret, and if the app says this caller holds no approval after all, asks for one
+    /// and tries exactly once more.
+    static func readSecret(credentialId: String, credential: Credential, fieldName: String,
+                           requestedFieldNames: [String], grantStore: GrantStore,
+                           session: SessionInfo, statedReason: CallerStatedReason?) throws -> String {
+        func read() throws -> String {
+            try IPCClient.requestValue(credentialId: credentialId, fieldName: fieldName,
+                                       sessionId: session.id, requestedFieldNames: requestedFieldNames,
+                                       statedReason: statedReason)
+        }
+        do {
+            return try read()
+        } catch {
+            guard shouldRequestAuthorizationAfterRefusal(error, security: credential.security, alreadyRetried: false) else {
+                throw error
+            }
+            try ensureGrant(credentialId: credentialId, credential: credential, grantStore: grantStore,
+                            session: session, statedReason: statedReason, skipPrecheck: true)
+            return try read()
+        }
+    }
+
     static func ensureGrant(credentialId: String, credential: Credential,
                             grantStore: GrantStore, session: SessionInfo,
-                            statedReason: CallerStatedReason? = nil) throws {
+                            statedReason: CallerStatedReason? = nil,
+                            skipPrecheck: Bool = false) throws {
         // Only deciding whether to raise a window; the App checks properly before any value
         // moves. It must not ask for a fingerprint here — the CLI cannot compute its own, and
         // demanding one made every call prompt again even with a standing approval.
-        if try grantStore.hasLikelyValidGrant(credentialId: credentialId, sessionId: session.id) {
+        if !skipPrecheck, try grantStore.hasLikelyValidGrant(credentialId: credentialId, sessionId: session.id) {
             return
         }
 

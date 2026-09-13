@@ -69,11 +69,10 @@ struct GetCommand: ParsableCommand {
             }
 
             // Read secret via IPC — App owns the unlocked age session
-            let value = try IPCClient.requestValue(
-                credentialId: credentialId, fieldName: fieldName,
-                sessionId: session.id,
-                requestedFieldNames: [fieldName],
-                statedReason: statedReason())
+            let value = try RunCommand.readSecret(
+                credentialId: credentialId, credential: cred, fieldName: fieldName,
+                requestedFieldNames: [fieldName], grantStore: GrantStore.default,
+                session: session, statedReason: statedReason())
             print(value, terminator: "")
         } else {
             // This value comes straight out of meta.json, so it is only as trustworthy as that file.
