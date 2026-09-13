@@ -48,7 +48,7 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
     case invalidSource, unsupportedSource, sourceParserUnavailable
     case invalidFile, fileChanged, wrongFieldType
     case invalidTarget, valueExists, targetNotFound, metadataChanged, clipboardChanged
-    case invalidExpectation, shapeMismatch, clipboardNotCopiedYet
+    case invalidExpectation, shapeMismatch, clipboardNotCopiedYet, clipboardCopiedMoreThanOnce
     case emptyClipboard, busy, denied, expired, disconnected, storageUnavailable, metadataCommitFailed, staleGrants
     public var errorDescription: String? {
         switch self {
@@ -66,6 +66,7 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
         case .invalidExpectation: return "Use --expect base64[:BYTES], hex[:BYTES], bytes:N or chars:N. Nothing was read or saved."
         case .shapeMismatch: return "The value does not look like what you said to expect, so nothing was saved. Check what is actually on the clipboard."
         case .clipboardNotCopiedYet: return "Nothing was copied after this request started, so nothing was saved. Copy the value now and run the command again — what was already on the clipboard is not accepted, because it may have been replaced since you copied it."
+        case .clipboardCopiedMoreThanOnce: return "The clipboard was written more than once after this request started, so there is no way to tell which copy you meant. Nothing was saved. Run the command again and copy exactly once, or pass --use-current-clipboard if something else keeps writing to your clipboard."
         case .emptyClipboard: return "Clipboard must contain nonempty text no larger than 64 KiB."
         case .busy: return "Another confirmation is pending. Finish it before requesting a save."
         case .denied: return "Save cancelled. Nothing was saved."

@@ -76,7 +76,7 @@ struct TrustPromptModel: Equatable {
             title = L("Copy the value now, then save it?")
             source = Row(label: L("Source"), value: L("Clipboard · copied after this request"))
             assurance = L("\(caller) never sees the value. Nothing is overwritten, and the clipboard is cleared after saving.")
-            details = [L("Copy the value first, then approve. Whatever was on the clipboard before this request is refused — it may have been replaced since you copied it. The App reads the clipboard only after you approve. This request expires in 90 seconds.")]
+            details = [L("Copy the value first, then approve. KeyKeeper accepts exactly one copy made after this request — anything already on the clipboard, or a second copy, is refused. The App reads the clipboard only after you approve. This request expires in 90 seconds.")]
         }
         if info.filePath != nil {
             details.append(L("Nothing is overwritten and no read permission is granted. If the file changes, this save is refused. This request expires in 90 seconds."))

@@ -351,15 +351,18 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "copied-after-the-request")
     }
 
-    /// 剪贴板管理器、密码管理器的定时清空都会自己顶 changeCount，所以判据是「至少变过一次」，
-    /// 不是「恰好变过一次」——否则误报会很密。
-    func test中间被别的程序顶过也算数() throws {
+    /// 【差点又踩进去】「至少复制过一次」听着对，其实比原来更宽松：复制真钥匙、又复制了
+    /// 别的东西，照样放行，存进去的还是最后那份——正是事故本身。changeCount 只能回答
+    /// 「变过没有」，回答不了「最后那次是不是你要的那次」。所以判据是**恰好变了一次**：
+    /// 请求之后写过两次以上，就无法确定哪一次是你要存的，拒绝，让人重来。
+    func test请求之后复制了不止一次就拒绝() throws {
         request(useCurrentClipboard: false)
-        copyToClipboard("something-else")
         copyToClipboard("the-real-value")
+        copyToClipboard("一段不小心复制进来的提示词")
         controller.resolve(approved: true)
-        XCTAssertEqual(results.first?.success, true)
-        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "the-real-value")
+        XCTAssertEqual(results.first?.errorCode, .clipboardCopiedMoreThanOnce)
+        XCTAssertEqual(io.writes, 0, "分不清哪一次是你要的，就一个字节都不写")
+        XCTAssertEqual(clipboard.reads, 0)
     }
 
     /// 读取的那一瞬间仍然要稳定：读之前和读之后必须是同一份内容。

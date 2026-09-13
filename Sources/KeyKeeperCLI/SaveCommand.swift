@@ -22,7 +22,7 @@ struct SaveCommand: ParsableCommand {
     var create = false
     @Option(help: "What the value should look like: base64[:BYTES], hex[:BYTES], bytes:N or chars:N. Refuses the save if it does not match, before anything is written.")
     var expect: String?
-    @Flag(help: "Accept whatever is already on the clipboard. By default KeyKeeper waits for a copy made after this command starts, because what is already there may have been replaced since you copied it.")
+    @Flag(help: "Accept whatever is already on the clipboard. By default KeyKeeper accepts exactly one copy made after this command starts, because what is already there may have been replaced since you copied it.")
     var useCurrentClipboard = false
 
     mutating func validate() throws {
@@ -68,7 +68,7 @@ struct SaveCommand: ParsableCommand {
             return
         }
         if fromClipboard && !useCurrentClipboard {
-            print("Copy the value NOW, then confirm in KeyKeeper. Anything already on the clipboard is not accepted — it may have been replaced since you copied it.")
+            print("Copy the value NOW — exactly once — then confirm in KeyKeeper. What is already on the clipboard is not accepted, and a second copy cancels the save.")
             fflush(stdout)
         }
         let result = try IPCClient.requestClipboardSave(request, fromBrowser: fromBrowser) { url in

@@ -138,8 +138,17 @@ extension ClipboardSaveSource {
             //      around the read itself rather than against the request's own baseline.
             let requiresFreshCopy = clipboard.requiresFreshCopy && !request.useCurrentClipboard
             if requiresFreshCopy {
-                guard clipboard.changeCount != pending.changeCount else {
-                    throw ClipboardSaveError.clipboardNotCopiedYet
+                // Exactly one write, not "at least one": the count is an integer, so
+                // baseline + 1 means one copy happened and nothing has touched the clipboard
+                // since. "At least one" would be weaker than the old rule — copy the key, then
+                // copy something else, and it would store the something else, which is the
+                // accident this is meant to prevent. changeCount can say whether the clipboard
+                // changed; it cannot say which of two copies you meant, so refuse and let the
+                // person redo it.
+                switch clipboard.changeCount - pending.changeCount {
+                case 0: throw ClipboardSaveError.clipboardNotCopiedYet
+                case 1: break
+                default: throw ClipboardSaveError.clipboardCopiedMoreThanOnce
                 }
             } else {
                 guard clipboard.changeCount == pending.changeCount else { throw changed }

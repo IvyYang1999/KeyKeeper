@@ -4,6 +4,7 @@
 extension AppL10n {
     static let chineseSupplement: [String: String] = [
         // 剪贴板新鲜度（0.3.3）
+        "Copy the value first, then approve. KeyKeeper accepts exactly one copy made after this request — anything already on the clipboard, or a second copy, is refused. The App reads the clipboard only after you approve. This request expires in 90 seconds.": "先复制，再点同意。KeyKeeper 只认「本次请求之后的那一次复制」：请求之前就在剪贴板上的，以及之后又复制的第二份，都不收。App 只在你同意之后才读剪贴板。此请求 90 秒后过期。",
         "Copy the value now, then save it?": "现在复制那个值，然后保存？",
         "Clipboard · copied after this request": "剪贴板 · 本次请求之后复制的",
         "Copy the value first, then approve. Whatever was on the clipboard before this request is refused — it may have been replaced since you copied it. The App reads the clipboard only after you approve. This request expires in 90 seconds.": "先复制，再点同意。本次请求之前就在剪贴板上的内容一律不收——它可能在你复制之后又被别的东西盖掉了。App 只在你同意之后才读剪贴板。此请求 90 秒后过期。",
