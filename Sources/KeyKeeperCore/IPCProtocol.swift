@@ -55,6 +55,7 @@ public enum IPCRequest: Codable, Sendable {
     case serviceRequests(ServiceRequestsListRequest)
     case sessionControl(SessionControlRequest)
     case metadataEdit(MetadataEditRequest)
+    case metadataIntegrity(MetadataIntegrityRequest)
 
     private enum CodingKeys: String, CodingKey { case type, data }
 
@@ -63,6 +64,9 @@ public enum IPCRequest: Codable, Sendable {
         switch self {
         case .metadataEdit(let r):
             try c.encode("metadataEdit", forKey: .type)
+            try c.encode(r, forKey: .data)
+        case .metadataIntegrity(let r):
+            try c.encode("metadataIntegrity", forKey: .type)
             try c.encode(r, forKey: .data)
         case .browserSession(let r):
             try c.encode("browserSession", forKey: .type)
@@ -114,6 +118,7 @@ public enum IPCRequest: Codable, Sendable {
         case "serviceRequests": self = .serviceRequests(try c.decode(ServiceRequestsListRequest.self, forKey: .data))
         case "sessionControl": self = .sessionControl(try c.decode(SessionControlRequest.self, forKey: .data))
         case "metadataEdit": self = .metadataEdit(try c.decode(MetadataEditRequest.self, forKey: .data))
+        case "metadataIntegrity": self = .metadataIntegrity(try c.decode(MetadataIntegrityRequest.self, forKey: .data))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: c, debugDescription: "Unknown IPC request type")
@@ -130,6 +135,7 @@ public enum IPCResponse: Codable, Sendable {
     case serviceRequests(ServiceRequestsListResponse)
     case sessionControl(SessionControlResponse)
     case metadataEdit(MetadataEditResponse)
+    case metadataIntegrity(MetadataIntegrityResponse)
 
     private enum CodingKeys: String, CodingKey { case type, data }
 
@@ -138,6 +144,9 @@ public enum IPCResponse: Codable, Sendable {
         switch self {
         case .metadataEdit(let r):
             try c.encode("metadataEdit", forKey: .type)
+            try c.encode(r, forKey: .data)
+        case .metadataIntegrity(let r):
+            try c.encode("metadataIntegrity", forKey: .type)
             try c.encode(r, forKey: .data)
         case .browserSession(let r):
             try c.encode("browserSession", forKey: .type)
@@ -174,6 +183,7 @@ public enum IPCResponse: Codable, Sendable {
         case "serviceRequests": self = .serviceRequests(try c.decode(ServiceRequestsListResponse.self, forKey: .data))
         case "sessionControl": self = .sessionControl(try c.decode(SessionControlResponse.self, forKey: .data))
         case "metadataEdit": self = .metadataEdit(try c.decode(MetadataEditResponse.self, forKey: .data))
+        case "metadataIntegrity": self = .metadataIntegrity(try c.decode(MetadataIntegrityResponse.self, forKey: .data))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: c, debugDescription: "Unknown IPC response type")
@@ -551,5 +561,42 @@ public struct MetadataEditResponse: Codable, Sendable, Equatable {
         self.error = error
         self.groupId = groupId
         self.changes = changes
+    }
+}
+
+// MARK: - Metadata integrity
+
+/// "Is meta.json still the file you wrote?" — asked by the CLI before it hands out a plain value.
+public struct MetadataIntegrityRequest: Codable, Sendable, Equatable {
+    public init() {}
+}
+
+public struct MetadataIntegrityResponse: Codable, Sendable, Equatable {
+    public enum Verdict: String, Codable, Sendable { case intact, unsigned, tampered }
+    public var verdict: Verdict
+    public init(verdict: Verdict) { self.verdict = verdict }
+
+    public init(_ verdict: MetaIntegrity.Verdict) {
+        switch verdict {
+        case .intact: self.verdict = .intact
+        case .unsigned: self.verdict = .unsigned
+        case .tampered: self.verdict = .tampered
+        }
+    }
+}
+
+/// Whether the CLI may hand out a value it read straight from meta.json.
+///
+/// The CLI serves plain fields itself — it never asks the app for them — so signing meta.json
+/// only on the app's side would leave the exact attack open: flip `secret: true` to false, put a
+/// value in, and `keykeeper get` returns it. The CLI cannot read the signing key without a
+/// Keychain prompt, so it asks the app. No answer means no: otherwise killing the app would be
+/// the way around the check.
+public enum PlainValuePolicy {
+    public static func mayServe(_ verdict: MetadataIntegrityResponse.Verdict?) -> Bool {
+        switch verdict {
+        case .intact, .unsigned: return true
+        case .tampered, .none: return false
+        }
     }
 }

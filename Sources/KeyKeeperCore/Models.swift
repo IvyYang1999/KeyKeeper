@@ -61,11 +61,18 @@ public struct MetaFile: Codable, Sendable {
     /// item should have stopped everything (2026-09: 49 credentials lost their values that way).
     public var storeInitialized: Bool?
     public var credentials: [String: Credential]
+    /// HMAC over everything else, keyed from the Keychain. See `MetaIntegrity`.
+    ///
+    /// Absent in files written before 0.3.4, and absent is not the same as wrong: an older file
+    /// is adopted, a changed one is refused.
+    public var integrity: String?
 
-    public init(version: Int = 1, storeInitialized: Bool? = nil, credentials: [String: Credential] = [:]) {
+    public init(version: Int = 1, storeInitialized: Bool? = nil,
+                credentials: [String: Credential] = [:], integrity: String? = nil) {
         self.version = version
         self.storeInitialized = storeInitialized
         self.credentials = credentials
+        self.integrity = integrity
     }
 }
 

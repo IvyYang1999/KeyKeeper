@@ -144,6 +144,15 @@ struct RunCommand: ParsableCommand {
         var fileLease: CredentialFileLease?
         defer { fileLease?.close() }
 
+        // Plain values are injected straight from meta.json; refuse if that file is not the one
+        // the app signed. Only asked when something plain would actually be injected.
+        let injectsPlainValues = credentialIds.contains { id in
+            meta.credentials[id]?.fields.values.contains { !$0.secret && $0.value?.isEmpty == false } == true
+        }
+        if injectsPlainValues, !PlainValuePolicy.mayServe(IPCClient.requestMetadataIntegrity()) {
+            throw CommandFailure(PlainValueRefusal.message)
+        }
+
         // Collect all secret fields from requested credentials
         var injectedEnv: [String: String] = [:]
         var aliasEnv: [String: String] = [:]
@@ -855,4 +864,8 @@ final class OutputRedactor: @unchecked Sendable {
     func waitUntilDone() {
         group.wait()
     }
+}
+
+enum PlainValueRefusal {
+    static let message = "KeyKeeper's metadata file has been changed outside KeyKeeper, or KeyKeeper could not confirm it. No plain values were used. Open KeyKeeper to review the change."
 }

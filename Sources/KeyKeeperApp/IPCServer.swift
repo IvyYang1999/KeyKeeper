@@ -397,6 +397,9 @@ final class IPCServer: ObservableObject {
             handleValueRequest(request, clientFd: clientFd, callerIdentity: callerIdentity)
         case .serviceRequests:
             handleServiceRequestsList(clientFd: clientFd)
+        case .metadataIntegrity:
+            let verdict = (try? metaStore.loadVerified().verdict) ?? .tampered
+            send(.metadataIntegrity(MetadataIntegrityResponse(verdict)), clientFd: clientFd)
         case .sessionControl(let request):
             let response = handleSessionControl(request)
             Self.writeAndClose(.sessionControl(response), clientFd: clientFd)
@@ -644,6 +647,17 @@ final class IPCServer: ObservableObject {
                                    statedReason: request.statedReason)
         }
         request.statedReason = CallerStatedReason.sanitize(request.statedReason?.text)
+        // The file that says which fields are secret and how strictly they are guarded must be
+        // the one KeyKeeper wrote. A tampered one can downgrade `strict` or relabel a field.
+        if let verdict = try? metaStore.loadVerified().verdict, verdict == .tampered {
+            let resp = IPCResponse.value(ValueResponse(
+                success: false,
+                error: "KeyKeeper's metadata was changed outside KeyKeeper. Open KeyKeeper to review it.",
+                errorCode: .notFound
+            ))
+            Self.writeAndClose(resp, clientFd: clientFd)
+            return
+        }
         guard let meta = try? metaStore.load(),
               let cred = meta.credentials[request.credentialId],
               let field = cred.fields[request.fieldName],

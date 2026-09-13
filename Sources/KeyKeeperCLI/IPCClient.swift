@@ -12,7 +12,8 @@ import KeyKeeperCore
 enum IPCLaunchPolicy {
     static func shouldLaunchApp(for request: IPCRequest) -> Bool {
         switch request {
-        case .value, .auth, .clipboardSave, .browserImport, .fileImport, .sourceImport, .browserSession, .metadataEdit:
+        case .value, .auth, .clipboardSave, .browserImport, .fileImport, .sourceImport, .browserSession, .metadataEdit,
+             .metadataIntegrity:
             return true
         case .sessionControl, .serviceRequests:
             return false
@@ -193,6 +194,20 @@ enum IPCClient {
         default:
             throw IPCError.appNotResponding
         }
+    }
+
+    /// Asks the app whether meta.json is still the file it signed. Nil when the app cannot be
+    /// reached or is too old to answer — callers must treat that as "not verified".
+    static func requestMetadataIntegrity() -> MetadataIntegrityResponse.Verdict? {
+        guard let fd = try? connectWithRetry(launchIfNeeded: true) else { return nil }
+        defer { close(fd) }
+        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        guard (try? IPCMessage.writeMessage(fd: fd, message: IPCRequest.metadataIntegrity(MetadataIntegrityRequest()))) != nil,
+              let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self),
+              case .metadataIntegrity(let answer) = response
+        else { return nil }
+        return answer.verdict
     }
 
     static func requestSessionControl(

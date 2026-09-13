@@ -76,6 +76,10 @@ struct GetCommand: ParsableCommand {
                 statedReason: statedReason())
             print(value, terminator: "")
         } else {
+            // This value comes straight out of meta.json, so it is only as trustworthy as that file.
+            guard PlainValuePolicy.mayServe(IPCClient.requestMetadataIntegrity()) else {
+                throw CommandFailure(PlainValueRefusal.message)
+            }
             print(field.value ?? "", terminator: "")
         }
     }
