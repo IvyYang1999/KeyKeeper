@@ -22,11 +22,17 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
     public var useCurrentClipboard: Bool
     public var replaceExisting: Bool?
     public var expectedEd25519PublicKey: String?
+    /// The caller's suggestion for a new credential: how it should be protected, and the last day
+    /// the key works. Only with `create`. Neither is applied unless the person approves the save
+    /// with the suggestion in front of them.
+    public var security: SecurityLevel?
+    public var expires: String?
     public var isReplacement: Bool { replaceExisting == true }
 
     public init(credentialId: String, fieldName: String, create: Bool = false,
                 expect: String? = nil, useCurrentClipboard: Bool = false,
-                replaceExisting: Bool = false, expectedEd25519PublicKey: String? = nil) {
+                replaceExisting: Bool = false, expectedEd25519PublicKey: String? = nil,
+                security: SecurityLevel? = nil, expires: String? = nil) {
         self.credentialId = credentialId
         self.fieldName = fieldName
         self.create = create
@@ -34,9 +40,17 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
         self.useCurrentClipboard = useCurrentClipboard
         self.replaceExisting = replaceExisting ? true : nil
         self.expectedEd25519PublicKey = expectedEd25519PublicKey
+        self.security = security
+        self.expires = expires
     }
 
     public func validate() throws {
+        if security != nil || expires != nil {
+            guard create else { throw ClipboardSaveError.suggestionRequiresCreate }
+        }
+        if let expires {
+            guard CredentialExpiry.normalize(expires) == expires else { throw ClipboardSaveError.invalidExpiry }
+        }
         if isReplacement {
             guard !create, !useCurrentClipboard, expect != nil else { throw ClipboardSaveError.invalidReplacement }
         }
@@ -65,7 +79,7 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
     case invalidTarget, valueExists, targetNotFound, metadataChanged, clipboardChanged
     case invalidExpectation, shapeMismatch, clipboardNotCopiedYet, clipboardCopiedMoreThanOnce
     case emptyClipboard, busy, denied, expired, disconnected, storageUnavailable, metadataCommitFailed, staleGrants
-    case reservedFieldName
+    case reservedFieldName, suggestionRequiresCreate, invalidExpiry
     public var errorDescription: String? {
         switch self {
         case .invalidReplacement: return "Replacement requires an existing text field, --from-clipboard, --expect, and a fresh copy. Do not combine with --create or --use-current-clipboard."
@@ -78,6 +92,8 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
         case .fileChanged: return "The selected file changed or became unavailable. Nothing was saved. Select the intended file again."
         case .wrongFieldType: return "The import source does not match this field's type. Use a fresh credential ID for a different type."
         case .invalidTarget: return "Use a nonempty ID and field (letters, numbers, hyphens, underscores or dots; at most 128 UTF-8 bytes)."
+        case .suggestionRequiresCreate: return "--security and --expires only apply with --create. Change an existing credential's protection in the KeyKeeper app, and its expiry with keykeeper edit --expires."
+        case .invalidExpiry: return "Use --expires YYYY-MM-DD, the last day the key works (for example 2026-12-31). Nothing was read or saved."
         case .reservedFieldName: return "That field name would become an environment variable that decides how programs run (like PATH or DYLD_INSERT_LIBRARIES). Pick another field name. Nothing was read or saved."
         case .valueExists: return "A value already exists. Nothing was overwritten."
         case .targetNotFound: return "Secret field not found. Use --create only for a new credential ID."

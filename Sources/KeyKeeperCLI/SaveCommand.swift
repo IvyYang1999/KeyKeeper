@@ -18,7 +18,7 @@ struct SaveCommand: ParsableCommand {
     var fromSource: String?
     @Option(help: "Exact top-level Python symbol for --from-source. Accepts a string literal or os.getenv/os.environ.get string default only.")
     var pythonSymbol: String?
-    @Flag(help: "Create a new strict credential; refuses an existing ID.")
+    @Flag(help: "Create a new credential (strict unless --security standard); refuses an existing ID.")
     var create = false
     @Option(help: "What the value should look like: base64[:BYTES], hex[:BYTES], bytes:N or chars:N. Refuses the save if it does not match, before anything is written.")
     var expect: String?
@@ -28,6 +28,10 @@ struct SaveCommand: ParsableCommand {
     var replaceExisting = false
     @Option(name: .customLong("expect-ed25519-public-key"), help: "Expected PUBLIC key in Base64; derive and match before saving a base64:32 private seed. Never pass a private key here.")
     var expectedEd25519PublicKey: String?
+    @Option(help: "With --create: suggest how the new credential is protected. strict asks every time (the default); standard lets background callers use it after a one-time approval each. The person sees the suggestion and approves or rejects the save.")
+    var security: SecurityLevel?
+    @Option(help: "With --create: the last day the key works at its provider, YYYY-MM-DD. Shown to the person before saving.")
+    var expires: String?
 
     mutating func validate() throws {
         if (replaceExisting || expectedEd25519PublicKey != nil) && !fromClipboard {
@@ -48,7 +52,7 @@ struct SaveCommand: ParsableCommand {
     var request: ClipboardSaveRequest {
         .init(credentialId: credential, fieldName: field, create: create, expect: expect,
               useCurrentClipboard: useCurrentClipboard, replaceExisting: replaceExisting,
-              expectedEd25519PublicKey: expectedEd25519PublicKey)
+              expectedEd25519PublicKey: expectedEd25519PublicKey, security: security, expires: expires)
     }
 
     /// What went in, without saying what it is. The clipboard is a shared channel and a save
@@ -96,3 +100,5 @@ struct SaveCommand: ParsableCommand {
         print(note)
     }
 }
+
+extension SecurityLevel: ExpressibleByArgument {}

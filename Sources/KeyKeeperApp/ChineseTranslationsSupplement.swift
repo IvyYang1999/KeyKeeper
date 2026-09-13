@@ -175,6 +175,11 @@ extension AppL10n {
         "Your credential list was changed outside KeyKeeper. Open the KeyKeeper window to check it.": "凭据清单被 KeyKeeper 以外的程序改过。打开 KeyKeeper 窗口检查一下。",
         "Use a date like 2026-12-31, or never to clear it.": "请用 2026-12-31 这样的日期；要清除就写 never。",
         "Expiry date cleared": "清除了过期日期",
+        "New, Background OK": "新建，允许后台使用",
+        "Protection": "保护方式",
+        "Suggested by {0}": "{0} 建议的",
+        "Expires": "过期日",
+        "Create a new credential that background callers can use after you approve each one once, as {0} suggested.": "按 {0} 的建议创建新凭据：脚本和 Agent 各自经你批准一次后，就能在后台使用。",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",

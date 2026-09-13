@@ -501,3 +501,16 @@ extension ClipboardSaveTests {
         XCTAssertEqual(io.writes, 0)
     }
 }
+
+extension ClipboardSaveTests {
+    func test按Agent建议的保护方式和过期日新建() throws {
+        controller.receive(.init(credentialId: "fixture", fieldName: "key", create: true, useCurrentClipboard: true,
+                                 security: .standard, expires: "2026-12-31"),
+            callerName: "Test caller", isConnected: { true }, completion: { self.results.append($0) })
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.first?.success, true)
+        let saved = try XCTUnwrap(meta.load().credentials["fixture"])
+        XCTAssertEqual(saved.security, .standard)
+        XCTAssertEqual(saved.expires, "2026-12-31")
+    }
+}

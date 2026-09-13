@@ -62,7 +62,12 @@ struct TrustPromptModel: Equatable {
                 assurance: L("Only this field is replaced after validation. Permissions stay unchanged. The caller never sees the value."),
                 tone: .caution, details: details, confirmTitle: L("Replace value"), expiresAt: info.expiresAt)
         }
-        let saveAsNote = request.create ? L("New, Ask every time") : L("Fills in the missing value")
+        // A caller may suggest a looser level for a key meant for unattended use. The suggestion is
+        // only ever applied by approving this prompt, so it has to be stated here, attributed.
+        let proposed = request.security ?? .strict
+        let saveAsNote = request.create
+            ? (proposed == .strict ? L("New, Ask every time") : L("New, Background OK"))
+            : L("Fills in the missing value")
 
         let title: String
         let source: Row
@@ -99,18 +104,31 @@ struct TrustPromptModel: Equatable {
             details.append(L("Nothing is overwritten and no read permission is granted. If the file changes, this save is refused. This request expires in 90 seconds."))
         }
         details.append(request.create
-            ? L("Create a new credential with Ask every time protection.")
+            ? (proposed == .strict
+                ? L("Create a new credential with Ask every time protection.")
+                : L("Create a new credential that background callers can use after you approve each one once, as \(caller) suggested."))
             : L("Restore this missing field. Keep its existing settings and permissions."))
+
+        var rows = [
+            Row(label: L("Save as"), value: target, monospaced: true, note: saveAsNote),
+            source,
+            Row(label: L("Requested by"), value: caller),
+        ]
+        // The three facts stay first and in place; a suggestion adds a line after them.
+        if request.create, request.security != nil {
+            rows.append(Row(label: L("Protection"), value: SecurityLevelPresentation.badge(proposed),
+                            note: L("Suggested by \(caller)")))
+        }
+        if request.create, let expires = request.expires {
+            rows.append(Row(label: L("Expires"), value: expires, monospaced: true, note: L("Suggested by \(caller)")))
+        }
 
         return TrustPromptModel(
             title: title,
             subtitle: L("\(caller) wants to put it in KeyKeeper"),
-            rows: [
-                Row(label: L("Save as"), value: target, monospaced: true, note: saveAsNote),
-                source,
-                Row(label: L("Requested by"), value: caller),
-            ],
+            rows: rows,
             assurance: assurance,
+            tone: proposed == .standard ? .caution : .reassuring,
             details: details,
             confirmTitle: L("Save"),
             expiresAt: info.expiresAt

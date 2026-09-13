@@ -203,7 +203,8 @@ extension ClipboardSaveSource {
                 let date = ISO8601DateFormatter().string(from: now())
                 metadata.credentials[request.credentialId] = Credential(label: request.credentialId,
                     notes: "", links: [], fields: [request.fieldName: .init(secret: true, fileFormat: clipboard.fileFormat)],
-                    security: .strict, created: date, updated: date)
+                    security: request.security ?? .strict, created: date, updated: date,
+                    expires: request.expires)
                 do { try metaStore.save(metadata) }
                 catch { throw ClipboardSaveError.metadataCommitFailed }
             }
