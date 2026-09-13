@@ -305,8 +305,15 @@ struct AuthorizationView: View {
         return max(360, visible - 80)
     }
 
+    /// The caller's name, treated as hostile text like everything else in this window.
+    ///
+    /// 【安全审计 2026-09-13】6bff4fd hardened the credential label in this very sentence but
+    /// left the caller name on the weaker filter — which strips control characters and nothing
+    /// else, so zero-width and bidi characters went straight into the bold headline.
     private var callerName: String {
-        TrustPromptModel.sanitizedCaller(prompt.callerIdentity?.displayName ?? L("Unknown Caller"))
+        let raw = prompt.callerIdentity?.displayName ?? L("Unknown Caller")
+        let line = CallerStatedReason.printableLine(raw, limit: 80)
+        return line.isEmpty ? L("Unknown Caller") : line
     }
 
     private var header: some View {
@@ -590,6 +597,14 @@ struct AuthorizationView: View {
         VStack(spacing: DS.Spacing.md) {
             Text(L("Grant this caller access for:"))
                 .font(.subheadline.bold())
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            // The strict window has said this since 863d53e; this one never did, and "Always"
+            // means the same thing in both.
+            Text(L("Allowing lets \(callerName) read this key — only \(callerName), not other programs on this Mac. \u{201C}Always\u{201D} lasts until you revoke it."))
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack {

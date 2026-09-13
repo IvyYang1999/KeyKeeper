@@ -10,6 +10,7 @@ extension AppL10n {
         "Only this field is replaced after validation. Permissions stay unchanged. The caller never sees the value.": "校验通过后只替换这一个字段，权限保持不变。请求方看不到值。",
         "Copy exactly once after this request, then confirm. Failed checks keep the old value. Existing permissions still apply to the replacement. This request expires in 90 seconds.": "请在本次请求后复制一次，再确认。校验失败保留旧值。已有授权仍适用于替换后的值。请求 90 秒后过期。",
         "Expected public key (caller supplied): {0}": "要求匹配的公钥（由请求方提供）：{0}",
+        "Allowing lets {0} read this key — only {1}, not other programs on this Mac. \u{201C}Always\u{201D} lasts until you revoke it.": "允许之后，{0} 能读这把密钥——只有 {1}，本机别的程序蹭不到。选「始终」会一直有效，直到你撤销。",
         // 剪贴板新鲜度（0.3.3）
         "Copy the value first, then approve. KeyKeeper accepts exactly one copy made after this request — anything already on the clipboard, or a second copy, is refused. The App reads the clipboard only after you approve. This request expires in 90 seconds.": "先复制，再点同意。KeyKeeper 只认「本次请求之后的那一次复制」：请求之前就在剪贴板上的，以及之后又复制的第二份，都不收。App 只在你同意之后才读剪贴板。此请求 90 秒后过期。",
         "Copy the value now, then save it?": "现在复制那个值，然后保存？",

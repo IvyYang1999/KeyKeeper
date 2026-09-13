@@ -245,7 +245,14 @@ enum SessionBrowserPolicy {
         ) { [weak self] list, _ in
             WKContentRuleListStore.default().removeContentRuleList(forIdentifier: identifier) { _ in }
             Task { @MainActor in
-                guard let self, !self.closed, self.frozenAt != nil, let list else { return }
+                guard let self, !self.closed, self.frozenAt != nil else { return }
+                guard let list else {
+                    // Fail closed. The veil says the page cannot reach the network; if the block
+                    // list did not compile, that sentence is false and the only honest answer is
+                    // to take the session away.
+                    self.shutdown()
+                    return
+                }
                 self.freezeRules = list
                 self.webView?.configuration.userContentController.add(list)
             }
