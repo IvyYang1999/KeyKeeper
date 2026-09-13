@@ -12,6 +12,9 @@ struct FieldEntry: Identifiable {
     var originalName: String?
     /// Free-text label for people and agents (detail editor only; on Add the typed name is it).
     var displayName: String = ""
+    /// False for plain metadata (an account id, a region, an email): the value is stored in
+    /// meta.json in the clear and injected without asking anyone.
+    var isSecret: Bool = true
 }
 
 @MainActor
@@ -197,7 +200,7 @@ class AddCredentialViewModel: ObservableObject {
             let machineNames = named.map { Self.machineFieldName($0.name) }
             guard Set(machineNames).count == machineNames.count else { throw ClipboardSaveError.invalidTarget }
             var plan = CredentialEditPlan(
-                inputFields: zip(named, machineNames).map { .init(name: $1, value: $0.value) },
+                inputFields: zip(named, machineNames).map { .init(name: $1, value: $0.value, isSecret: $0.isSecret) },
                 existingFields: [:],
                 security: security
             )
@@ -210,8 +213,14 @@ class AddCredentialViewModel: ObservableObject {
                 guard values[write.fieldName] == nil else { throw ClipboardSaveError.invalidTarget }
                 values[write.fieldName] = write.value
             }
-            guard !values.isEmpty else { throw ClipboardSaveError.invalidTarget }
-            try session.createCredential(credentialId: credentialId, values: values, security: security)
+            // A credential may hold nothing but plain fields (an account id and a team id, say);
+            // then there is nothing to put in the Keychain and nothing to create there.
+            guard !values.isEmpty || plan.metadata.fields.values.contains(where: { $0.value?.isEmpty == false }) else {
+                throw ClipboardSaveError.invalidTarget
+            }
+            if !values.isEmpty {
+                try session.createCredential(credentialId: credentialId, values: values, security: security)
+            }
 
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy-MM-dd"

@@ -74,6 +74,23 @@ final class CredentialDetailViewModel: ObservableObject {
         )
     }
 
+    /// Moving a stored secret into plain text needs its value in hand first — the plan refuses
+    /// to delete a Keychain entry it has nothing to replace. Returns false when the read failed.
+    @discardableResult
+    func loadValueForPlainConversion(at index: Int) -> Bool {
+        guard fields.indices.contains(index) else { return false }
+        guard fields[index].existingSecret, fields[index].value.isEmpty else { return true }
+        do {
+            fields[index].value = try storedValue(for: fields[index])
+            fields[index].visible = true
+            errorMessage = nil
+            return true
+        } catch {
+            reportRevealFailure(error)
+            return false
+        }
+    }
+
     /// Reads a service-account file once and keeps only its client_email and project_id for
     /// display. The document itself is dropped right away and never reaches `fields`.
     func serviceAccountSummary(fieldName: String) -> ServiceAccountSummary? {
@@ -142,7 +159,7 @@ final class CredentialDetailViewModel: ObservableObject {
                 }
             }
             var plan = CredentialEditPlan(
-                inputFields: fields.map { .init(name: $0.name, value: $0.value, originalName: $0.originalName) },
+                inputFields: fields.map { .init(name: $0.name, value: $0.value, originalName: $0.originalName, isSecret: $0.isSecret) },
                 existingFields: existingFields,
                 security: security
             )
@@ -199,6 +216,11 @@ final class CredentialDetailViewModel: ObservableObject {
             meta.credentials[credentialId] = credential
             try store.save(meta)
 
+            // Only now that metadata holds the plain value is it safe to drop the old secret.
+            for fieldName in plan.keychainDropsAfterCommit {
+                try? session.delete(credentialId: credentialId, fieldName: fieldName)
+            }
+
             let directory = store.fileURL.deletingLastPathComponent()
             if !plan.fieldRenames.isEmpty {
                 // Background approvals list field names; without this a rename silently voided them.
@@ -229,12 +251,14 @@ final class CredentialDetailViewModel: ObservableObject {
         credential.fields.sorted { $0.key < $1.key }.map { name, field in
             FieldEntry(
                 name: name,
-                value: "",
-                visible: false,
+                // A plain value has nothing to hide: show it as it is, ready to edit.
+                value: field.secret ? "" : (field.value ?? ""),
+                visible: !field.secret,
                 existingSecret: field.secret,
                 fileFormat: field.fileFormat,
                 originalName: name,
-                displayName: field.displayName ?? ""
+                displayName: field.displayName ?? "",
+                isSecret: field.secret
             )
         }
     }

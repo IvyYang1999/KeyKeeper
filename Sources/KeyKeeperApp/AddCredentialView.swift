@@ -285,6 +285,9 @@ struct KeyFieldsEditor: View {
     /// editable. Add form: whatever is typed becomes the display name and a machine name is
     /// derived from it.
     var showsDisplayName = false
+    /// Called when a field that already holds a stored secret is switched to plain, so the
+    /// editor can fetch the value first and ask the person to confirm.
+    var onConvertToPlain: ((Int) -> Void)?
     /// Reads a field's stored value. Provided by the detail editor so the eye shows what is
     /// already saved; nil on the Add page, where nothing is stored yet.
     var revealStoredValue: ((FieldEntry) throws -> String)? = nil
@@ -341,14 +344,28 @@ struct KeyFieldsEditor: View {
                             .frame(height: 16)
                             .padding(.horizontal, 8)
 
-                        MaskedValueField(
-                            value: $fields[i].value,
-                            visible: $fields[i].visible,
-                            placeholder: fields[i].existingSecret
-                                ? L("Unchanged")
-                                : L("Paste or type the value"),
-                            onToggleVisibility: { toggle(i) }
-                        )
+                        if fields[i].isSecret {
+                            MaskedValueField(
+                                value: $fields[i].value,
+                                visible: $fields[i].visible,
+                                placeholder: fields[i].existingSecret
+                                    ? L("Unchanged")
+                                    : L("Paste or type the value"),
+                                onToggleVisibility: { toggle(i) }
+                            )
+                        } else {
+                            TextField(L("Plain value, e.g. an account id"), text: $fields[i].value)
+                                .textFieldStyle(.plain)
+                                .font(.callout)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        // File fields are always secret: their contents never leave the Keychain.
+                        if fields[i].fileFormat == nil {
+                            FieldKindMenu(isSecret: $fields[i].isSecret,
+                                          hasStoredSecret: fields[i].existingSecret,
+                                          onWantsPlain: { onConvertToPlain?(i) })
+                        }
 
                         if fields.count > 1 {
                             Button(action: { fields.remove(at: i) }) {
@@ -430,5 +447,38 @@ struct AdvancedSecuritySection: View {
                     .foregroundColor(security == .strict ? .orange : .green)
             }
         }
+    }
+}
+
+
+/// Picks how one field is stored. Two very different things, so the menu says both what it is
+/// and where the value ends up — "plain" means readable by anything on this Mac.
+struct FieldKindMenu: View {
+    @Binding var isSecret: Bool
+    var hasStoredSecret = false
+    var onWantsPlain: (() -> Void)?
+
+    var body: some View {
+        Menu {
+            Button {
+                isSecret = true
+            } label: {
+                Label(L("Secret · stored in the Keychain"), systemImage: "lock.fill")
+            }
+            Button {
+                // A stored secret needs its value in hand before it can move to plain text.
+                if hasStoredSecret, let onWantsPlain { onWantsPlain() } else { isSecret = false }
+            } label: {
+                Label(L("Plain · readable by anything on this Mac"), systemImage: "doc.plaintext")
+            }
+        } label: {
+            Image(systemName: isSecret ? "lock.fill" : "doc.plaintext")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(isSecret ? L("Secret · stored in the Keychain") : L("Plain · readable by anything on this Mac"))
     }
 }

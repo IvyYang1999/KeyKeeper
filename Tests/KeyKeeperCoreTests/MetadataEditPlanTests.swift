@@ -104,6 +104,30 @@ final class MetadataEditPlanTests: XCTestCase {
         XCTAssertThrowsError(try MetadataEditPlan.apply(MetadataEdit(notes: String(repeating: "x", count: 4001)), to: meta(), groupId: "openai"))
     }
 
+    /// 【安全红线】Agent 走的是不弹窗的元数据编辑。它可以随便改名字和备注，但绝不能把一个
+    /// 机密字段改成非机密——那等于把钥匙串里的值挪进明文 meta.json，且没人点过头。
+    /// 也不能反过来把明文值改掉或藏起来。
+    func test改元数据不能碰字段的机密属性与值() throws {
+        let meta = MetaFile(credentials: [
+            "mixed": Credential(label: "Mixed", notes: "", links: [],
+                                fields: ["token": CredentialField(secret: true),
+                                         "apple-id": CredentialField(value: "a@b.invalid", secret: false)],
+                                security: .strict, created: "2026-09-13", updated: "2026-09-13"),
+        ])
+        let result = try MetadataEditPlan.apply(
+            MetadataEdit(newGroupId: "notary", title: "Apple 公证", notes: "发版用",
+                         fieldRenames: ["token": "app-password", "apple-id": "account"],
+                         fieldDisplayNames: ["app-password": "应用专用密码"]),
+            to: meta, groupId: "mixed")
+
+        let credential = try XCTUnwrap(result.meta.credentials["notary"])
+        XCTAssertEqual(credential.fields["app-password"]?.secret, true, "机密字段改名后仍是机密")
+        XCTAssertNil(credential.fields["app-password"]?.value, "机密值不能被写进 meta")
+        XCTAssertEqual(credential.fields["account"]?.secret, false)
+        XCTAssertEqual(credential.fields["account"]?.value, "a@b.invalid", "明文值原样跟着改名走")
+        XCTAssertEqual(credential.security, .strict, "安全级别也不归这条路管")
+    }
+
     func test旧版meta没有新字段也能读写不变() throws {
         let old = #"{"credentials":{"a":{"created":"x","fields":{"k":{"secret":true}},"label":"A","links":[],"notes":"","security":"standard","updated":"x"}},"version":1}"#
         let decoded = try JSONDecoder().decode(MetaFile.self, from: Data(old.utf8))

@@ -57,6 +57,10 @@ public struct CredentialEditPlan: Sendable {
     /// names are kept as aliases, and approvals listing them are moved by the caller.
     public var fieldRenames: [String: String]
     public var valueDeletions: [String]
+    /// Keychain entries to remove only after the metadata commit succeeds: a field that became
+    /// plain keeps its value in two places for a moment, which is the safe way round. Deleting
+    /// first would lose the value outright if the commit then failed.
+    public var keychainDropsAfterCommit: [String]
     public var metadata: Metadata
 
     public init(
@@ -136,16 +140,16 @@ public struct CredentialEditPlan: Sendable {
         self.valueWrites = valueWrites
         self.valueRenames = valueRenames
         self.fieldRenames = fieldRenames
-        // Delete a Keychain entry when metadata no longer refers to it, and also when the
-        // field is still there but has become plain (its value now lives in meta.json).
+        // Gone from metadata (removed, or renamed away after its value was copied): the old
+        // Keychain entry can go before the commit, because metadata no longer names it.
         self.valueDeletions = existingFields
-            .filter { name, field in
-                guard field.secret else { return false }
-                // Still a secret under the same name: keep it. Gone (removed or renamed away)
-                // or now plain (its value moved into meta.json): the Keychain entry must go.
-                guard let now = metadataFields[name] else { return true }
-                return now.secret == false
-            }
+            .filter { name, field in field.secret && metadataFields[name] == nil }
+            .map(\.key)
+            .sorted()
+        // Became plain: metadata now carries the value, so the Keychain entry is dropped only
+        // after that metadata is safely written.
+        self.keychainDropsAfterCommit = existingFields
+            .filter { name, field in field.secret && metadataFields[name]?.secret == false }
             .map(\.key)
             .sorted()
         self.metadata = Metadata(fields: metadataFields, security: security)

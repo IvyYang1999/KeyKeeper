@@ -81,6 +81,12 @@ struct RunCommand: ParsableCommand {
         return result
     }
 
+    /// The variable names a plain field claims under its current name (aliases are best effort).
+    static func nonSecretCurrentNames(for credential: Credential, prefix: String) -> Set<String> {
+        Set(credential.fields.filter { !$0.value.secret && $0.value.value?.isEmpty == false }
+            .map { EnvironmentVariableName.from(fieldName: $0.key, prefix: prefix) })
+    }
+
     /// An "ask every time" credential only needs an approval when something secret is actually
     /// read. If it holds nothing but plain metadata, a prompt would protect nothing.
     static func requiresAuthorization(for credential: Credential) -> Bool {
@@ -133,12 +139,18 @@ struct RunCommand: ParsableCommand {
             }
 
             // Plain metadata values (an account id, a region): straight from meta.json.
+            let plainCurrentNames = Self.nonSecretCurrentNames(for: cred, prefix: prefix)
             for (envName, value) in Self.nonSecretEnvironment(for: cred, prefix: prefix).sorted(by: { $0.key < $1.key }) {
                 if let existing = injectedEnv[envName], existing != value {
-                    throw CommandFailure(
-                        "Environment variable conflict: '\(envName)' would be set by multiple fields. " +
-                        "Use --prefix to disambiguate."
-                    )
+                    // A field's current name clashing is a real mistake; an old name losing to
+                    // someone's current name is not — the current name wins, quietly.
+                    guard !plainCurrentNames.contains(envName) else {
+                        throw CommandFailure(
+                            "Environment variable conflict: '\(envName)' would be set by multiple fields. " +
+                            "Use --prefix to disambiguate."
+                        )
+                    }
+                    continue
                 }
                 injectedEnv[envName] = value
             }
@@ -189,7 +201,7 @@ struct RunCommand: ParsableCommand {
 
         if injectedEnv.isEmpty {
             FileHandle.standardError.write(
-                Data("Warning: no secret fields found in the specified credential(s). Running command without injection.\n".utf8)
+                Data("Warning: nothing to inject from the specified credential(s) — no secret values and no plain fields. Running the command as is.\n".utf8)
             )
         }
 

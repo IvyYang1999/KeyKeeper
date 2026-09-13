@@ -18,6 +18,8 @@ struct CredentialDetailView: View {
     @State private var copiedFieldIndex: Int?
     @State private var copiedPrompt = false
     @State private var summaries: [String: ServiceAccountSummary] = [:]
+    /// Index of the field the person is moving out of the Keychain into plain text.
+    @State private var pendingPlainConversion: Int?
     @Environment(\.panelLayout) private var layout
 
     init(
@@ -142,9 +144,26 @@ struct CredentialDetailView: View {
                     KeyFieldsEditor(
                         fields: $vm.fields,
                         showsDisplayName: true,
+                        onConvertToPlain: { pendingPlainConversion = $0 },
                         revealStoredValue: { entry in try vm.storedValue(for: entry) },
                         onRevealError: { vm.reportRevealFailure($0) }
                     )
+                    .confirmationDialog(
+                        L("Store this value as plain text?"),
+                        isPresented: Binding(get: { pendingPlainConversion != nil },
+                                             set: { if !$0 { pendingPlainConversion = nil } }),
+                        titleVisibility: .visible
+                    ) {
+                        Button(L("Move it out of the Keychain"), role: .destructive) {
+                            if let index = pendingPlainConversion, vm.loadValueForPlainConversion(at: index) {
+                                vm.fields[index].isSecret = false
+                            }
+                            pendingPlainConversion = nil
+                        }
+                        Button(L("Cancel"), role: .cancel) { pendingPlainConversion = nil }
+                    } message: {
+                        Text(L("The value leaves the macOS Keychain and is written into KeyKeeper's metadata file in the clear, where anything running as you — your agents included — can read it. Good for an account id, an email or a region. Never for a password, token or key."))
+                    }
                     DescriptionEditor(text: $vm.credential.notes)
                 } else {
                     keysCard
@@ -298,23 +317,44 @@ struct CredentialDetailView: View {
             FieldNameLabel(field: field, credential: vm.credential)
                 .frame(width: layout == .embedded ? 190 : 110, alignment: .leading)
 
-            Text(field.visible && !field.value.isEmpty ? field.value : (valueAvailability.missingFields.contains(field.name) ? L("Value missing") : "••••••••••"))
+            Text(field.isSecret
+                 ? (field.visible && !field.value.isEmpty
+                    ? field.value
+                    : (valueAvailability.missingFields.contains(field.name) ? L("Value missing") : "••••••••••"))
+                 : (field.value.isEmpty ? L("(empty)") : field.value))
                 .font(.callout.monospaced())
-                .foregroundColor(field.visible ? .primary : .secondary)
+                .foregroundColor(field.isSecret && !field.visible ? .secondary : .primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button(action: { vm.toggleFieldVisibility(at: index) }) {
-                Image(systemName: field.visible ? "eye.fill" : "eye.slash.fill")
+            if field.isSecret {
+                Button(action: { vm.toggleFieldVisibility(at: index) }) {
+                    Image(systemName: field.visible ? "eye.fill" : "eye.slash.fill")
+                        .foregroundColor(.secondary)
+                        .frame(width: 18)
+                }
+                .buttonStyle(.plain)
+                .help(field.visible ? L("Hide") : L("Show"))
+            } else {
+                Image(systemName: "doc.plaintext")
                     .foregroundColor(.secondary)
                     .frame(width: 18)
+                    .help(L("Plain \u{00B7} readable by anything on this Mac"))
             }
-            .buttonStyle(.plain)
-            .help(field.visible ? L("Hide") : L("Show"))
 
             Button(action: {
+                guard field.isSecret else {
+                    // Plain values are not secrets: copy them straight, and don't wipe the
+                    // clipboard from under someone pasting an account id somewhere else.
+                    PlainPasteboard.copy(field.value)
+                    copiedFieldIndex = index
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        if copiedFieldIndex == index { copiedFieldIndex = nil }
+                    }
+                    return
+                }
                 if let value = vm.copyFieldValue(field.name) {
                     let changeCount = SecretPasteboard.write(value)
                     SecretPasteboard.scheduleClear(after: changeCount)

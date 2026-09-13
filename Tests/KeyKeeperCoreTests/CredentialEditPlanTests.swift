@@ -174,7 +174,9 @@ final class CredentialEditPlanTests: XCTestCase {
         XCTAssertEqual(plan.metadata.fields["token"]?.value, "moved-value")
         XCTAssertEqual(plan.metadata.fields["token"]?.secret, false)
         XCTAssertEqual(plan.metadata.fields["token"]?.displayName, "Token", "显示名不丢")
-        XCTAssertEqual(plan.valueDeletions, ["token"], "钥匙串里的旧值要删掉，不能留孤儿")
+        XCTAssertEqual(plan.valueDeletions, [], "转明文的删除不能排在写 meta 之前")
+        XCTAssertEqual(plan.keychainDropsAfterCommit, ["token"],
+                       "值先落进 meta.json，再删钥匙串里的旧值；中间崩溃只会两边都有，不会两边都没有")
         XCTAssertEqual(plan.valueWrites, [])
     }
 
@@ -189,6 +191,7 @@ final class CredentialEditPlanTests: XCTestCase {
         XCTAssertEqual(plan.metadata.fields["token"]?.secret, true)
         XCTAssertNil(plan.metadata.fields["token"]?.value)
         XCTAssertEqual(plan.valueDeletions, [])
+        XCTAssertEqual(plan.keychainDropsAfterCommit, [])
     }
 
     /// 非机密 → 机密：值从 meta 搬进钥匙串，meta 里不再留明文。
