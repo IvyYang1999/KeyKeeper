@@ -352,6 +352,7 @@ private struct KeysPage: View {
                             .padding(.horizontal, 7).padding(.vertical, 1)
                             .background(Color(red: 1, green: 0.77, blue: 0).opacity(0.22), in: Capsule())
                     }
+                    ExpiryBadge(expires: credential.expires)
                     Spacer(minLength: 0)
                 }
                 HStack {

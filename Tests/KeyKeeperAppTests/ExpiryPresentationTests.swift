@@ -60,3 +60,14 @@ final class ExpiryPresentationTests: XCTestCase {
         }
     }
 }
+
+extension ExpiryPresentationTests {
+    /// 主窗口的列表行是自己画的，不经过 CredentialRow——只改 CredentialRow，主窗口就看不到标记。
+    func test主窗口列表也有过期标记() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        for file in ["Sources/KeyKeeperApp/MainWindow.swift", "Sources/KeyKeeperApp/CredentialRow.swift"] {
+            let source = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
+            XCTAssertTrue(source.contains("ExpiryBadge(expires: credential.expires)"), file)
+        }
+    }
+}
