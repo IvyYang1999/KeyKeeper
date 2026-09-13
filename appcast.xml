@@ -1,8 +1,56 @@
-<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+<?xml version="1.0" standalone="yes"?>
+<!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+-->
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>KeyKeeper</title>
+        <item>
+            <title>0.3.1</title>
+            <pubDate>Sun, 13 Sep 2026 11:33:06 +0800</pubDate>
+            <link>https://github.com/IvyYang1999/KeyKeeper</link>
+            <sparkle:version>0.3.1</sparkle:version>
+            <sparkle:shortVersionString>0.3.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# KeyKeeper 0.3.1
+
+## 下载与安装 / Installation
+
+适用于 Apple Silicon Mac（M1 及后续芯片），macOS 14 或更新版本。打开 DMG，将 KeyKeeper 拖到 Applications，再启动 App。CLI 可从 App 的设置向导安装。
+
+Requires an Apple Silicon Mac and macOS 14 or later. Open the DMG, drag KeyKeeper into Applications, and launch it. Install the bundled CLI from the setup assistant.
+
+## 安全修复（建议尽快升级）
+
+- **在授权窗点「使用密码」会直接放行。** Touch ID 面板上选择改用密码时，0.3.0 把这个信号当成验证通过，直接交出密钥值并关窗——任何人坐在这台 Mac 前都能这样绕过 Touch ID。现在选「使用密码」会真的走一次系统密码验证，验过才放行；验不了就报错并保留窗口。
+- **授权窗显示的凭据名和字段名曾由调用方自报。** 本机任一进程可以一边申请 A 凭据、一边让弹窗显示 B 的名字，或少报字段让范围看起来更小。现在一律显示本地记录的名字与该凭据的全部机密字段；本地没有这条凭据则直接拒绝，不弹窗。
+
+## Security fixes (please update)
+
+- **"Use Password" in the approval window released the secret without checking anything.** Choosing the password fallback on the Touch ID sheet was treated as a successful check in 0.3.0, so anyone at the Mac could bypass Touch ID. It now runs a real device-password check and only releases the value if that check passes.
+- **The credential name and key names in the approval window came from the caller.** A local process could request one credential while the window displayed another's name, or under-report the keys involved. The window now shows what KeyKeeper has on file, lists every secret key the approval covers, and refuses requests for unknown credentials.
+
+## 本次更新
+
+- 授权窗新增「调用方留言」：脚本或 Agent 可用 `keykeeper run --reason "…"` 写一句人话说明为什么要用这把 key。留言标注「未核实」、纯文本显示、折成一行并限长，永远不参与任何判定，也不改变允许之后的范围。
+- 授权时长旁补上一句实话：允许之后，这个调用方能读这一组里的全部密钥；「始终允许」对以后的会话同样有效。
+- 修复展开「调用方详情」时窗口底部短暂露出直角、失去磨砂的问题（展开动画期间玻璃跟不上窗口）。
+
+## What's new
+
+- Callers can state their case: `keykeeper run --reason "…"` puts one line in the approval window, labelled unverified, plain text, folded to a single line and capped. It never affects any decision.
+- The duration picker now says plainly what an approval covers: every key in that credential, and future sessions for "Always allow".
+- Fixed the approval window briefly showing square, unfrosted corners while the caller details expanded.
+
+## 升级注意 / Upgrade notes
+
+密钥继续保存在 macOS 钥匙串中。此安装包不会找回已经缺失的密钥值。
+
+Secrets remain in macOS Keychain. This installer cannot recover secret values that are already missing.
+]]></description>
+            <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.1/KeyKeeper-0.3.1.dmg" length="6800840" type="application/octet-stream" sparkle:edSignature="U8n43WUbZny7DxxdMUl1DQh057v7Y0lK20zbPeAb6qZIDcUySN39vbVuKf0kGTyQnSTnT23qiE7ULJptwWAGAA=="/>
+        </item>
         <item>
             <title>0.3.0</title>
             <pubDate>Sat, 12 Sep 2026 17:20:25 +0800</pubDate>
@@ -49,10 +97,11 @@ This release establishes a new update-signing identity. Internal test builds usi
 
 Secrets remain in macOS Keychain. This installer cannot recover missing secret values. If you still use an experimental age/passphrase build or see missing-storage warnings, preserve the old App and backups and complete migration/recovery before replacing it. Do not reset the Keychain or delete legacy storage.
 ]]></description>
-            <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.0/KeyKeeper-0.3.0.dmg" length="6768924" type="application/octet-stream" sparkle:edSignature="MSubtKFpvaeqOwdAwAYGJ++SAeMTQnb1LdUk4BYGj5Yr2fccJ7BvBouIgIc3Ryr2cEaM+NcxMqmqEiTM2YzEAg=="></enclosure>
+            <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.0/KeyKeeper-0.3.0.dmg" length="6768924" type="application/octet-stream" sparkle:edSignature="MSubtKFpvaeqOwdAwAYGJ++SAeMTQnb1LdUk4BYGj5Yr2fccJ7BvBouIgIc3Ryr2cEaM+NcxMqmqEiTM2YzEAg=="/>
         </item>
     </channel>
-</rss><!-- sparkle-signatures:
-edSignature: uR1RSCftyXjSmcpvaPnByK765YirXjvWx2xEOhIl6MdmnFaQIjlK5FZdXiUV6PaFCG38Vie45T2UjKeVxi6yCw==
-length: 4209
+</rss>
+<!-- sparkle-signatures:
+edSignature: eWYPMDTk7BGuo6ZV1ch8UmRqzUD4BnDmEe48N1/4LFV8SeE24Qmux+100t1UxFrH0fsGJgOaRV8i8Rua45IaAw==
+length: 8161
 -->
