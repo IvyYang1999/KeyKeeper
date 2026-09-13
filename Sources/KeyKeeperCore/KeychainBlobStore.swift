@@ -381,6 +381,15 @@ extension KeychainCredentialService: CredentialSessionManaging {}
 /// Write-once: the mark is never removed, because "I saw values here" stays true.
 public enum StoreInitializationMarker {
     /// The metadata to save, or nil when nothing needs writing.
+    /// The inventory is only consulted when the marker is missing: this runs on every launch,
+    /// including launch-at-login, and a Keychain read there is a prompt with no window to
+    /// explain it. A read that fails (locked, refused) writes nothing — it is not "empty".
+    public static func updated(_ meta: MetaFile, inventory: () throws -> [String: Set<String>]) -> MetaFile? {
+        guard meta.storeInitialized != true else { return nil }
+        guard let found = try? inventory() else { return nil }
+        return updated(meta, hasStoredValues: found.values.contains { !$0.isEmpty })
+    }
+
     public static func updated(_ meta: MetaFile, hasStoredValues: Bool) -> MetaFile? {
         guard hasStoredValues, meta.storeInitialized != true else { return nil }
         var updated = meta

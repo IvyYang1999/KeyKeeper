@@ -87,6 +87,31 @@ struct RunCommand: ParsableCommand {
             .map { EnvironmentVariableName.from(fieldName: $0.key, prefix: prefix) })
     }
 
+    /// Plain values a credential contributes, split the same way secret ones are: a field's
+    /// current name is a hard claim, its earlier names are best effort.
+    ///
+    /// Putting an old name in as a hard claim is what makes "a plain field once called X, and a
+    /// secret field called X today" fail the whole command — with a `--prefix` suggestion that
+    /// cannot help, because a prefix shifts both names equally.
+    static func mergePlainFields(of credential: Credential, prefix: String,
+                                 into injected: inout [String: String],
+                                 aliases: inout [String: String]) throws {
+        let currentNames = nonSecretCurrentNames(for: credential, prefix: prefix)
+        for (envName, value) in nonSecretEnvironment(for: credential, prefix: prefix).sorted(by: { $0.key < $1.key }) {
+            guard currentNames.contains(envName) else {
+                aliases[envName] = aliases[envName] ?? value
+                continue
+            }
+            if let existing = injected[envName], existing != value {
+                throw CommandFailure(
+                    "Environment variable conflict: '\(envName)' would be set by multiple fields. " +
+                    "Use --prefix to disambiguate."
+                )
+            }
+            injected[envName] = value
+        }
+    }
+
     /// An "ask every time" credential only needs an approval when something secret is actually
     /// read. If it holds nothing but plain metadata, a prompt would protect nothing.
     static func requiresAuthorization(for credential: Credential) -> Bool {
@@ -139,21 +164,7 @@ struct RunCommand: ParsableCommand {
             }
 
             // Plain metadata values (an account id, a region): straight from meta.json.
-            let plainCurrentNames = Self.nonSecretCurrentNames(for: cred, prefix: prefix)
-            for (envName, value) in Self.nonSecretEnvironment(for: cred, prefix: prefix).sorted(by: { $0.key < $1.key }) {
-                if let existing = injectedEnv[envName], existing != value {
-                    // A field's current name clashing is a real mistake; an old name losing to
-                    // someone's current name is not — the current name wins, quietly.
-                    guard !plainCurrentNames.contains(envName) else {
-                        throw CommandFailure(
-                            "Environment variable conflict: '\(envName)' would be set by multiple fields. " +
-                            "Use --prefix to disambiguate."
-                        )
-                    }
-                    continue
-                }
-                injectedEnv[envName] = value
-            }
+            try Self.mergePlainFields(of: cred, prefix: prefix, into: &injectedEnv, aliases: &aliasEnv)
 
             let secretFieldNames = cred.fields
                 .filter(\.value.secret)

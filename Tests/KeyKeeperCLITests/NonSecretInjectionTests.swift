@@ -72,4 +72,29 @@ final class NonSecretInjectionTests: XCTestCase {
         XCTAssertEqual(cred.fields.filter { !$0.value.secret }.compactMap { $0.value.value }, ["a@b.invalid"])
         XCTAssertTrue(RunCommand.nonSecretEnvironment(for: cred, prefix: "").values.allSatisfy { !$0.isEmpty })
     }
+
+    /// 明文字段的**旧名**只是尽力而为：谁都没占才填，撞上任何现名（包括机密字段的现名）
+    /// 就安静让位。原来旧名和现名一样被当成硬占用，于是「明文字段的旧名 == 机密字段的现名」
+    /// 会让整条命令直接失败，而提示里建议的 --prefix 对两边同时生效，根本解不开。
+    func test明文字段的旧名撞上机密字段的现名时安静让位() throws {
+        let cred = credential([
+            // account 改名前叫 apple-id，而现在另有一个机密字段就叫 apple-id
+            "account": CredentialField(value: "a@b.invalid", secret: false, aliases: ["apple-id"]),
+            "apple-id": CredentialField(secret: true),
+        ])
+        var injected: [String: String] = [:]
+        var aliases: [String: String] = [:]
+        try RunCommand.mergePlainFields(of: cred, prefix: "", into: &injected, aliases: &aliases)
+
+        XCTAssertEqual(injected, ["ACCOUNT": "a@b.invalid"], "只有现名是硬占用")
+        XCTAssertEqual(aliases, ["APPLE_ID": "a@b.invalid"], "旧名退到低优先级，等机密值来占")
+    }
+
+    /// 两个明文字段的**现名**撞在一起才是真错误，要报出来。
+    func test两个明文字段的现名撞车仍然报错() {
+        let cred = credential(["api-key": CredentialField(value: "x", secret: false)])
+        var injected = ["API_KEY": "别的值"]
+        var aliases: [String: String] = [:]
+        XCTAssertThrowsError(try RunCommand.mergePlainFields(of: cred, prefix: "", into: &injected, aliases: &aliases))
+    }
 }

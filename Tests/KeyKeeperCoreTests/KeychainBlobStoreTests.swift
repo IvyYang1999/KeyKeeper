@@ -261,4 +261,22 @@ final class KeychainCredentialServiceTests: XCTestCase {
         XCTAssertNil(StoreInitializationMarker.updated(MetaFile(), hasStoredValues: false))
         XCTAssertNil(StoreInitializationMarker.updated(MetaFile(storeInitialized: true), hasStoredValues: false))
     }
+
+    /// 标记已经在了就不该再去读钥匙串——这段代码跑在 App 启动路径上，每次启动（包括
+    /// 开机自启）都读一次，等于把「可能弹系统密码框」的动作放进了没有窗口的时刻。
+    func test已经有标记时不再去读钥匙串() {
+        var reads = 0
+        let inventory: () throws -> [String: Set<String>] = { reads += 1; return ["a": ["token"]] }
+
+        XCTAssertNil(StoreInitializationMarker.updated(MetaFile(storeInitialized: true), inventory: inventory))
+        XCTAssertEqual(reads, 0, "标记在了还去读钥匙串，是每次启动都要付的代价")
+
+        XCTAssertEqual(StoreInitializationMarker.updated(MetaFile(), inventory: inventory)?.storeInitialized, true)
+        XCTAssertEqual(reads, 1)
+    }
+
+    /// 读不出来（锁着、没权限）不是「库是空的」，此时什么都不写。
+    func test读不到库时不写标记() {
+        XCTAssertNil(StoreInitializationMarker.updated(MetaFile(), inventory: { throw KeychainError.unexpectedData }))
+    }
 }

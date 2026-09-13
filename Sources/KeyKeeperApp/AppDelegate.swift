@@ -29,10 +29,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.setActivationPolicy(.accessory)
         }
 
-        // Record once that this machine has a Keychain store, so the "never recreate an empty
-        // store" guard survives a vault whose fields are all plain at the moment.
-        markStoreInitializedIfNeeded()
-
         // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
         ipcServer = IPCServer(session: credentialService,
             clipboardSaveController: ClipboardSaveController(service: credentialService),
@@ -51,6 +47,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             terminateGracefully()
             return
         }
+
+        // Record once that this machine has a Keychain store, so the "never recreate an empty
+        // store" guard survives a vault whose fields are all plain at the moment. After the
+        // duplicate check: a second instance is about to quit and must not touch the store.
+        markStoreInitializedIfNeeded()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
@@ -323,9 +324,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func markStoreInitializedIfNeeded() {
         let store = MetaStore.default
+        // inspectValueInventory is the non-interactive read: launch must never be able to raise
+        // a Keychain password prompt. The inventory is skipped entirely once the marker is set.
         guard let meta = try? store.load(),
-              let inventory = try? credentialService.fieldNamesByCredential(),
-              let updated = StoreInitializationMarker.updated(meta, hasStoredValues: inventory.values.contains { !$0.isEmpty })
+              let updated = StoreInitializationMarker.updated(meta, inventory: credentialService.inspectValueInventory)
         else { return }
         try? store.save(updated)
     }
