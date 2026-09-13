@@ -158,7 +158,17 @@ public enum CallerIdentityResolver {
         let pid = peerPID(fromAuditToken: auditToken) ?? -1
         let processes = processChain(startingAt: pid, maxDepth: maxDepth)
         let peer = processes.first
-        let subject = verifiedSubject(auditToken: auditToken, pid: pid, peer: peer)
+        let measured = verifiedSubject(auditToken: auditToken, pid: pid, peer: peer)
+        // Our own signed CLI is a courier, not a caller. Almost every request arrives through it
+        // (the SDKs shell out to it too), so identifying the courier would give every agent on
+        // the Mac one shared identity — and one "Always" for all of them. The caller is upstream.
+        let subject: CallerSubject
+        if isOwnCLI(team: measured.team, signing: measured.signing, executable: measured.executable,
+                    ownTeam: ownTeamIdentifier, ownCLIPath: ownCLIPath) {
+            subject = courierUpstream(selectSubject(from: processes, peerPID: pid))
+        } else {
+            subject = measured.subject
+        }
         return CallerIdentity(
             peerPID: pid,
             executablePath: peer?.executablePath,
@@ -180,13 +190,21 @@ public enum CallerIdentityResolver {
         return Int32(bitPattern: value.val.5)
     }
 
+    struct MeasuredPeer {
+        let subject: CallerSubject
+        let team: String?
+        let signing: String?
+        let executable: String?
+    }
+
     private static func verifiedSubject(auditToken: Data, pid: Int32,
-                                        peer: CallerProcess?) -> CallerSubject {
-        func unverified(_ reason: String) -> CallerSubject {
-            CallerSubject(kind: .executable,
+                                        peer: CallerProcess?) -> MeasuredPeer {
+        func unverified(_ reason: String) -> MeasuredPeer {
+            MeasuredPeer(subject: CallerSubject(kind: .executable,
                           fingerprint: CallerSubject.unverifiedPrefix + reason,
                           displayName: peer?.bundleIdentifier ?? (peer?.executablePath as NSString?)?.lastPathComponent ?? "Unknown Caller",
-                          detail: peer?.executablePath ?? "")
+                          detail: peer?.executablePath ?? ""),
+                         team: nil, signing: nil, executable: nil)
         }
         var code: SecCode?
         let attributes = [kSecGuestAttributeAudit: auditToken] as CFDictionary
@@ -212,10 +230,51 @@ public enum CallerIdentityResolver {
         let fingerprint = CallerSubject.fingerprint(
             validSignature: validSignature, teamIdentifier: team,
             bundleIdentifier: bundle, signingIdentifier: signing, mainExecutablePath: executable)
-        return CallerSubject(kind: bundle == nil ? .executable : .app,
-                             fingerprint: fingerprint,
-                             displayName: bundle ?? (executable as NSString?)?.lastPathComponent ?? "Unknown Caller",
-                             detail: executable ?? "")
+        return MeasuredPeer(
+            subject: CallerSubject(kind: bundle == nil ? .executable : .app,
+                                   fingerprint: fingerprint,
+                                   displayName: bundle ?? (executable as NSString?)?.lastPathComponent ?? "Unknown Caller",
+                                   detail: executable ?? ""),
+            team: validSignature ? team : nil, signing: validSignature ? signing : nil, executable: executable)
+    }
+
+    /// This app's own team, from its own signature. Nil for an unsigned development build.
+    static let ownTeamIdentifier: String? = {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
+              let info = information as? [String: Any] else { return nil }
+        return info[kSecCodeInfoTeamIdentifier as String] as? String
+    }()
+
+    /// The CLI shipped inside this app bundle.
+    static let ownCLIPath: String = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/keykeeper").path
+
+    /// Is the peer KeyKeeper's own CLI? Signed: same team and the CLI's signing identifier.
+    /// Unsigned (a development build): exactly the file inside this bundle. A program merely
+    /// *named* keykeeper, or signed by someone else, is not a courier — otherwise renaming a
+    /// binary would be a way to launder its identity.
+    public static func isOwnCLI(team: String?, signing: String?, executable: String?,
+                                ownTeam: String?, ownCLIPath: String) -> Bool {
+        if let team, let ownTeam, team == ownTeam, signing == "keykeeper" { return true }
+        if let executable, !ownCLIPath.isEmpty,
+           URL(fileURLWithPath: executable).standardizedFileURL.path
+            == URL(fileURLWithPath: ownCLIPath).standardizedFileURL.path {
+            return true
+        }
+        return false
+    }
+
+    /// The caller upstream of our CLI. A bare pid is not an identity anyone can hold an approval
+    /// under — pids are reused — so that fallback becomes unverified.
+    public static func courierUpstream(_ subject: CallerSubject) -> CallerSubject {
+        guard subject.fingerprint.hasPrefix("executable:pid=") else { return subject }
+        return CallerSubject(kind: subject.kind,
+                             fingerprint: CallerSubject.unverifiedPrefix + "upstream-unidentified",
+                             displayName: subject.displayName, detail: subject.detail)
     }
 
     public static func resolve(peerPID: Int32, maxDepth: Int = 12) -> CallerIdentity {
