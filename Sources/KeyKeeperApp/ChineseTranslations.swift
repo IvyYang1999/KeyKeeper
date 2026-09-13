@@ -18,6 +18,10 @@ extension AppL10n {
         "Stop all windows": "停止所有窗口",
         "Import only a website you select in the Chrome extension. Each open needs your confirmation and ends after 15 minutes. Account actions are NOT read-only.": "只导入你在 Chrome 扩展中选择的网站。每次打开都需你确认，15 分钟后结束。账号操作不是只读。",
         "No website sessions yet": "还没有网站登录态",
+        // 命令行工具的提示（0.3.4）
+        "The keykeeper command is from an older version": "keykeeper 命令行工具是旧版本",
+        "The keykeeper command is not installed": "还没装 keykeeper 命令行工具",
+        "Agents use it to reach KeyKeeper. Installing it once now also keeps it current after every update.": "Agent 靠它找到 KeyKeeper。现在装一次，以后每次 App 更新它都自动跟着走。",
         // 网站登录态：先说这是干嘛的（0.3.4）
         "Let an agent use a website you are already logged in to, without handing over your password. Every window needs your confirmation and closes after 15 minutes — and inside it, an agent can do anything you could, not just read.": "让 Agent 用你已经登录好的网站，而不用把账号密码交给它。每次打开都要你确认，15 分钟后自动关闭；窗口里它能做的事和你自己登录时一样，不只是看。",
         "Log in here": "在 KeyKeeper 里登录",

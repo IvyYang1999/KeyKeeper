@@ -24,6 +24,8 @@ struct MainView: View {
     @FocusState private var searchFocused: Bool
     /// The latest name/notes edit made by an agent or script, until dismissed.
     @State private var latestChange: MetadataChangeRecord?
+    @State private var cliState: CLIInstallState = .current(installed: "")
+    @State private var cliError: String?
     @AppStorage("lastSeenMetadataChange") private var lastSeenChange = ""
 
     private let session: any CredentialSessionManaging
@@ -139,6 +141,10 @@ struct MainView: View {
                 changeNotice(change)
             }
 
+            if !cliState.isCurrent {
+                cliNotice
+            }
+
             list
 
             footer
@@ -153,10 +159,36 @@ struct MainView: View {
             addVM.refreshExistingIds()
             searchFocused = true
             latestChange = (try? MetadataChangeLog.default.records())?.last
+            cliState = CLIInstallState.probe(appVersion: BuildVersion.identifier)
         }
         .onReceive(NotificationCenter.default.publisher(for: .metadataEditedByCaller)) { note in
             latestChange = note.object as? MetadataChangeRecord
         }
+    }
+
+    /// A command-line tool that does not match the app used to be discoverable only from a row
+    /// in Settings — yyt 2026-09-13: 「这个谁能发现得了这个更新入口」. It belongs where people
+    /// actually look. One click fixes it for good: the new install is a symlink that follows
+    /// every future update.
+    @ViewBuilder
+    private var cliNotice: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "terminal.fill").font(.system(size: 18)).foregroundColor(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(cliState.isUsable ? L("The keykeeper command is from an older version")
+                                       : L("The keykeeper command is not installed"))
+                    .font(.callout.weight(.semibold)).lineLimit(1)
+                Text(L("Agents use it to reach KeyKeeper. Installing it once now also keeps it current after every update."))
+                    .font(.caption).foregroundColor(.secondary).lineLimit(3)
+            }
+            Spacer(minLength: 4)
+            Button(L("Install")) {
+                cliError = CLIInstaller.installWithAdminPrivileges()
+                cliState = CLIInstallState.probe(appVersion: BuildVersion.identifier)
+            }
+        }
+        .padding(12)
+        .surface(.card, radius: 14)
     }
 
     /// No prompt when an agent renames or re-describes a key; it is said here instead.
