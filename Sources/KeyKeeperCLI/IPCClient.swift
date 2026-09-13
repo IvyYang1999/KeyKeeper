@@ -13,7 +13,7 @@ enum IPCLaunchPolicy {
     static func shouldLaunchApp(for request: IPCRequest) -> Bool {
         switch request {
         case .value, .auth, .clipboardSave, .browserImport, .fileImport, .sourceImport, .browserSession, .metadataEdit,
-             .metadataIntegrity:
+             .metadataIntegrity, .serviceGrantRevoke:
             return true
         case .sessionControl, .serviceRequests:
             return false
@@ -208,6 +208,19 @@ enum IPCClient {
               case .metadataIntegrity(let answer) = response
         else { return nil }
         return answer.verdict
+    }
+
+    /// The app re-signs the approvals file; the CLI cannot, so it asks.
+    static func revokeServiceGrant(id: String) throws {
+        let request = IPCRequest.serviceGrantRevoke(ServiceGrantRevokeRequest(id: id))
+        let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: request))
+        defer { close(fd) }
+        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        try IPCMessage.writeMessage(fd: fd, message: request)
+        guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self),
+              case .serviceGrantRevoke(let answer) = response else { throw IPCError.readFailed }
+        guard answer.success else { throw CommandFailure(answer.error ?? "KeyKeeper could not revoke that grant.") }
     }
 
     static func requestSessionControl(

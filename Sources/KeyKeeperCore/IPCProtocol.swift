@@ -56,6 +56,7 @@ public enum IPCRequest: Codable, Sendable {
     case sessionControl(SessionControlRequest)
     case metadataEdit(MetadataEditRequest)
     case metadataIntegrity(MetadataIntegrityRequest)
+    case serviceGrantRevoke(ServiceGrantRevokeRequest)
 
     private enum CodingKeys: String, CodingKey { case type, data }
 
@@ -67,6 +68,9 @@ public enum IPCRequest: Codable, Sendable {
             try c.encode(r, forKey: .data)
         case .metadataIntegrity(let r):
             try c.encode("metadataIntegrity", forKey: .type)
+            try c.encode(r, forKey: .data)
+        case .serviceGrantRevoke(let r):
+            try c.encode("serviceGrantRevoke", forKey: .type)
             try c.encode(r, forKey: .data)
         case .browserSession(let r):
             try c.encode("browserSession", forKey: .type)
@@ -119,6 +123,7 @@ public enum IPCRequest: Codable, Sendable {
         case "sessionControl": self = .sessionControl(try c.decode(SessionControlRequest.self, forKey: .data))
         case "metadataEdit": self = .metadataEdit(try c.decode(MetadataEditRequest.self, forKey: .data))
         case "metadataIntegrity": self = .metadataIntegrity(try c.decode(MetadataIntegrityRequest.self, forKey: .data))
+        case "serviceGrantRevoke": self = .serviceGrantRevoke(try c.decode(ServiceGrantRevokeRequest.self, forKey: .data))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: c, debugDescription: "Unknown IPC request type")
@@ -136,6 +141,7 @@ public enum IPCResponse: Codable, Sendable {
     case sessionControl(SessionControlResponse)
     case metadataEdit(MetadataEditResponse)
     case metadataIntegrity(MetadataIntegrityResponse)
+    case serviceGrantRevoke(ServiceGrantRevokeResponse)
 
     private enum CodingKeys: String, CodingKey { case type, data }
 
@@ -147,6 +153,9 @@ public enum IPCResponse: Codable, Sendable {
             try c.encode(r, forKey: .data)
         case .metadataIntegrity(let r):
             try c.encode("metadataIntegrity", forKey: .type)
+            try c.encode(r, forKey: .data)
+        case .serviceGrantRevoke(let r):
+            try c.encode("serviceGrantRevoke", forKey: .type)
             try c.encode(r, forKey: .data)
         case .browserSession(let r):
             try c.encode("browserSession", forKey: .type)
@@ -184,6 +193,7 @@ public enum IPCResponse: Codable, Sendable {
         case "sessionControl": self = .sessionControl(try c.decode(SessionControlResponse.self, forKey: .data))
         case "metadataEdit": self = .metadataEdit(try c.decode(MetadataEditResponse.self, forKey: .data))
         case "metadataIntegrity": self = .metadataIntegrity(try c.decode(MetadataIntegrityResponse.self, forKey: .data))
+        case "serviceGrantRevoke": self = .serviceGrantRevoke(try c.decode(ServiceGrantRevokeResponse.self, forKey: .data))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: c, debugDescription: "Unknown IPC response type")
@@ -634,5 +644,21 @@ public enum PlainValuePolicy {
         case .intact, .unsigned: return true
         case .tampered, .none: return false
         }
+    }
+}
+
+/// Revoking goes through the app, because only the app can re-sign the approvals file.
+/// Narrowing access needs no prompt.
+public struct ServiceGrantRevokeRequest: Codable, Sendable, Equatable {
+    public var id: String
+    public init(id: String) { self.id = id }
+}
+
+public struct ServiceGrantRevokeResponse: Codable, Sendable, Equatable {
+    public var success: Bool
+    public var error: String?
+    public init(success: Bool, error: String? = nil) {
+        self.success = success
+        self.error = error
     }
 }

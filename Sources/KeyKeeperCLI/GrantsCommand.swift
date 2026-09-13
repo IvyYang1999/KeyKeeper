@@ -56,7 +56,7 @@ struct GrantsCommand: ParsableCommand {
         var id: String
 
         func run() throws {
-            try ServiceGrantStore.default.revokeGrant(id: id)
+            try IPCClient.revokeServiceGrant(id: id)
             print("Revoked service grant \(id)")
         }
     }

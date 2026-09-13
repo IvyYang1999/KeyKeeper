@@ -400,6 +400,15 @@ final class IPCServer: ObservableObject {
             handleValueRequest(request, clientFd: clientFd, callerIdentity: callerIdentity)
         case .serviceRequests:
             handleServiceRequestsList(clientFd: clientFd)
+        case .serviceGrantRevoke(let request):
+            let response: ServiceGrantRevokeResponse
+            do {
+                try serviceGrantStore.revokeGrant(id: request.id)
+                response = .init(success: true)
+            } catch {
+                response = .init(success: false, error: error.localizedDescription)
+            }
+            send(.serviceGrantRevoke(response), clientFd: clientFd)
         case .metadataIntegrity:
             let verdict = (try? metaStore.loadVerified().verdict) ?? .tampered
             send(.metadataIntegrity(MetadataIntegrityResponse(verdict)), clientFd: clientFd)

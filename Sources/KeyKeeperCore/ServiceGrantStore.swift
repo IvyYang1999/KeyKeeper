@@ -107,6 +107,8 @@ public struct ServiceGrantFile: Codable, Sendable, Equatable {
     public var mode: ServiceAuthorizationMode
     public var grants: [ServiceGrant]
     public var auditEvents: [ServiceAuditEvent]
+    /// HMAC over the rest of the file (GrantFileIntegrity). Nil in a file no app has signed yet.
+    public var integrity: String?
 
     public init(version: Int = 1,
                 mode: ServiceAuthorizationMode = .permissive,
@@ -122,9 +124,12 @@ public struct ServiceGrantFile: Codable, Sendable, Equatable {
 public final class ServiceGrantStore: Sendable {
     private let fileURL: URL
     private static let maxAuditEvents = 500
+    private let injectedIntegrity: GrantFileIntegrity?
+    private var integrity: GrantFileIntegrity? { injectedIntegrity ?? GrantFileIntegrity.processDefault }
 
-    public init(directory: URL) {
+    public init(directory: URL, integrity: GrantFileIntegrity? = nil) {
         self.fileURL = directory.appendingPathComponent("service-grants.json")
+        self.injectedIntegrity = integrity
     }
 
     public static var `default`: ServiceGrantStore {
@@ -230,7 +235,19 @@ public final class ServiceGrantStore: Sendable {
         }
     }
 
+    /// What the app may act on. A file it cannot vouch for holds no approvals, and asks every time.
     private func load() throws -> ServiceGrantFile {
+        let file = try loadRaw()
+        guard let integrity else { return file }
+        var unsigned = file
+        unsigned.integrity = nil
+        switch integrity.verdict(for: unsigned, recorded: file.integrity) {
+        case .intact, .unsigned: return file
+        case .tampered: return ServiceGrantFile(mode: .enforced)
+        }
+    }
+
+    private func loadRaw() throws -> ServiceGrantFile {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             return ServiceGrantFile()
         }
@@ -241,6 +258,9 @@ public final class ServiceGrantStore: Sendable {
     }
 
     private func save(_ file: ServiceGrantFile) throws {
+        var file = file
+        file.integrity = nil
+        if let integrity { file.integrity = try integrity.sign(file) }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -278,6 +298,9 @@ public final class ServiceGrantStore: Sendable {
         }
         defer { flock(fd, LOCK_UN) }
 
+        // A store without the key (the CLI) must not rewrite a file the app signed: the result would
+        // be unsigned, and the app would rightly stop trusting every approval in it.
+        if integrity == nil, try loadRaw().integrity != nil { throw GrantFileIntegrityError.managedByApp }
         var file = try load()
         let result = try body(&file)
         try save(file)

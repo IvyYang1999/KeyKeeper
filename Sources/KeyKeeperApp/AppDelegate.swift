@@ -19,6 +19,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         signal(SIGPIPE, SIG_IGN)
+        // Before anything reads or writes an approvals file: from here on the app signs them, and
+        // refuses to act on one it cannot vouch for.
+        GrantFileIntegrity.processDefault = GrantFileIntegrity(io: SecItemBlobIO(service: GrantFileIntegrity.service))
         installTerminationSignalHandlers()
     }
 

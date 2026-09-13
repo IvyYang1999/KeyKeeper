@@ -2,12 +2,15 @@ import Foundation
 
 public final class GrantStore: Sendable {
     private let fileURL: URL
+    private let injectedIntegrity: GrantFileIntegrity?
+    private var integrity: GrantFileIntegrity? { injectedIntegrity ?? GrantFileIntegrity.processDefault }
 
     /// Session grants expire after 24 hours as a safety net
     private static let sessionMaxAge: TimeInterval = 24 * 60 * 60
 
-    public init(directory: URL) {
+    public init(directory: URL, integrity: GrantFileIntegrity? = nil) {
         self.fileURL = directory.appendingPathComponent("grants.json")
+        self.injectedIntegrity = integrity
     }
 
     public static var `default`: GrantStore {
@@ -18,7 +21,19 @@ public final class GrantStore: Sendable {
 
     // MARK: - File I/O with flock
 
+    /// What the app may act on. A file it cannot vouch for holds no approvals at all.
     private func load() throws -> GrantFile {
+        let file = try loadRaw()
+        guard let integrity else { return file }
+        var unsigned = file
+        unsigned.integrity = nil
+        switch integrity.verdict(for: unsigned, recorded: file.integrity) {
+        case .intact, .unsigned: return file
+        case .tampered: return GrantFile()
+        }
+    }
+
+    private func loadRaw() throws -> GrantFile {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             return GrantFile()
         }
@@ -29,6 +44,9 @@ public final class GrantStore: Sendable {
     }
 
     private func save(_ file: GrantFile) throws {
+        var file = file
+        file.integrity = nil
+        if let integrity { file.integrity = try integrity.sign(file) }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -64,6 +82,9 @@ public final class GrantStore: Sendable {
         }
         defer { flock(fd, LOCK_UN) }
 
+        // A store without the key (the CLI) must not rewrite a file the app signed: the result would
+        // be unsigned, and the app would rightly stop trusting every approval in it.
+        if integrity == nil, try loadRaw().integrity != nil { throw GrantFileIntegrityError.managedByApp }
         var file = try load()
         let result = try body(&file)
         try save(file)

@@ -157,6 +157,8 @@ public struct Grant: Codable, Sendable, Identifiable {
 public struct GrantFile: Codable, Sendable {
     public var version: Int
     public var grants: [Grant]
+    /// HMAC over the rest of the file (GrantFileIntegrity). Nil in a file no app has signed yet.
+    public var integrity: String?
 
     public init(version: Int = 1, grants: [Grant] = []) {
         self.version = version
