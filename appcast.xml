@@ -15,52 +15,29 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <description sparkle:format="markdown"><![CDATA[# KeyKeeper 0.3.3
 
-## 下载与安装 / Installation
+适用于 Apple Silicon Mac，macOS 14 或更新版本。
 
-适用于 Apple Silicon Mac（M1 及后续芯片），macOS 14 或更新版本。打开 DMG，将 KeyKeeper 拖到 Applications，再启动 App。CLI 可从 App 的设置向导安装。
+**建议升级**：修了两个安全问题。
 
-Requires an Apple Silicon Mac and macOS 14 or later. Open the DMG, drag KeyKeeper into Applications, and launch it. Install the bundled CLI from the setup assistant.
+- 在 App 里复制密钥，不再跟着「通用剪贴板」同步到你的 iPhone 和 iPad。
+- 授权窗点「使用密码」会直接出密码框，不再先弹一次 Touch ID。
+- 从剪贴板存密钥时，只接受你在命令跑起来**之后**复制的那一次；可以先声明它应该长什么样（`--expect base64:32`），对不上就不存；存完会告诉你存了个什么形状。
+- 可以安全地替换已有字段（`--replace`），密钥也能先验明身份再入库。
+- 网站登录态那一页现在会告诉你扩展在哪、怎么装，连接改成一键完成。
+- 两个 SDK 可以写一句话说明为什么要用这把 key，会显示在授权窗里。
 
-## 存进来的东西，现在会被核对
+---
 
-剪贴板是个共享通道：你复制的，和保存那一刻还在上面的，不一定是同一个东西。这一版起，KeyKeeper 不再把"剪贴板上有什么就存什么"当成理所当然。
+For Apple Silicon Macs, macOS 14 or later.
 
-- **只收本次请求之后复制的那一次。** 命令跑起来时就躺在剪贴板上的内容一律不收——它可能在你复制之后又被别的东西盖掉了。判据是"恰好复制一次"：之后又被写过就分不清哪次是你要的，直接拒绝。确实要用现成那份，加 `--use-current-clipboard`。
-- **可以先声明它应该长什么样**：`keykeeper save … --expect base64:32`（也支持 `hex:32`、`bytes:64`、`chars:40`）。对不上就拒绝，一个字节都不写。
-- **存完会告诉你存了个什么形状**：`Saved. Stored: 44 characters, Base64 (32 bytes).` 只说长度和字符类别，不说值。
-- **可以安全地替换已有字段**：`--replace` 配合 `--expect`，确认之后替换，原有权限不变。
-- **密钥可以先证明身份再入库**：`--expect-ed25519-public-key <公钥>` 会在本机推导私钥对应的公钥、比对通过才存。
+**Recommended**: two security fixes.
 
-## 安全修复
-
-- **在 App 里复制密钥，不再跟着同步到你的其它设备。** general 剪贴板默认参与通用剪贴板，也就是说复制一次，密钥会出现在同一 Apple ID 下的 iPhone / iPad 上，而 30 秒自动清空只清得掉本机那份。现在写入时声明只留本机。
-- **授权窗点「使用密码」不再又弹一次 Touch ID。** 上一版的密码轮用的策略本来就先试生物识别，等于绕回原地，要点两次才出密码框。
-
-## 授权窗
-
-- 「来源」原来显示「未知终端」，读着像"不知道是哪个终端"，而真相是这个调用方**没有**终端会话（SDK、IDE、定时任务都是这样）。改成「无终端会话」，和窗口里另一句话说同一件事。
-- **两个 SDK 现在能写调用方留言了**：`get_field(..., reason="…")` / `runWithSecrets(..., { reason: '…' })`。以前只有 CLI 的 `--reason` 有，SDK 没往下传，所以每个走 SDK 的请求在弹窗里都是一片空白。
-
-## 网站登录态
-
-- 这一页原来只说「从 KeyKeeper 扩展请求导入」，而扩展没上架 Chrome 应用商店、装在 KeyKeeper.app 里，这些一个字都没写在界面上。现在写清楚了，并给出「在访达中显示扩展」「复制路径」「复制 chrome://extensions」三个按钮。
-- **扩展 ID 钉死成常量**，原来是 Chrome 按安装路径哈希出来的——KeyKeeper.app 一挪位置就再也连不上，且没有任何报错。现在 App 自己算得出 ID，一键完成登记，不用再去复制 32 个字母。
-- 状态叫「已登记」而不是「已连接」：那份登记是 KeyKeeper 自己写的，Chrome 从不回写，所以它看不到你是不是把扩展删了。
-
-## What's new
-
-- The clipboard save path now accepts only a copy made *after* the request — exactly one — and refuses what was already lying there. `--use-current-clipboard` opts out.
-- Declare the shape you expect (`--expect base64:32`, `hex:32`, `bytes:N`, `chars:N`); a mismatch writes nothing. Every save reports the shape of what was stored — counts and character classes only, never the value.
-- `--replace` safely replaces an existing field after confirmation; `--expect-ed25519-public-key` proves a private key belongs to a public key before storing it.
-- Security: copying a secret in the app no longer travels to your other devices over Universal Clipboard; "Use Password" in the approval window goes straight to the password sheet instead of showing Touch ID again.
-- The approval window says "No terminal session" instead of "Unknown terminal", and both SDKs can now pass a caller reason.
-- Website sessions: the empty screen explains how to load the bundled Chrome extension, the extension ID is now fixed, and registering the connection is one click.
-
-## 升级注意 / Upgrade notes
-
-`keykeeper save --from-clipboard` 的默认行为变了：先跑命令，**再**复制。旧习惯（先复制再跑命令）会被拒绝并提示。
-
-The default for `keykeeper save --from-clipboard` changed: run the command first, then copy. The old habit of copying first is refused, with a message saying so.
+- Copying a secret in the app no longer syncs to your iPhone and iPad over Universal Clipboard.
+- "Use Password" in the approval window now goes straight to the password field instead of showing Touch ID again.
+- Saving from the clipboard accepts only the copy you made *after* the command started. You can declare what the value should look like (`--expect base64:32`); a mismatch saves nothing. Every save reports the shape of what was stored.
+- Existing fields can be replaced safely (`--replace`), and a key can prove its identity before being stored.
+- The website sessions page now explains where the Chrome extension is and how to load it; connecting is one click.
+- Both SDKs can pass a one-line reason, shown in the approval window.
 ]]></description>
             <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.3/KeyKeeper-0.3.3.dmg" length="6972728" type="application/octet-stream" sparkle:edSignature="T7t2C1gOHzAi0W+u651Shk0O99FcjLD3HPL5zIqH1Mb3le01i1Kk9PqOl2g5Wt9YMleCDpaOVGb0Ua8axqJ6DQ=="/>
         </item>
@@ -174,6 +151,6 @@ Secrets remain in macOS Keychain. This installer cannot recover secret values th
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: wnBPE879+c9q+WU8+Ado1HCp9j2X/KGK2Womx2o6xb5gAZAgGqkrlOeSbBDGZpaP3wsGp2BK+XLhD7Grp7nkCQ==
-length: 16607
+edSignature: kKnAAWo1xZDSvEQs+NOO2B2wr4zbPSmOtN6R5Oyv3yazbBtmJd9vnOjONzkx+medwESPT/m4aWru+B7v9hEBBA==
+length: 13517
 -->
