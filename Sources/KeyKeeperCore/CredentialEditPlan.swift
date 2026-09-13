@@ -142,14 +142,22 @@ public struct CredentialEditPlan: Sendable {
         self.fieldRenames = fieldRenames
         // Gone from metadata (removed, or renamed away after its value was copied): the old
         // Keychain entry can go before the commit, because metadata no longer names it.
-        self.valueDeletions = existingFields
-            .filter { name, field in field.secret && metadataFields[name] == nil }
-            .map(\.key)
-            .sorted()
         // Became plain: metadata now carries the value, so the Keychain entry is dropped only
-        // after that metadata is safely written.
-        self.keychainDropsAfterCommit = existingFields
-            .filter { name, field in field.secret && metadataFields[name]?.secret == false }
+        // after that metadata is safely written. A field renamed in the same edit lives under its
+        // new name, so ask the rename map where it went — looking the old name up directly misses
+        // the rename and lets the entry fall into the pre-commit deletions below.
+        let droppedAfterCommit = Set(
+            existingFields
+                .filter { name, field in field.secret && metadataFields[fieldRenames[name] ?? name]?.secret == false }
+                .map(\.key)
+        )
+        self.keychainDropsAfterCommit = droppedAfterCommit.sorted()
+        // Gone from metadata (removed, or renamed away after its value was copied): the old
+        // Keychain entry can go before the commit, because metadata no longer names it.
+        self.valueDeletions = existingFields
+            .filter { name, field in
+                field.secret && metadataFields[name] == nil && !droppedAfterCommit.contains(name)
+            }
             .map(\.key)
             .sorted()
         self.metadata = Metadata(fields: metadataFields, security: security)

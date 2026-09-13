@@ -219,4 +219,19 @@ final class CredentialEditPlanTests: XCTestCase {
         XCTAssertEqual(plan.valueDeletions, [])
         XCTAssertEqual(plan.fieldRenames, ["apple-id": "account"])
     }
+
+    /// 【安全红线】同一次编辑里既改名又转明文：明文值写在新名下，按旧名去 metadata 里查会查不到，
+    /// 旧名就会被错排进「提交前删除」。提交若失败，钥匙串里的值已经没了，meta 里也没写成。
+    func test同时改名并转明文时旧钥匙串条目排在提交之后删() {
+        let plan = CredentialEditPlan(
+            inputFields: [.init(name: "token-new", value: "moved-value", originalName: "token", isSecret: false)],
+            existingFields: ["token": CredentialField(secret: true)],
+            security: .standard
+        )
+        XCTAssertEqual(plan.metadata.fields["token-new"]?.value, "moved-value")
+        XCTAssertEqual(plan.metadata.fields["token-new"]?.secret, false)
+        XCTAssertEqual(plan.valueDeletions, [], "提交前删除会在写 meta 失败时把值一起带走")
+        XCTAssertEqual(plan.keychainDropsAfterCommit, ["token"], "旧名的钥匙串条目只能在 meta 写成之后再删")
+        XCTAssertEqual(plan.fieldRenames, ["token": "token-new"])
+    }
 }
