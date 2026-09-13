@@ -125,7 +125,7 @@ public final class ServiceGrantStore: Sendable {
     private let fileURL: URL
     private static let maxAuditEvents = 500
     private let injectedIntegrity: GrantFileIntegrity?
-    private var integrity: GrantFileIntegrity? { injectedIntegrity ?? GrantFileIntegrity.processDefault }
+    private var integrity: GrantFileIntegrity? { injectedIntegrity ?? GrantFileIntegrity.serviceGrantsDefault }
 
     public init(directory: URL, integrity: GrantFileIntegrity? = nil) {
         self.fileURL = directory.appendingPathComponent("service-grants.json")
@@ -244,6 +244,7 @@ public final class ServiceGrantStore: Sendable {
         switch integrity.verdict(for: unsigned, recorded: file.integrity) {
         case .intact, .unsigned: return file
         case .tampered: return ServiceGrantFile(mode: .enforced)
+        case .unavailable: throw GrantFileIntegrityError.keyUnavailable
         }
     }
 

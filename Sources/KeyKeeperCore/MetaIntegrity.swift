@@ -49,7 +49,7 @@ public enum MetaIntegrity {
 /// a defence anyone can delete is not a defence. The key lives in the Keychain, where the
 /// attacker in this threat model cannot reach it.
 public enum MetaIntegrityKey {
-    public static let service = "com.keykeeper.metadata-mac"
+    public static var service: String { IntegrityKeyNames.service("metadata-mac") }
     static let length = 32
 
     public static func existing(io: KeychainBlobIO) throws -> Data? {

@@ -3,7 +3,7 @@ import Foundation
 public final class GrantStore: Sendable {
     private let fileURL: URL
     private let injectedIntegrity: GrantFileIntegrity?
-    private var integrity: GrantFileIntegrity? { injectedIntegrity ?? GrantFileIntegrity.processDefault }
+    private var integrity: GrantFileIntegrity? { injectedIntegrity ?? GrantFileIntegrity.grantsDefault }
 
     /// Session grants expire after 24 hours as a safety net
     private static let sessionMaxAge: TimeInterval = 24 * 60 * 60
@@ -30,6 +30,7 @@ public final class GrantStore: Sendable {
         switch integrity.verdict(for: unsigned, recorded: file.integrity) {
         case .intact, .unsigned: return file
         case .tampered: return GrantFile()
+        case .unavailable: throw GrantFileIntegrityError.keyUnavailable
         }
     }
 
