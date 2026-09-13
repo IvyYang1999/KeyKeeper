@@ -15,6 +15,8 @@ struct BrowserExtensionSetup: Equatable {
         /// Built without the extension: telling this person to go load it would be a lie.
         case missingFromApp
         case notRegistered
+        /// The registration exists but points somewhere else — somebody rewrote the file.
+        case tamperedWith
         /// KeyKeeper's side is wired up. Deliberately not called "connected": this file is one
         /// KeyKeeper wrote, and Chrome never writes back to it. If the extension is later removed
         /// in Chrome, nothing here changes — so the screen must not claim Chrome is ready.
@@ -52,8 +54,9 @@ struct BrowserExtensionSetup: Equatable {
               FileManager.default.fileExists(atPath: extensionFolder.path),
               FileManager.default.fileExists(atPath: launcher.path)
         else { return .missingFromApp }
-        if let id = BrowserHostRegistration.registeredExtensionID(at: manifestURL) {
-            return .registered(id)
+        if let found = BrowserHostRegistration.registration(at: manifestURL,
+                                                            expectedLauncher: launcher.path) {
+            return found.intact ? .registered(found.id) : .tamperedWith
         }
         return .notRegistered
     }

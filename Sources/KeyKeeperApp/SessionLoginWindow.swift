@@ -34,6 +34,9 @@ import KeyKeeperCore
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.minSize = NSSize(width: 720, height: 560)
+        // The password and the one-time code are typed in THIS window. The playback window got
+        // this on 2026-09-13; this one was written earlier and was missed.
+        window.sharingType = .none
 
         let config = WKWebViewConfiguration()
         // Empty and forgetful: nothing of yours is in here, and nothing stays behind.

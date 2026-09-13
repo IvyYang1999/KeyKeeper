@@ -77,4 +77,51 @@ final class BrowserExtensionSetupTests: XCTestCase {
         // 从 chrome://extensions 复制经常会带上空白
         XCTAssertNoThrow(try setup.connect(extensionID: "  " + String(repeating: "b", count: 32) + "\n"))
     }
+
+    /// 【安全审计】注册文件装完就再没人看过一眼。它是 0600 的普通文件，同 UID 进程可以
+    /// unlink 之后重写——把 `path` 指向自己的程序，Chrome 交出来的 cookie 就整包落进别人
+    /// 手里，而界面这边永远显示「已登记」。真正的洞在 path，不在扩展 ID。
+    func test注册文件指向别处时不再报告已登记() throws {
+        let setup = try setup()
+        let id = String(repeating: "b", count: 32)
+        try setup.connect(extensionID: id)
+        XCTAssertEqual(setup.connection, .registered(id))
+
+        // 攻击者改写 path
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: setup.manifestURL)) as? [String: Any])
+        object["path"] = "/tmp/not-keykeeper"
+        try JSONSerialization.data(withJSONObject: object).write(to: setup.manifestURL)
+
+        XCTAssertEqual(setup.connection, .tamperedWith,
+                       "指向别处的注册不能继续算作「已登记」")
+    }
+
+    /// 重新登记要能覆盖掉被改写的那份。
+    func test被改写之后可以重新登记回来() throws {
+        let setup = try setup()
+        let id = String(repeating: "b", count: 32)
+        try setup.connect(extensionID: id)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: setup.manifestURL)) as? [String: Any])
+        object["path"] = "/tmp/not-keykeeper"
+        try JSONSerialization.data(withJSONObject: object).write(to: setup.manifestURL)
+
+        try setup.connect(extensionID: id, replacingExisting: true)
+        XCTAssertEqual(setup.connection, .registered(id))
+    }
+}
+
+/// 【安全审计】今天给回放窗口加的 `sharingType = .none` 没覆盖到登录窗口——而密码和验证码
+/// 恰恰是在登录窗口里敲的。这条属性在进程内没法回读验证，所以直接盯源码。
+final class SessionWindowSharingTests: XCTestCase {
+    func test两个窗口都禁止被别的进程截屏() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        for file in ["Sources/KeyKeeperApp/SessionLoginWindow.swift",
+                     "Sources/KeyKeeperApp/SessionBrowserRuntime.swift"] {
+            let source = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
+            XCTAssertTrue(source.contains("sharingType = .none"), file)
+        }
+    }
 }

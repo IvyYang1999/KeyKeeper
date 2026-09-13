@@ -228,11 +228,15 @@ struct BrowserSessionStartCard: View {
                 title: L("Bring one over from Chrome"),
                 detail: L("Open the site in Chrome, click the KeyKeeper extension, pick that site and confirm here."),
                 button: nil, action: {})
-        case .notRegistered:
+        case .notRegistered, .tamperedWith:
             VStack(alignment: .leading, spacing: 10) {
-                row(symbol: "puzzlepiece.extension",
-                    title: L("Bring one over from Chrome"),
-                    detail: L("Reuse a site you are already signed in to in Chrome. Needs a one-time setup."),
+                row(symbol: setup.connection == .tamperedWith ? "exclamationmark.triangle" : "puzzlepiece.extension",
+                    title: setup.connection == .tamperedWith
+                        ? L("Chrome is wired to something else")
+                        : L("Bring one over from Chrome"),
+                    detail: setup.connection == .tamperedWith
+                        ? L("KeyKeeper's registration file now points at another program. Something changed it. Register again to point it back.")
+                        : L("Reuse a site you are already signed in to in Chrome. Needs a one-time setup."),
                     button: showingChromeSteps ? L("Hide") : L("Set up"),
                     action: { showingChromeSteps.toggle() })
                 if showingChromeSteps {
@@ -267,6 +271,9 @@ struct BrowserExtensionStatusLine: View {
         case .registered:
             Text(L("Chrome is registered. Use the extension there to bring another site over."))
                 .font(.caption).foregroundColor(.secondary)
+        case .tamperedWith:
+            Text(L("Chrome is wired to something else"))
+                .font(.caption).foregroundColor(.red)
         case .notRegistered, .missingFromApp:
             EmptyView()
         }
@@ -287,7 +294,7 @@ struct BrowserExtensionSetupCard: View {
                 title: L("This build has no browser extension"),
                 text: L("Website sessions need the Chrome extension that ships inside KeyKeeper.app, and this copy does not contain it. Reinstall KeyKeeper from keykeeper.dev.")
             )
-        case .notRegistered:
+        case .notRegistered, .tamperedWith:
             connectCard
         case .registered(let id):
             if showsNextStep { nextStepCard(id: id) }

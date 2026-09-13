@@ -82,6 +82,24 @@ public enum BrowserHostRegistration {
 
     /// The extension ID this Mac is currently wired to, if any. Lets the app say "connected"
     /// instead of asking the person to remember whether they ever ran the setup step.
+    /// The extension this Mac is wired to, and whether the registration still points at the
+    /// launcher it was written for.
+    ///
+    /// 【安全审计 2026-09-13】Nothing ever re-read this file after writing it. It is an ordinary
+    /// 0600 file, and a process running as the same user can unlink and rewrite it — pointing
+    /// `path` at its own program, so Chrome hands the cookies there instead, while KeyKeeper
+    /// keeps saying "registered". The extension ID was never the interesting field.
+    public static func registration(at target: URL = manifestURL(),
+                                    expectedLauncher: String?) -> (id: String, intact: Bool)? {
+        guard let id = registeredExtensionID(at: target) else { return nil }
+        guard let expectedLauncher else { return (id, true) }
+        guard let data = try? Data(contentsOf: target),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let path = object["path"] as? String
+        else { return (id, false) }
+        return (id, path == expectedLauncher)
+    }
+
     public static func registeredExtensionID(at target: URL = manifestURL()) -> String? {
         guard let data = try? Data(contentsOf: target),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
