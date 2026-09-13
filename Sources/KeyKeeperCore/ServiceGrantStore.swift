@@ -148,6 +148,9 @@ public final class ServiceGrantStore: Sendable {
                                fieldName: String,
                                now: Date = Date()) throws -> ServiceGrant? {
         let file = try load()
+        // An unverified identity is a constant a process can deliberately fall into; matching on
+        // it would let two such processes share approvals.
+        guard GrantIssuancePolicy.mayRemember(subjectFingerprint: subjectFingerprint) else { return nil }
         return file.grants.first { grant in
             grant.credentialId == credentialId
                 && grant.subjectFingerprint == subjectFingerprint
@@ -343,5 +346,17 @@ public enum ServiceAuthorizationPolicy {
         case .enforced:
             return .promptRequired
         }
+    }
+}
+
+/// Whether an approval may be remembered for — or matched against — this caller.
+///
+/// 【独立审计 2026-09-13】The unverified guard existed only in GrantStore. Unverified fingerprints
+/// are constants that a process can land in on purpose (run a copied binary, then delete it), so
+/// every store has to refuse them, not just one.
+public enum GrantIssuancePolicy {
+    public static func mayRemember(subjectFingerprint: String?) -> Bool {
+        guard let subjectFingerprint, !subjectFingerprint.isEmpty else { return false }
+        return !subjectFingerprint.hasPrefix(CallerSubject.unverifiedPrefix)
     }
 }

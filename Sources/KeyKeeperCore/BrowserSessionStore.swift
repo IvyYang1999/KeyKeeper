@@ -135,6 +135,7 @@ public final class BrowserSessionStore {
     /// The permission that covers this caller opening this login right now, if any.
     public func validGrant(sessionId: String, fingerprint: String, now: Date = Date()) throws -> BrowserSessionGrant? {
         lock.lock(); defer { lock.unlock() }
+        guard GrantIssuancePolicy.mayRemember(subjectFingerprint: fingerprint) else { return nil }
         return (try load().grants ?? []).first {
             $0.sessionId == sessionId && $0.subjectFingerprint == fingerprint && $0.isValid(now: now)
         }

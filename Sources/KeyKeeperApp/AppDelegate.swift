@@ -260,7 +260,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     credentialId: request.credentialId,
                     sessionId: request.sessionId,
                     duration: resolvedDuration,
-                    subjectFingerprint: request.callerIdentity?.subject.fingerprint,
+                    subjectFingerprint: request.callerIdentity.flatMap {
+                        GrantIssuancePolicy.mayRemember(subjectFingerprint: $0.subject.fingerprint) ? $0.subject.fingerprint : nil
+                    },
                     subjectDisplayName: request.callerIdentity?.displayName
                 )
                 try grantStore.addGrant(grant)
@@ -299,7 +301,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     fields: pending.fieldNames,
                     duration: duration
                 )
-                try serviceGrantStore.addGrant(grant)
+                // An unidentified caller gets this one answer and nothing remembered: a stored
+                // approval for a constant fingerprint would be one anybody could fall into.
+                if GrantIssuancePolicy.mayRemember(subjectFingerprint: grant.subjectFingerprint) {
+                    try serviceGrantStore.addGrant(grant)
+                }
                 self.ipcServer.fulfillServiceRequest(pending, serviceGrant: grant)
             },
             onDeny: { [weak self] in
