@@ -45,6 +45,9 @@ struct EditCommand: ParsableCommand {
     @Option(name: .customLong("unset"), help: "Remove a plain field. Repeatable. Secret fields are untouched by this command.")
     var unsetPlain: [String] = []
 
+    @Option(help: "The last day the key works at its provider, as YYYY-MM-DD, or never to clear it. No prompt, like notes.")
+    var expires: String?
+
     func request() throws -> MetadataEditRequest {
         var plainFields: [String: String?] = [:]
         for (field, value) in try Self.pairs(setPlain, option: "--set") { plainFields[field] = value }
@@ -52,9 +55,9 @@ struct EditCommand: ParsableCommand {
         let edit = MetadataEdit(newGroupId: newGroupId, title: title, notes: notes,
                                 fieldRenames: try Self.pairs(renameField, option: "--rename-field"),
                                 fieldDisplayNames: try Self.pairs(fieldLabel, option: "--field-label"),
-                                plainFields: plainFields)
+                                plainFields: plainFields, expires: expires)
         guard edit != MetadataEdit() else {
-            throw ValidationError("Nothing to change. Pass --group-id, --title, --notes, --rename-field or --field-label.")
+            throw ValidationError("Nothing to change. Pass --group-id, --title, --notes, --rename-field, --field-label, --set, --unset or --expires.")
         }
         return MetadataEditRequest(groupId: groupId, edit: edit)
     }

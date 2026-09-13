@@ -13,16 +13,20 @@ public struct MetadataEdit: Codable, Sendable, Equatable {
     /// reachable from here: writing one would move a Keychain value into the clear, on a path
     /// that shows no prompt.
     public var plainFields: [String: String?]
+    /// Nil leaves it alone; "never" or an empty string clears it; YYYY-MM-DD sets it. A date, like
+    /// notes, is only what somebody wrote down, so it changes without a prompt.
+    public var expires: String?
 
     public init(newGroupId: String? = nil, title: String? = nil, notes: String? = nil,
                 fieldRenames: [String: String] = [:], fieldDisplayNames: [String: String] = [:],
-                plainFields: [String: String?] = [:]) {
+                plainFields: [String: String?] = [:], expires: String? = nil) {
         self.newGroupId = newGroupId
         self.title = title
         self.notes = notes
         self.fieldRenames = fieldRenames
         self.fieldDisplayNames = fieldDisplayNames
         self.plainFields = plainFields
+        self.expires = expires
     }
 
     public init(from decoder: Decoder) throws {
@@ -33,6 +37,7 @@ public struct MetadataEdit: Codable, Sendable, Equatable {
         fieldRenames = try c.decodeIfPresent([String: String].self, forKey: .fieldRenames) ?? [:]
         fieldDisplayNames = try c.decodeIfPresent([String: String].self, forKey: .fieldDisplayNames) ?? [:]
         plainFields = try c.decodeIfPresent([String: String?].self, forKey: .plainFields) ?? [:]
+        expires = try c.decodeIfPresent(String.self, forKey: .expires)
     }
 }
 
@@ -45,6 +50,7 @@ public enum MetadataChange: Codable, Sendable, Equatable {
     case titleChanged(from: String, to: String)
     case notesChanged
     case displayNameChanged(field: String, to: String?)
+    case expiryChanged(from: String?, to: String?)
 
     /// Plain English, for CLI output and agents.
     public var summary: String {
@@ -56,6 +62,7 @@ public enum MetadataChange: Codable, Sendable, Equatable {
         case .titleChanged(let from, let to): return "title \"\(from)\" → \"\(to)\""
         case .notesChanged: return "notes updated"
         case .displayNameChanged(let field, let to): return to.map { "field \(field) is now shown as \"\($0)\"" } ?? "field \(field) display name cleared"
+        case .expiryChanged(_, let to): return to.map { "expires \($0)" } ?? "expiry date cleared"
         }
     }
 }
@@ -70,6 +77,7 @@ public enum MetadataEditError: Error, Equatable, LocalizedError {
     case fieldIsSecret(String)
     case reservedFieldName(String)
     case tooLong(String)
+    case invalidExpiry(String)
     case nothingToChange
 
     public var errorDescription: String? {
@@ -83,6 +91,7 @@ public enum MetadataEditError: Error, Equatable, LocalizedError {
         case .fieldNameTaken(let name): return "'\(name)' is already a field name (or an old one) in this credential."
         case .fieldIsSecret(let name): return "'\(name)' is a secret field. Change secrets in the KeyKeeper app, where the value stays in the Keychain."
         case .tooLong(let what): return "The \(what) is too long."
+        case .invalidExpiry(let value): return "'\(value)' is not a date. Use YYYY-MM-DD (for example 2026-12-31), or never to clear it."
         case .nothingToChange: return "Nothing to change."
         }
     }
@@ -209,6 +218,21 @@ public enum MetadataEditPlan {
             guard notes.count <= notesLimit else { throw MetadataEditError.tooLong("notes") }
             credential.notes = notes
             changes.append(.notesChanged)
+        }
+        if let raw = edit.expires {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            let value: String?
+            if trimmed.isEmpty || trimmed.lowercased() == "never" {
+                value = nil
+            } else if let day = CredentialExpiry.normalize(trimmed) {
+                value = day
+            } else {
+                throw MetadataEditError.invalidExpiry(String(trimmed.prefix(40)))
+            }
+            if value != credential.expires {
+                changes.append(.expiryChanged(from: credential.expires, to: value))
+                credential.expires = value
+            }
         }
 
         guard !changes.isEmpty else { throw MetadataEditError.nothingToChange }

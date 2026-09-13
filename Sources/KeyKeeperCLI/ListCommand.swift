@@ -21,6 +21,10 @@ struct ListCommand: ParsableCommand {
 
         for (id, cred) in meta.credentials.sorted(by: { $0.key < $1.key }) {
             print("\(id) | \(cred.label)")
+            // Its own indented line: the SDKs read the id as the text before " | ".
+            if let expiry = CredentialExpiry.summary(cred.expires) {
+                print("  expires: \(expiry)")
+            }
             if detail {
                 if let aliases = cred.aliases, !aliases.isEmpty {
                     print("  also answers to: \(aliases.joined(separator: ", "))")

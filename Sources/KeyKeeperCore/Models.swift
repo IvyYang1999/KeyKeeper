@@ -36,10 +36,14 @@ public struct Credential: Codable, Sendable {
     public var updated: String
     /// Earlier group IDs (the `-c` name). They keep resolving to this credential forever.
     public var aliases: [String]?
+    /// The last day the key is expected to work at its provider, YYYY-MM-DD (see CredentialExpiry).
+    /// Nil when nobody recorded one — and then it is left out of the file entirely, so metadata
+    /// signed before this existed still verifies.
+    public var expires: String?
 
     public init(label: String, notes: String, links: [String],
                 fields: [String: CredentialField], security: SecurityLevel,
-                created: String, updated: String, aliases: [String]? = nil) {
+                created: String, updated: String, aliases: [String]? = nil, expires: String? = nil) {
         self.label = label
         self.notes = notes
         self.links = links
@@ -48,6 +52,7 @@ public struct Credential: Codable, Sendable {
         self.created = created
         self.updated = updated
         self.aliases = aliases
+        self.expires = expires
     }
 }
 

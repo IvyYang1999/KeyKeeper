@@ -1,3 +1,4 @@
+import Foundation
 import ArgumentParser
 import Darwin
 import KeyKeeperCore
@@ -50,6 +51,9 @@ struct GetCommand: ParsableCommand {
         }
         guard let fieldName = cred.resolveFieldName(self.fieldName), let field = cred.fields[fieldName] else {
             throw CommandFailure("Field '\(self.fieldName)' not found in '\(credentialId)'. Run 'keykeeper list --detail' to see its fields.")
+        }
+        if let warning = CredentialExpiry.warning(credentialId: credentialId, expires: cred.expires) {
+            FileHandle.standardError.write(Data((warning + "\n").utf8))
         }
 
         if field.secret {

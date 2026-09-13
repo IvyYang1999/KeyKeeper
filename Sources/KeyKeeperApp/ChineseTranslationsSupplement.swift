@@ -173,6 +173,8 @@ extension AppL10n {
         "confirm that the credential list is correct": "确认凭据清单无误",
         "Could not confirm the list: {0}": "没能确认清单：{0}",
         "Your credential list was changed outside KeyKeeper. Open the KeyKeeper window to check it.": "凭据清单被 KeyKeeper 以外的程序改过。打开 KeyKeeper 窗口检查一下。",
+        "Use a date like 2026-12-31, or never to clear it.": "请用 2026-12-31 这样的日期；要清除就写 never。",
+        "Expiry date cleared": "清除了过期日期",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",

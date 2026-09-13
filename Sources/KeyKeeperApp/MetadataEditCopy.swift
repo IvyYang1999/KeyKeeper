@@ -14,6 +14,7 @@ enum MetadataEditCopy {
         case .fieldIsSecret(let name): return L("\u{201C}\(name)\u{201D} is a secret field. Change it in KeyKeeper, where the value stays in the Keychain.")
         case .reservedFieldName(let name): return L("\u{201C}\(name)\u{201D} would become an environment variable that decides how programs run, like PATH. Pick another name.")
         case .tooLong: return L("That text is too long.")
+        case .invalidExpiry: return L("Use a date like 2026-12-31, or never to clear it.")
         case .nothingToChange: return L("Nothing to change.")
         }
     }
@@ -28,6 +29,8 @@ enum MetadataEditCopy {
         case .notesChanged: return L("Notes updated")
         case .displayNameChanged(let field, let to):
             return to.map { L("\(field) shown as \u{201C}\($0)\u{201D}") } ?? L("\(field) display name cleared")
+        case .expiryChanged(_, let to):
+            return to.map { L("Expires \($0)") } ?? L("Expiry date cleared")
         }
     }
 

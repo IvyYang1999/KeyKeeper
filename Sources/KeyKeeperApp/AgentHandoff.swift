@@ -35,15 +35,18 @@ enum AgentPromptCopy {
 
         // The note is the user's "visible to AI" description: purpose, limits, renewal links.
         let note = includeNote ? credential.notes.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        let expires = credential.expires.flatMap(CredentialExpiry.normalize)
 
         if chinese {
             return "我在 KeyKeeper 里存了一把 key，ID 是 `\(credentialId)`（\(arrivalText)）。"
+                + (expires.map { "记录的过期日是 \($0)。" } ?? "")
                 + "需要用它时，请通过 `\(command)` 运行，让 key 只注入到那个进程里。"
                 + "不要向我索要这个值，也不要把它打印出来、写进文件或对话。"
                 + "如果组 ID 或字段名不够规范，可以用 `keykeeper edit` 改（旧名会一直可用），改完告诉我。"
                 + (note.isEmpty ? "" : "\n备注：\(note)")
         }
         return "I keep an API key in KeyKeeper under the ID `\(credentialId)` (\(arrivalText)). "
+            + (expires.map { "It is recorded as expiring on \($0). " } ?? "")
             + "When you need it, run the command through `\(command)` so the key is injected only into that process. "
             + "Never ask me for the value, print it, or write it into files or the chat. "
             + "If the group ID or field names are unclear, you may rename them with `keykeeper edit` (old names keep working); tell me what you changed."

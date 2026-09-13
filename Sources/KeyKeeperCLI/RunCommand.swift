@@ -165,6 +165,9 @@ struct RunCommand: ParsableCommand {
             guard let cred = meta.credentials[credId] else {
                 throw CommandFailure("Credential '\(credId)' not found. Run 'keykeeper list' to see the available IDs.")
             }
+            if let warning = CredentialExpiry.warning(credentialId: credId, expires: cred.expires) {
+                FileHandle.standardError.write(Data((warning + "\n").utf8))
+            }
 
             // Only ask when something secret will actually be read.
             if Self.requiresAuthorization(for: cred) {
