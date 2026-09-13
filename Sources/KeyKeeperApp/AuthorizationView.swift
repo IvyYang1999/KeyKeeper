@@ -216,9 +216,10 @@ struct AuthorizationView: View {
         .padding(.horizontal, 24)
         .padding(.top, 40)   // the window's traffic lights sit in this band
         .padding(.bottom, 22)
-        .frame(width: 420)
         // Frosted like a system prompt, and the same surface as the save confirmations.
-        .glassWindowBackground()
+        // The glass fills the window, not just the content, so opening the caller details
+        // can't leave a bare strip with square corners.
+        .glassPanel(width: 420)
     }
 
     private var callerName: String {

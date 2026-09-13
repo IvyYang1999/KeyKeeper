@@ -234,8 +234,7 @@ struct TrustPromptView: View {
             }
         }
         .padding(24)
-        .frame(width: 440)
-        .glassWindowBackground(intensity: 0.8)
+        .glassPanel(width: 440, intensity: 0.8)
     }
 }
 

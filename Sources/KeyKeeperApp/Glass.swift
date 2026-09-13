@@ -132,6 +132,17 @@ extension View {
     func glassWindowBackground(intensity: Double = 1) -> some View {
         self.background(GlassSurface(intensity: intensity))
     }
+
+    /// Root chrome for a transparent panel window: the content keeps its own width, and the
+    /// glass fills whatever size the window ends up at.
+    ///
+    /// 【曾经的 bug】yyt 2026-09-13：「展开调用详情之后，弹窗又变成这个奇怪的直角了」。窗口
+    /// 会跟着展开的内容长高，但玻璃只贴在内容盒上，多出来的那条没有玻璃，露出实色直角。
+    func glassPanel(width: CGFloat, intensity: Double = 1) -> some View {
+        frame(width: width)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .glassWindowBackground(intensity: intensity)
+    }
 }
 
 /// Small grey section heading used across the glass surfaces.
