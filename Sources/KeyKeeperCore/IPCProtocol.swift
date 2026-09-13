@@ -411,10 +411,21 @@ public enum IPCMessage {
     }
 
     /// Read exactly `count` bytes from a file descriptor.
-    public static func readExact(fd: Int32, count: Int) -> Data? {
+    public static func readExact(fd: Int32, count: Int, deadline: Date? = nil) -> Data? {
         var buffer = Data(count: count)
         var offset = 0
         while offset < count {
+            // The per-read socket timeout restarts on every byte, so a caller that dribbles one
+            // byte at a time can hold the server's serial queue open indefinitely. A deadline for
+            // the whole message is what actually bounds it — and it has to be enforced by waiting
+            // with poll(), not by checking the clock before a read that then blocks anyway.
+            if let deadline {
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else { return nil }
+                var poller = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                let ready = poll(&poller, 1, Int32(min(remaining * 1000, 3_600_000).rounded(.up)))
+                guard ready > 0 else { return nil }
+            }
             let n = buffer.withUnsafeMutableBytes { ptr in
                 read(fd, ptr.baseAddress!.advanced(by: offset), count - offset)
             }
@@ -425,11 +436,17 @@ public enum IPCMessage {
     }
 
     /// Read a length-prefixed JSON message from a file descriptor.
-    public static func readMessage<T: Decodable>(fd: Int32, as type: T.Type) -> T? {
-        guard let lengthData = readExact(fd: fd, count: 4) else { return nil }
+    /// How long one message may take to arrive, in total. Without this, the per-read timeout is
+    /// restarted by every byte and a slow sender holds the server for as long as it likes.
+    public static let messageDeadline: TimeInterval = 15
+
+    public static func readMessage<T: Decodable>(fd: Int32, as type: T.Type,
+                                                 deadline: TimeInterval = messageDeadline) -> T? {
+        let limit = Date().addingTimeInterval(deadline)
+        guard let lengthData = readExact(fd: fd, count: 4, deadline: limit) else { return nil }
         let length = lengthData.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
         guard length > 0, length < 1_000_000 else { return nil }  // sanity check
-        guard let jsonData = readExact(fd: fd, count: Int(length)) else { return nil }
+        guard let jsonData = readExact(fd: fd, count: Int(length), deadline: limit) else { return nil }
         return try? JSONDecoder().decode(T.self, from: jsonData)
     }
 
