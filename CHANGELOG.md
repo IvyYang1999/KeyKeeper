@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.3 - 2026-09-13
+
+- Clipboard saves accept only a copy made after the request, exactly once; what was already on the clipboard is refused (`--use-current-clipboard` opts out).
+- `--expect base64:32 | hex:N | bytes:N | chars:N` refuses a value whose shape does not match, before anything is written; every save reports the stored value's shape without revealing it.
+- `--replace` replaces an existing field after explicit confirmation, and `--expect-ed25519-public-key` proves a private key matches its public key before storing.
+- Security: copying a secret in the app no longer syncs to other devices via Universal Clipboard.
+- Security fix: "Use Password" in the approval window went back to Touch ID instead of showing the password sheet.
+- The approval window says "No terminal session" instead of "Unknown terminal"; the Python and Node SDKs can pass a caller reason.
+- Website sessions: the empty state explains and links to the bundled Chrome extension, its ID is pinned so it no longer depends on the app's install path, and registering the native host is one click in the app.
+
 ## 0.3.2 - 2026-09-13
 
 - Fields can be marked plain instead of secret. Plain values live in `meta.json` in the clear, are injected by `keykeeper run` without an approval prompt, and can be written with `keykeeper edit --set/--unset`. A field can be converted either way in the app. Never put a password, token or key in a plain field.
