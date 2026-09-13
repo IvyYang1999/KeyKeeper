@@ -195,6 +195,27 @@ before retrying; never blindly repeat an uncertain write. A wholly missing store
 
 This command reads the macOS system clipboard. A tool's browser-session clipboard may be isolated; do not assume `tab.clipboard` reaches KeyKeeper.
 
+### Correcting an existing text field (0.3.3+)
+
+An explicitly user-authorized correction can use `save --replace --from-clipboard --expect <shape>`.
+This is a replacement, not a create or missing-value restore. Verify App and CLI support first;
+the distinct replacement IPC request is refused by older Apps, with no fallback. Do not combine
+with `--create`, `--use-current-clipboard`, browser/file/source import, or a change of field type.
+The native prompt says **Replace value** and requires the user's confirmation for this correction.
+Existing read permissions still apply to the new value; replacement does not revoke them.
+
+Start the command, wait for the native prompt, copy exactly once from the verified source, and
+confirm. Format/freshness checks happen BEFORE writing. If the stored target changed while
+waiting, replacement is refused. Metadata, other fields and existing grants are preserved.
+No plaintext backup or secret digest is returned. Failed validation leaves the old value intact;
+a connection/storage failure can be uncertain, so inspect status instead of blindly retrying.
+
+For a Sparkle 32-byte seed, also pass `--expect-ed25519-public-key <trusted-public-key>` with
+`--expect base64:32`. ONLY the public key may be an argument. The App derives the public key
+before committing; mismatch leaves the old value intact. The expected public key is caller
+supplied, not automatically authenticated: obtain it from the trusted App/release configuration.
+Do not create v2/v3 credential IDs merely to work around a correctable field.
+
 ### Python source literals (local macOS)
 
 When the user authorizes transferring a value already present in an exact local Python

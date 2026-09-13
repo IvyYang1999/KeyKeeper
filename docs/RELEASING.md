@@ -2,7 +2,7 @@
 
 KeyKeeper uses Sparkle 2. The app checks the signed `appcast.xml` once a day. Automatic
 installation is off by default; users can turn it on in Settings. Signing reads the
-`private-key` secret field from `keykeeper-sparkle-signing-v2` (override with
+`private-key` secret field from `keykeeper-sparkle-signing` (override with
 `KEYKEEPER_SPARKLE_CREDENTIAL_ID`). The original login Keychain entry under account
 `com.keykeeper.app` is retained for recovery. Never export private keys into files or argv.
 
@@ -23,10 +23,13 @@ Verification requires Apple Python 3 and an OpenSSL build supporting Ed25519; th
 self-test fails closed if the runtime is unavailable. Legacy 96-byte keys are unsupported.
 
 For initial setup, use an installed 0.3.3 App and CLI. Start
-`keykeeper save -c keykeeper-sparkle-signing-v2 --field private-key --from-clipboard --create --expect base64:32`,
+`keykeeper save -c keykeeper-sparkle-signing --field private-key --from-clipboard --create --expect base64:32`,
 wait for the native save prompt, copy from the exact source once, then confirm. Verify public
-key identity before signing. Do not overwrite/delete a mis-stored credential to reuse its ID;
-use a new ID and mark the earlier entry unusable. Freshness and shape are not source attestation.
+key identity before signing. For a mis-stored existing field, use `--replace` instead of `--create`,
+and add `--expect-ed25519-public-key <SUPublicEDKey from the trusted App plist>` so identity is
+checked BEFORE replacement. Confirm the native replacement prompt; old values survive failed
+validation. Do not delete the credential or change its ID/type. Existing read permissions remain.
+Freshness and shape alone are not source attestation.
 
 ## First updater-enabled release
 

@@ -4,7 +4,7 @@ import Darwin
 
 struct SaveCommand: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "save", abstract:
-        "Save clipboard text, a credential file or a Python source literal with one-time approval. Never prints or overwrites a key.")
+        "Save without printing a key. Existing values are protected unless --replace is explicitly requested and confirmed.")
     @Option(name: [.customShort("c"), .long], help: "Exact credential ID.")
     var credential: String
     @Option(help: "Secret field name.") var field: String
@@ -24,8 +24,15 @@ struct SaveCommand: ParsableCommand {
     var expect: String?
     @Flag(help: "Accept whatever is already on the clipboard. By default KeyKeeper accepts exactly one copy made after this command starts, because what is already there may have been replaced since you copied it.")
     var useCurrentClipboard = false
+    @Flag(name: .customLong("replace"), help: "Replace one existing text field after explicit confirmation. Requires --from-clipboard and --expect; keeps existing permissions.")
+    var replaceExisting = false
+    @Option(name: .customLong("expect-ed25519-public-key"), help: "Expected PUBLIC key in Base64; derive and match before saving a base64:32 private seed. Never pass a private key here.")
+    var expectedEd25519PublicKey: String?
 
     mutating func validate() throws {
+        if (replaceExisting || expectedEd25519PublicKey != nil) && !fromClipboard {
+            throw ClipboardSaveError.invalidReplacement
+        }
         guard [fromClipboard, fromBrowser, fromFile != nil, fromSource != nil].filter({ $0 }).count == 1 else {
             throw ValidationError("Choose exactly one: --from-clipboard, --from-browser, --from-file or --from-source. Never put a key in command arguments.")
         }
@@ -40,7 +47,8 @@ struct SaveCommand: ParsableCommand {
     }
     var request: ClipboardSaveRequest {
         .init(credentialId: credential, fieldName: field, create: create, expect: expect,
-              useCurrentClipboard: useCurrentClipboard)
+              useCurrentClipboard: useCurrentClipboard, replaceExisting: replaceExisting,
+              expectedEd25519PublicKey: expectedEd25519PublicKey)
     }
 
     /// What went in, without saying what it is. The clipboard is a shared channel and a save
@@ -84,6 +92,7 @@ struct SaveCommand: ParsableCommand {
         }
         var note = fromBrowser ? "Saved. Browser clipboard was not cleared. No read permission was granted." : "Saved. Clipboard cleared if unchanged. No read permission was granted."
         if let shape = result.shape { note += " Stored: \(Self.storedSummary(shape))." }
+        if replaceExisting { note += " Replaced the existing field. Existing permissions are unchanged." }
         print(note)
     }
 }

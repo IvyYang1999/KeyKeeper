@@ -1,6 +1,8 @@
 import XCTest
 @testable import KeyKeeperApp
 import KeyKeeperCore
+import CryptoKit
+import Darwin
 
 private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
     var blob: Data?
@@ -69,6 +71,116 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
     private func credential() -> Credential {
         .init(label: "Existing", notes: "keep", links: [], fields: ["key": .init(secret: true)],
             security: .standard, created: "2026-01-01", updated: "2026-01-01")
+    }
+    private func prepareReplacement(expect: String = "chars:16") throws {
+        try service.save(credentialId: "fixture", fieldName: "key", value: "old-fixture", security: .standard)
+        try meta.save(.init(credentials: ["fixture": credential()]))
+        controller.receive(.init(credentialId: "fixture", fieldName: "key", expect: expect,
+                                 replaceExisting: true), callerName: "Test",
+            isConnected: { self.connected }, completion: { self.results.append($0) })
+    }
+
+    func testExplicitReplacementPreservesMetadataAndOtherValues() throws {
+        try prepareReplacement()
+        let metadata = try Data(contentsOf: meta.fileURL)
+        try service.save(credentialId: "other", fieldName: "key", value: "keep-fixture", security: .strict)
+        copyToClipboard("synthetic-import")
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.last?.success, true)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "synthetic-import")
+        XCTAssertEqual(try service.retrieve(credentialId: "other", fieldName: "key"), "keep-fixture")
+        XCTAssertEqual(try Data(contentsOf: meta.fileURL), metadata)
+    }
+
+    func testReplacementWrongShapeOrConcurrentEditPreservesOldValue() throws {
+        try prepareReplacement()
+        copyToClipboard("wrong")
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.last?.errorCode, .shapeMismatch)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "old-fixture")
+        try prepareReplacement()
+        try service.save(credentialId: "fixture", fieldName: "key", value: "newer-fixture", security: .standard)
+        copyToClipboard("synthetic-import")
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.last?.errorCode, .targetValueChanged)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "newer-fixture")
+    }
+    func testReplacementRefusalsPreserveBlobAndGrants() throws {
+        for failure in ["cancel", "expired", "disconnected", "twice", "write"] {
+            try prepareReplacement()
+            let original = io.blob
+            let grantStore = GrantStore(directory: directory)
+            try grantStore.addGrant(Grant(credentialId: "fixture", duration: .always))
+            let grants = try grantStore.grants(for: "fixture").map(\.id)
+            copyToClipboard("synthetic-import")
+            if failure == "expired" { clock = clock.addingTimeInterval(91) }
+            if failure == "disconnected" { connected = false }
+            if failure == "twice" { copyToClipboard("second-copy-data") }
+            if failure == "write" { io.failWrites = true }
+            controller.resolve(approved: failure != "cancel")
+            XCTAssertEqual(results.last?.success, false, failure)
+            XCTAssertEqual(io.blob, original, failure)
+            XCTAssertEqual(try grantStore.grants(for: "fixture").map(\.id), grants)
+            connected = true; io.failWrites = false
+        }
+    }
+
+    func testPrivateSeedMustDeriveExpectedPublicKeyBeforeReplacement() throws {
+        let seed = Data(repeating: 7, count: 32)
+        let key = try Curve25519.Signing.PrivateKey(rawRepresentation: seed)
+        for matches in [false, true] {
+            try service.save(credentialId: "fixture", fieldName: "key", value: "old-fixture", security: .standard)
+            try meta.save(.init(credentials: ["fixture": credential()]))
+            let publicKey = matches ? key.publicKey.rawRepresentation : Data(repeating: 1, count: 32)
+            controller.receive(.init(credentialId: "fixture", fieldName: "key", expect: "base64:32",
+                replaceExisting: true, expectedEd25519PublicKey: publicKey.base64EncodedString()),
+                callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
+            copyToClipboard(seed.base64EncodedString())
+            controller.resolve(approved: true)
+            XCTAssertEqual(results.last?.success, matches)
+            XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"),
+                           matches ? seed.base64EncodedString() : "old-fixture")
+        }
+    }
+
+    func testReplacementDoesNotDependOnUnrelatedMissingValues() throws {
+        try service.save(credentialId: "fixture", fieldName: "key", value: "old-fixture", security: .standard)
+        try meta.save(.init(credentials: ["fixture": credential(), "missing": credential()]))
+        controller.receive(.init(credentialId: "fixture", fieldName: "key", expect: "chars:16", replaceExisting: true),
+            callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
+        copyToClipboard("synthetic-import")
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.last?.success, true)
+        XCTAssertNotNil(try meta.load().credentials["missing"])
+        XCTAssertThrowsError(try service.retrieve(credentialId: "missing", fieldName: "key"))
+    }
+    func testReplacementWireToServerToStoreRoundTrip() throws {
+        try service.save(credentialId: "fixture", fieldName: "key", value: "old-fixture", security: .standard)
+        try meta.save(.init(credentials: ["fixture": credential()]))
+        controller = ClipboardSaveController(service: service, metaStore: meta, clipboard: clipboard,
+            present: { info, approve in
+                XCTAssertTrue(info.request.isReplacement)
+                self.copyToClipboard("synthetic-import")
+                approve(true)
+            }, dismiss: {})
+        let server = IPCServer(session: service, metaStore: meta, grantStore: GrantStore(directory: directory),
+            serviceGrantStore: ServiceGrantStore(directory: directory), clipboardSaveController: controller)
+        var sockets: [Int32] = [0, 0]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &sockets), 0)
+        defer { close(sockets[1]) }
+        var timeout = timeval(tv_sec: 3, tv_usec: 0)
+        setsockopt(sockets[1], SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        let request = ClipboardSaveRequest(credentialId: "fixture", fieldName: "key", expect: "chars:16", replaceExisting: true)
+        try IPCMessage.writeMessage(fd: sockets[1], message: IPCRequest.clipboardSave(request))
+        guard case .clipboardSave(let decoded) = IPCMessage.readMessage(fd: sockets[0], as: IPCRequest.self) else {
+            close(sockets[0]); return XCTFail("wire decode failed")
+        }
+        server.handleClipboardSave(decoded, clientFd: sockets[0], peerPID: getpid(), callerName: "Fixture")
+        guard case .clipboardSave(let response) = IPCMessage.readMessage(fd: sockets[1], as: IPCResponse.self) else {
+            return XCTFail("response missing")
+        }
+        XCTAssertTrue(response.success)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "synthetic-import")
     }
     func testCreateReadsOnlyAfterApprovalAndReturnsNoValue() throws {
         request()

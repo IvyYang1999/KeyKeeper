@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import CryptoKit
 
 /// IO seam between the blob store and the real keychain, so unit tests (and the
 /// pre-commit hook that runs them) never touch the user's login keychain.
@@ -163,6 +164,24 @@ public final class KeychainBlobStore: @unchecked Sendable {
         }
     }
 
+    /// Internal concurrency token, never sent over IPC or stored in metadata.
+    public func valueFingerprint(credentialId: String, fieldName: String) throws -> Data {
+        Data(SHA256.hash(data: Data(try retrieve(credentialId: credentialId, fieldName: fieldName).utf8)))
+    }
+
+    public func replaceExisting(credentialId: String, fieldName: String, value: String,
+                                expectedFingerprint: Data) throws {
+        try withLock {
+            var blob = try loadBlob()
+            guard let old = blob.credentials[credentialId]?[fieldName],
+                  Data(SHA256.hash(data: Data(old.utf8))) == expectedFingerprint else {
+                throw ClipboardSaveError.targetValueChanged
+            }
+            blob.credentials[credentialId]?[fieldName] = value
+            try store(blob)
+        }
+    }
+
     /// Partial historical coverage is not a reason to reject a disjoint append.
     /// Validate the store and both ID inventories under the same lock, then write all fields once.
     public func createCredential(credentialId: String, values: [String: String]) throws {
@@ -311,6 +330,16 @@ public final class KeychainBlobStore: @unchecked Sendable {
 /// entire session model (decision 2026-09-03, 方案-20260903-去passphrase化 option A).
 public final class KeychainCredentialService: @unchecked Sendable {
     private let store: KeychainBlobStore
+
+    public func valueFingerprint(credentialId: String, fieldName: String) throws -> Data {
+        try store.valueFingerprint(credentialId: credentialId, fieldName: fieldName)
+    }
+
+    public func replaceExisting(credentialId: String, fieldName: String, value: String,
+                                expectedFingerprint: Data) throws {
+        try store.replaceExisting(credentialId: credentialId, fieldName: fieldName, value: value,
+                                  expectedFingerprint: expectedFingerprint)
+    }
 
     public init(store: KeychainBlobStore = KeychainBlobStore()) {
         self.store = store

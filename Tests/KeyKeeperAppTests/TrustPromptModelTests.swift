@@ -3,6 +3,16 @@ import XCTest
 import KeyKeeperCore
 
 final class TrustPromptModelTests: XCTestCase {
+    func testReplacementClearlyNamesOverwriteAndPreservedPermissions() {
+        let info = ClipboardSaveController.Presentation(request: .init(credentialId: "fixture", fieldName: "key",
+            expect: "base64:32", replaceExisting: true), callerName: "Test")
+        let model = TrustPromptModel.save(info)
+        XCTAssertEqual(model.confirmTitle, "Replace value")
+        XCTAssertEqual(model.tone, .caution)
+        XCTAssertTrue(model.rows[0].note!.contains("Replace"))
+        XCTAssertFalse(model.assurance.contains("nothing is overwritten"))
+        XCTAssertTrue(model.details.contains { $0.contains("Existing permissions") })
+    }
     private func presentation(file: String? = nil, symbol: String? = nil, browser: Bool = false,
                               create: Bool = true, caller: String = "claude",
                               useCurrentClipboard: Bool = false) -> ClipboardSaveController.Presentation {

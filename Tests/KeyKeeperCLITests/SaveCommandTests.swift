@@ -3,6 +3,24 @@ import XCTest
 import KeyKeeperCore
 
 final class SaveCommandTests: XCTestCase {
+    func testReplacementRequiresFreshClipboardAndDistinctWireType() throws {
+        let base = ["-c", "fixture", "--field", "key", "--from-clipboard", "--replace", "--expect", "chars:16"]
+        let command = try SaveCommand.parse(base)
+        XCTAssertTrue(command.request.isReplacement)
+        for extra in ["--create", "--use-current-clipboard"] {
+            XCTAssertThrowsError(try SaveCommand.parse(base + [extra]))
+        }
+        XCTAssertThrowsError(try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-clipboard", "--replace"]))
+        XCTAssertThrowsError(try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-browser", "--replace", "--expect", "chars:16"]))
+        let data = try JSONEncoder().encode(IPCRequest.clipboardSave(command.request))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["type"] as? String, "clipboardReplace")
+        guard case .clipboardSave(let decoded) = try JSONDecoder().decode(IPCRequest.self, from: data) else { return XCTFail() }
+        XCTAssertEqual(decoded, command.request)
+        var downgraded = json
+        downgraded["type"] = "clipboardSave"
+        XCTAssertThrowsError(try JSONDecoder().decode(IPCRequest.self, from: JSONSerialization.data(withJSONObject: downgraded)))
+    }
     func testSourceRequiresExplicitSymbolAndDistinctMetadataOnlyProtocol() throws {
         let base = ["-c", "fixture", "--field", "ADMIN_KEY", "--from-source", "/tmp/synthetic.py"]
         XCTAssertThrowsError(try SaveCommand.parse(base))

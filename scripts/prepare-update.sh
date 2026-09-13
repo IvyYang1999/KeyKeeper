@@ -43,7 +43,7 @@ if [ -f "$PROJECT_DIR/appcast.xml" ]; then
     cp "$PROJECT_DIR/appcast.xml" "$UPDATE_DIRECTORY/appcast.xml"
 fi
 
-SIGNING_CREDENTIAL_ID="${KEYKEEPER_SPARKLE_CREDENTIAL_ID:-keykeeper-sparkle-signing-v2}"
+SIGNING_CREDENTIAL_ID="${KEYKEEPER_SPARKLE_CREDENTIAL_ID:-keykeeper-sparkle-signing}"
 keykeeper run -c "$SIGNING_CREDENTIAL_ID" \
     --reason "验证更新签名私钥的公钥身份，再签署本次发布的更新源" \
     -- /usr/bin/python3 "$PROJECT_DIR/scripts/sparkle-key.py" \

@@ -46,7 +46,7 @@ if [ "${1:-}" = "--self-test" ]; then
     exit 0
 fi
 
-CREDENTIAL="${1:-${KEYKEEPER_SPARKLE_CREDENTIAL_ID:-keykeeper-sparkle-signing-v2}}"
+CREDENTIAL="${1:-${KEYKEEPER_SPARKLE_CREDENTIAL_ID:-keykeeper-sparkle-signing}}"
 FIELD="${2:-private-key}"
 ENV_NAME="$(printf '%s' "$FIELD" | tr '[:lower:]-' '[:upper:]_')"
 EXPECTED="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$PROJECT_DIR/Resources/Info.plist")"

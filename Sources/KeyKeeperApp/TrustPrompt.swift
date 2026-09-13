@@ -45,6 +45,20 @@ struct TrustPromptModel: Equatable {
         let caller = sanitizedCaller(info.callerName)
         let request = info.request
         let target = "\(request.credentialId) · \(request.fieldName)"
+        if request.isReplacement {
+            var details = [L("Copy exactly once after this request, then confirm. Failed checks keep the old value. Existing permissions still apply to the replacement. This request expires in 90 seconds.")]
+            if let expected = request.expectedEd25519PublicKey {
+                details.append(L("Expected public key (caller supplied): \(expected)"))
+            }
+            return TrustPromptModel(
+                title: L("Replace this saved value?"), subtitle: L("\(caller) wants to put it in KeyKeeper"),
+                rows: [Row(label: L("Save as"), value: target, monospaced: true, note: L("Replace existing value")),
+                       Row(label: L("Source"), value: L("Clipboard · copied after this request")),
+                       Row(label: L("Requested by"), value: caller),
+                       Row(label: L("Expected format"), value: request.expect ?? "", monospaced: true)],
+                assurance: L("Only this field is replaced after validation. Permissions stay unchanged. The caller never sees the value."),
+                tone: .caution, details: details, confirmTitle: L("Replace value"), expiresAt: info.expiresAt)
+        }
         let saveAsNote = request.create ? L("New, Ask every time") : L("Fills in the missing value")
 
         let title: String

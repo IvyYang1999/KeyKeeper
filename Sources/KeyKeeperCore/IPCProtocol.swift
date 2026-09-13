@@ -77,7 +77,8 @@ public enum IPCRequest: Codable, Sendable {
             try c.encode("browserImport", forKey: .type)
             try c.encode(r, forKey: .data)
         case .clipboardSave(let r):
-            try c.encode("clipboardSave", forKey: .type)
+            // Old Apps reject this discriminator instead of silently ignoring new safeguards.
+            try c.encode(r.isReplacement || r.expectedEd25519PublicKey != nil ? "clipboardReplace" : "clipboardSave", forKey: .type)
             try c.encode(r, forKey: .data)
         case .auth(let r):
             try c.encode("auth", forKey: .type)
@@ -101,7 +102,13 @@ public enum IPCRequest: Codable, Sendable {
         case "fileImport": self = .fileImport(try c.decode(FileImportRequest.self, forKey: .data))
         case "sourceImport": self = .sourceImport(try c.decode(SourceImportRequest.self, forKey: .data))
         case "browserImport": self = .browserImport(try c.decode(ClipboardSaveRequest.self, forKey: .data))
-        case "clipboardSave": self = .clipboardSave(try c.decode(ClipboardSaveRequest.self, forKey: .data))
+        case "clipboardSave", "clipboardReplace":
+            let request = try c.decode(ClipboardSaveRequest.self, forKey: .data)
+            let protectedRequest = request.isReplacement || request.expectedEd25519PublicKey != nil
+            guard (try c.decode(String.self, forKey: .type) == "clipboardReplace") == protectedRequest else {
+                throw ClipboardSaveError.invalidReplacement
+            }
+            self = .clipboardSave(request)
         case "auth":  self = .auth(try c.decode(AuthRequest.self, forKey: .data))
         case "value": self = .value(try c.decode(ValueRequest.self, forKey: .data))
         case "serviceRequests": self = .serviceRequests(try c.decode(ServiceRequestsListRequest.self, forKey: .data))

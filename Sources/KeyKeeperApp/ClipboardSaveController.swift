@@ -1,5 +1,6 @@
 import AppKit
 import KeyKeeperCore
+import CryptoKit
 
 @MainActor protocol ClipboardSaveSource: AnyObject {
     var changeCount: Int { get }
@@ -42,6 +43,7 @@ extension ClipboardSaveSource {
         let presentation: Presentation
         let metadata: Data
         let changeCount: Int
+        let valueFingerprint: Data?
         let source: ClipboardSaveSource
         let expiresAt: Date
         let isConnected: () -> Bool
@@ -76,6 +78,9 @@ extension ClipboardSaveSource {
         guard pending == nil else { completion(.init(success: false, errorCode: .busy)); return }
         do {
             try request.validate()
+            if request.isReplacement || request.expectedEd25519PublicKey != nil {
+                guard source == nil else { throw ClipboardSaveError.invalidReplacement }
+            }
             guard isConnected() else { throw ClipboardSaveError.disconnected }
             let metadata = try metaStore.load()
             try validateTarget(request, metadata: metadata, fileFormat: source?.fileFormat)
@@ -87,7 +92,10 @@ extension ClipboardSaveSource {
             let source = source ?? clipboard
             let id = UUID()
             pending = Pending(id: id, presentation: info, metadata: try canonical(metadata),
-                changeCount: source.changeCount, source: source, expiresAt: expiresAt,
+                changeCount: source.changeCount,
+                valueFingerprint: request.isReplacement ? try service.valueFingerprint(
+                    credentialId: request.credentialId, fieldName: request.fieldName) : nil,
+                source: source, expiresAt: expiresAt,
                 isConnected: isConnected, completion: completion)
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.expireIfNeeded() }
@@ -175,7 +183,22 @@ extension ClipboardSaveSource {
             }
             guard now() < pending.expiresAt else { throw ClipboardSaveError.expired }
             guard pending.isConnected() else { throw ClipboardSaveError.disconnected }
-            try service.saveMissing(credentialId: request.credentialId, fieldName: request.fieldName, value: value)
+            if let expected = request.expectedEd25519PublicKey {
+                guard let seed = Data(base64Encoded: value), seed.count == 32,
+                      let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: seed),
+                      key.publicKey.rawRepresentation == Data(base64Encoded: expected) else {
+                    throw ClipboardSaveError.identityMismatch
+                }
+            }
+            if request.isReplacement {
+                guard let fingerprint = pending.valueFingerprint else { throw ClipboardSaveError.invalidReplacement }
+                guard now() < pending.expiresAt else { throw ClipboardSaveError.expired }
+                guard pending.isConnected() else { throw ClipboardSaveError.disconnected }
+                try service.replaceExisting(credentialId: request.credentialId, fieldName: request.fieldName,
+                    value: value, expectedFingerprint: fingerprint)
+            } else {
+                try service.saveMissing(credentialId: request.credentialId, fieldName: request.fieldName, value: value)
+            }
             if request.create {
                 let date = ISO8601DateFormatter().string(from: now())
                 metadata.credentials[request.credentialId] = Credential(label: request.credentialId,
@@ -216,6 +239,12 @@ extension ClipboardSaveSource {
             }
         }
         let inventory = try service.fieldNamesByCredential()
+        if request.isReplacement {
+            guard fileFormat == nil, inventory[request.credentialId]?.contains(request.fieldName) == true else {
+                throw ClipboardSaveError.targetNotFound
+            }
+            return
+        }
         // Also protect orphan values left by a failed metadata commit.
         if request.create, inventory[request.credentialId] != nil { throw ClipboardSaveError.valueExists }
         guard inventory[request.credentialId]?.contains(request.fieldName) != true else {

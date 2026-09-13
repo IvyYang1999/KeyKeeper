@@ -20,17 +20,31 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
     /// had made minutes earlier had already been replaced by something else. Ordinal freshness is
     /// all macOS offers — NSPasteboard exposes changeCount and no timestamp at all.
     public var useCurrentClipboard: Bool
+    public var replaceExisting: Bool?
+    public var expectedEd25519PublicKey: String?
+    public var isReplacement: Bool { replaceExisting == true }
 
     public init(credentialId: String, fieldName: String, create: Bool = false,
-                expect: String? = nil, useCurrentClipboard: Bool = false) {
+                expect: String? = nil, useCurrentClipboard: Bool = false,
+                replaceExisting: Bool = false, expectedEd25519PublicKey: String? = nil) {
         self.credentialId = credentialId
         self.fieldName = fieldName
         self.create = create
         self.expect = expect
         self.useCurrentClipboard = useCurrentClipboard
+        self.replaceExisting = replaceExisting ? true : nil
+        self.expectedEd25519PublicKey = expectedEd25519PublicKey
     }
 
     public func validate() throws {
+        if isReplacement {
+            guard !create, !useCurrentClipboard, expect != nil else { throw ClipboardSaveError.invalidReplacement }
+        }
+        if let expectedEd25519PublicKey {
+            guard isReplacement, expect == "base64:32", Data(base64Encoded: expectedEd25519PublicKey)?.count == 32 else {
+                throw ClipboardSaveError.invalidExpectation
+            }
+        }
         if let expect {
             guard ValueExpectation.parse(expect) != nil else { throw ClipboardSaveError.invalidExpectation }
         }
@@ -45,6 +59,7 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
 }
 
 public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError {
+    case invalidReplacement, targetValueChanged, identityMismatch
     case invalidSource, unsupportedSource, sourceParserUnavailable
     case invalidFile, fileChanged, wrongFieldType
     case invalidTarget, valueExists, targetNotFound, metadataChanged, clipboardChanged
@@ -52,6 +67,9 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
     case emptyClipboard, busy, denied, expired, disconnected, storageUnavailable, metadataCommitFailed, staleGrants
     public var errorDescription: String? {
         switch self {
+        case .invalidReplacement: return "Replacement requires an existing text field, --from-clipboard, --expect, and a fresh copy. Do not combine with --create or --use-current-clipboard."
+        case .targetValueChanged: return "The existing value changed while approval was pending. Nothing was replaced. Start a fresh request."
+        case .identityMismatch: return "The private key does not match the expected public key. Nothing was saved."
         case .invalidSource: return "Choose an owned regular UTF-8 Python file up to 1 MiB and an explicit Python symbol. No source contents were returned."
         case .unsupportedSource: return "The selected symbol is missing, ambiguous or unsupported. Only one top-level string literal or os.getenv/os.environ.get string default is accepted. Nothing was saved."
         case .sourceParserUnavailable: return "A supported Apple Python 3 parser is unavailable. No runtime was installed and no source code was executed."

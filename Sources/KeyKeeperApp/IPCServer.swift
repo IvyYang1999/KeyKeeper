@@ -125,6 +125,21 @@ final class IPCServer: ObservableObject {
         }
     }
 
+    @MainActor func handleClipboardSave(_ request: ClipboardSaveRequest, clientFd: Int32,
+                                        peerPID: pid_t, callerName: String) {
+        guard let controller = clipboardSaveController else {
+            send(.clipboardSave(.init(success: false, errorCode: .storageUnavailable)), clientFd: clientFd)
+            return
+        }
+        guard pendingRequest == nil, pendingServiceRequest == nil, browserSessionController?.isPending != true else {
+            send(.clipboardSave(.init(success: false, errorCode: .busy)), clientFd: clientFd)
+            return
+        }
+        controller.receive(request, callerName: callerName,
+            isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
+            completion: { response in self.send(.clipboardSave(response), clientFd: clientFd) })
+    }
+
     struct PendingAuthRequest {
         let id: String
         let request: AuthRequest
@@ -350,17 +365,12 @@ final class IPCServer: ObservableObject {
             }
         case .clipboardSave(let request):
             DispatchQueue.main.async { [weak self] in
-                guard let self, let controller = self.clipboardSaveController else {
+                guard let self else {
                     Self.writeAndClose(.clipboardSave(.init(success: false, errorCode: .storageUnavailable)), clientFd: clientFd)
                     return
                 }
-                guard self.pendingRequest == nil, self.pendingServiceRequest == nil, self.browserSessionController?.isPending != true else {
-                    self.send(.clipboardSave(.init(success: false, errorCode: .busy)), clientFd: clientFd)
-                    return
-                }
-                controller.receive(request, callerName: callerIdentity.displayName,
-                    isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
-                    completion: { response in self.send(.clipboardSave(response), clientFd: clientFd) })
+                self.handleClipboardSave(request, clientFd: clientFd, peerPID: peerPID,
+                                         callerName: callerIdentity.displayName)
             }
         case .auth(let request):
             handleAuthRequest(request, clientFd: clientFd, callerIdentity: callerIdentity)
