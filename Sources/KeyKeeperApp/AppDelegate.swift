@@ -53,6 +53,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // duplicate check: a second instance is about to quit and must not touch the store.
         markStoreInitializedIfNeeded()
 
+        // Both grant stores have always had a prune and nobody ever called it, so expired and
+        // spent approvals piled up in a plaintext file forever. They grant nothing — they just
+        // make it harder to see whether anyone has added a line to that file.
+        try? GrantStore.default.pruneExpired()
+        try? ServiceGrantStore.default.pruneExpired()
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.image = NSImage(systemSymbolName: "key.fill", accessibilityDescription: "KeyKeeper")

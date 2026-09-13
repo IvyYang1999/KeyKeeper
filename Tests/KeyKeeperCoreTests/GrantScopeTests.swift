@@ -81,3 +81,42 @@ final class GrantScopeTests: XCTestCase {
         XCTAssertNil(try store.findValidGrant(credentialId: "openai", sessionId: "other", fingerprint: "f"))
     }
 }
+
+/// 两个 store 都有 pruneExpired()，但全仓库零调用方——过期和用掉的授权永远留在明文文件里。
+/// yyt 库里 103 条授权，其中 21 条是定时的，多半早就过期了。留着它们没有安全收益：
+/// 那个文件是同 UID 进程能写的，行数越多越难看出有没有人往里加过东西。
+final class GrantPruningTests: XCTestCase {
+    func test清理会删掉过期和用掉的保留有效的() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("prune-\(UUID())")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = GrantStore(directory: dir)
+
+        let expired = Grant(credentialId: "a", duration: .timed(Date().addingTimeInterval(-1)))
+        let spent = Grant(credentialId: "b", duration: .once, consumed: true)
+        let live = Grant(credentialId: "c", duration: .always, subjectFingerprint: "f", subjectDisplayName: "Agent")
+        let unusedOnce = Grant(credentialId: "d", duration: .once)
+        for grant in [expired, spent, live, unusedOnce] { try store.addGrant(grant) }
+
+        try store.pruneExpired()
+
+        XCTAssertEqual(try store.grants(for: "a").count, 0, "过期的该走")
+        XCTAssertEqual(try store.grants(for: "b").count, 0, "用掉的该走")
+        XCTAssertEqual(try store.grants(for: "c").count, 1, "有效的必须留下")
+        XCTAssertEqual(try store.grants(for: "d").count, 1, "还没用过的 once 也必须留下")
+    }
+
+    /// 终端会话的授权有 24 小时硬上限，清理时不该因为「当前没有会话 ID」就把它们全删了。
+    func test清理不会误删还在有效期内的会话授权() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("prune-\(UUID())")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = GrantStore(directory: dir)
+        try store.addGrant(.init(credentialId: "a", sessionId: "w0t1p0", duration: .session("w0t1p0")))
+        try store.addGrant(.init(credentialId: "b", sessionId: "old", duration: .session("old"),
+                                 createdAt: Date().addingTimeInterval(-25 * 3600)))
+        try store.pruneExpired()
+        XCTAssertEqual(try store.grants(for: "a").count, 1, "今天的会话授权还有效")
+        XCTAssertEqual(try store.grants(for: "b").count, 0, "超过 24 小时硬上限的该走")
+    }
+}
