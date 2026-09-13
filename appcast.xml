@@ -6,6 +6,65 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>KeyKeeper</title>
         <item>
+            <title>0.3.3</title>
+            <pubDate>Sun, 13 Sep 2026 16:37:10 +0800</pubDate>
+            <link>https://github.com/IvyYang1999/KeyKeeper</link>
+            <sparkle:version>0.3.3</sparkle:version>
+            <sparkle:shortVersionString>0.3.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# KeyKeeper 0.3.3
+
+## 下载与安装 / Installation
+
+适用于 Apple Silicon Mac（M1 及后续芯片），macOS 14 或更新版本。打开 DMG，将 KeyKeeper 拖到 Applications，再启动 App。CLI 可从 App 的设置向导安装。
+
+Requires an Apple Silicon Mac and macOS 14 or later. Open the DMG, drag KeyKeeper into Applications, and launch it. Install the bundled CLI from the setup assistant.
+
+## 存进来的东西，现在会被核对
+
+剪贴板是个共享通道：你复制的，和保存那一刻还在上面的，不一定是同一个东西。这一版起，KeyKeeper 不再把"剪贴板上有什么就存什么"当成理所当然。
+
+- **只收本次请求之后复制的那一次。** 命令跑起来时就躺在剪贴板上的内容一律不收——它可能在你复制之后又被别的东西盖掉了。判据是"恰好复制一次"：之后又被写过就分不清哪次是你要的，直接拒绝。确实要用现成那份，加 `--use-current-clipboard`。
+- **可以先声明它应该长什么样**：`keykeeper save … --expect base64:32`（也支持 `hex:32`、`bytes:64`、`chars:40`）。对不上就拒绝，一个字节都不写。
+- **存完会告诉你存了个什么形状**：`Saved. Stored: 44 characters, Base64 (32 bytes).` 只说长度和字符类别，不说值。
+- **可以安全地替换已有字段**：`--replace` 配合 `--expect`，确认之后替换，原有权限不变。
+- **密钥可以先证明身份再入库**：`--expect-ed25519-public-key <公钥>` 会在本机推导私钥对应的公钥、比对通过才存。
+
+## 安全修复
+
+- **在 App 里复制密钥，不再跟着同步到你的其它设备。** general 剪贴板默认参与通用剪贴板，也就是说复制一次，密钥会出现在同一 Apple ID 下的 iPhone / iPad 上，而 30 秒自动清空只清得掉本机那份。现在写入时声明只留本机。
+- **授权窗点「使用密码」不再又弹一次 Touch ID。** 上一版的密码轮用的策略本来就先试生物识别，等于绕回原地，要点两次才出密码框。
+
+## 授权窗
+
+- 「来源」原来显示「未知终端」，读着像"不知道是哪个终端"，而真相是这个调用方**没有**终端会话（SDK、IDE、定时任务都是这样）。改成「无终端会话」，和窗口里另一句话说同一件事。
+- **两个 SDK 现在能写调用方留言了**：`get_field(..., reason="…")` / `runWithSecrets(..., { reason: '…' })`。以前只有 CLI 的 `--reason` 有，SDK 没往下传，所以每个走 SDK 的请求在弹窗里都是一片空白。
+
+## 网站登录态
+
+- 这一页原来只说「从 KeyKeeper 扩展请求导入」，而扩展没上架 Chrome 应用商店、装在 KeyKeeper.app 里，这些一个字都没写在界面上。现在写清楚了，并给出「在访达中显示扩展」「复制路径」「复制 chrome://extensions」三个按钮。
+- **扩展 ID 钉死成常量**，原来是 Chrome 按安装路径哈希出来的——KeyKeeper.app 一挪位置就再也连不上，且没有任何报错。现在 App 自己算得出 ID，一键完成登记，不用再去复制 32 个字母。
+- 状态叫「已登记」而不是「已连接」：那份登记是 KeyKeeper 自己写的，Chrome 从不回写，所以它看不到你是不是把扩展删了。
+
+## What's new
+
+- The clipboard save path now accepts only a copy made *after* the request — exactly one — and refuses what was already lying there. `--use-current-clipboard` opts out.
+- Declare the shape you expect (`--expect base64:32`, `hex:32`, `bytes:N`, `chars:N`); a mismatch writes nothing. Every save reports the shape of what was stored — counts and character classes only, never the value.
+- `--replace` safely replaces an existing field after confirmation; `--expect-ed25519-public-key` proves a private key belongs to a public key before storing it.
+- Security: copying a secret in the app no longer travels to your other devices over Universal Clipboard; "Use Password" in the approval window goes straight to the password sheet instead of showing Touch ID again.
+- The approval window says "No terminal session" instead of "Unknown terminal", and both SDKs can now pass a caller reason.
+- Website sessions: the empty screen explains how to load the bundled Chrome extension, the extension ID is now fixed, and registering the connection is one click.
+
+## 升级注意 / Upgrade notes
+
+`keykeeper save --from-clipboard` 的默认行为变了：先跑命令，**再**复制。旧习惯（先复制再跑命令）会被拒绝并提示。
+
+The default for `keykeeper save --from-clipboard` changed: run the command first, then copy. The old habit of copying first is refused, with a message saying so.
+]]></description>
+            <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.3/KeyKeeper-0.3.3.dmg" length="6972728" type="application/octet-stream" sparkle:edSignature="T7t2C1gOHzAi0W+u651Shk0O99FcjLD3HPL5zIqH1Mb3le01i1Kk9PqOl2g5Wt9YMleCDpaOVGb0Ua8axqJ6DQ=="/>
+        </item>
+        <item>
             <title>0.3.2</title>
             <pubDate>Sun, 13 Sep 2026 13:34:47 +0800</pubDate>
             <link>https://github.com/IvyYang1999/KeyKeeper</link>
@@ -112,57 +171,9 @@ Secrets remain in macOS Keychain. This installer cannot recover secret values th
 ]]></description>
             <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.1/KeyKeeper-0.3.1.dmg" length="6800840" type="application/octet-stream" sparkle:edSignature="U8n43WUbZny7DxxdMUl1DQh057v7Y0lK20zbPeAb6qZIDcUySN39vbVuKf0kGTyQnSTnT23qiE7ULJptwWAGAA=="/>
         </item>
-        <item>
-            <title>0.3.0</title>
-            <pubDate>Sat, 12 Sep 2026 17:20:25 +0800</pubDate>
-            <link>https://github.com/IvyYang1999/KeyKeeper</link>
-            <sparkle:version>0.3.0</sparkle:version>
-            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[# KeyKeeper 0.3.0
-
-## 下载与安装 / Installation
-
-适用于 Apple Silicon Mac（M1 及后续芯片），macOS 14 或更新版本。打开 DMG，将 KeyKeeper 拖到 Applications，再启动 App。CLI 可从 App 的设置向导安装。
-
-Requires an Apple Silicon Mac and macOS 14 or later. Open the DMG, drag KeyKeeper into Applications, and launch it. Install the bundled CLI from the setup assistant.
-
-## 本次更新
-
-- 列表与详情明确区分“值缺失／待恢复”和“暂时无法检查”，并指出缺失字段；检查不弹密码框、不修改值。`meta` 返回 `valueStatus`，`status --check-values` 可查看全体凭据状态。
-
-- 新增独立主窗口，集中管理密钥、网站登录态、调用方授权、访问记录和设置。
-- 菜单栏集中显示待确认请求与最近凭据；支持简体中文与英文。
-- 安全导入支持浏览器粘贴、系统剪贴板、受支持的 Python 源码常量和服务账号 JSON 文件；密钥值不进入 Agent 对话。
-- 文件凭据可显式映射为受控的临时文件供子进程使用。
-- Chrome 网站登录态功能为预览版，仅导入用户选定的网站，每次打开都需确认。
-- 修复编辑未显示的密钥时重命名字段丢值，以及调用方断开后确认窗口残留的问题。
-- 支持签名更新提示；自动安装默认关闭，可在设置中启用。
-
-## Highlights
-
-- A dedicated main window and a compact menu bar, with Chinese and English interfaces.
-- Native-confirmed secret imports and managed credential-file injection.
-- A preview of selected Chrome website sessions with per-launch confirmation.
-- Safer field editing, missing-value recovery and disconnected-caller handling.
-- Signed update notifications and optional automatic installation, off by default.
-
-## 升级注意 / Upgrade notes
-
-0.3.0 正式安装包启用新的自动更新签名身份。使用旧签名公钥的内部测试版请手动安装本次 DMG 一次；不要依赖旧测试版自动更新到本版。新安装包仍默认关闭自动安装，可在设置中自行开启。
-
-This release establishes a new update-signing identity. Internal test builds using the old public key require a one-time manual installation of this DMG. Automatic installation remains off by default and can be enabled in Settings.
-
-密钥继续保存在 macOS 钥匙串中。此安装包不会找回已经缺失的密钥。若你仍使用早期 age/passphrase 存储版本，或 App 正在提示旧数据缺失，请先保留旧 App 与数据备份，完成迁移或恢复后再替换；不要重置钥匙串或删除旧存储。
-
-Secrets remain in macOS Keychain. This installer cannot recover missing secret values. If you still use an experimental age/passphrase build or see missing-storage warnings, preserve the old App and backups and complete migration/recovery before replacing it. Do not reset the Keychain or delete legacy storage.
-]]></description>
-            <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.0/KeyKeeper-0.3.0.dmg" length="6768924" type="application/octet-stream" sparkle:edSignature="MSubtKFpvaeqOwdAwAYGJ++SAeMTQnb1LdUk4BYGj5Yr2fccJ7BvBouIgIc3Ryr2cEaM+NcxMqmqEiTM2YzEAg=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: gUtEp4ybK2t/7YZPT8CqtMOGSzEvrWMZ4mwY+LTco7PrpB665cne58nZcOPtmHVsWRYYC6HZacliv0Kid6N3Aw==
-length: 14807
+edSignature: wnBPE879+c9q+WU8+Ado1HCp9j2X/KGK2Womx2o6xb5gAZAgGqkrlOeSbBDGZpaP3wsGp2BK+XLhD7Grp7nkCQ==
+length: 16607
 -->
