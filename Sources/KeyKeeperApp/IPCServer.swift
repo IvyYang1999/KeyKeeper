@@ -486,12 +486,25 @@ final class IPCServer: ObservableObject {
         return result > 0 || (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
     }
 
-    private func handleAuthRequest(_ request: AuthRequest,
+    func handleAuthRequest(_ request: AuthRequest,
                                    clientFd: Int32,
                                    callerIdentity: CallerIdentity) {
         var enrichedRequest = request
         enrichedRequest.pid = callerIdentity.peerPID
         enrichedRequest.callerIdentity = callerIdentity
+
+        // 【曾经的 bug】窗口上的凭据名和字段名原样用调用方自报的值，从不和本地核对：一个进程
+        // 可以一边申请 aws-prod-root、一边让弹窗写「OpenAI 测试 key」，把用户骗去点允许。
+        // 名字一律以 meta 为准；字段显示这条凭据全部机密字段，因为 strict 授权就是按凭据发的。
+        guard let meta = try? metaStore.load(),
+              let credentialId = meta.resolveGroupId(request.credentialId),
+              let credential = meta.credentials[credentialId] else {
+            send(.auth(AuthResponse(granted: false, error: "Credential or field not found")), clientFd: clientFd)
+            return
+        }
+        enrichedRequest.credentialId = credentialId
+        enrichedRequest.credentialLabel = credential.label
+        enrichedRequest.fieldNames = credential.fields.filter { $0.value.secret }.keys.sorted()
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }

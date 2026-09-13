@@ -117,6 +117,50 @@ final class IPCAuthorizationQueueTests: XCTestCase {
         XCTAssertEqual(server.waitingCount, 0)
     }
 
+    /// 【曾经的 bug】授权窗上「凭据」那一行直接显示调用方自报的 credentialLabel，App 从不
+    /// 和本地 meta 核对。恶意进程可以一边申请 `service-a`，一边让弹窗写成别的名字，把用户
+    /// 骗去点允许；字段名同理，可以少报几个让范围看起来更小。名字和字段必须以本地为准。
+    func test曾经的Bug授权窗的凭据名和字段名以本地为准() throws {
+        let server = makeServer()
+        var descriptors = [Int32](repeating: -1, count: 2)
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { descriptors.forEach { close($0) } }
+
+        server.handleAuthRequest(
+            AuthRequest(credentialId: "service-a",
+                        credentialLabel: "OpenAI 测试 key",      // 调用方自报，和本地不符
+                        fieldNames: ["made-up"],                  // 假字段，真字段是 access
+                        sessionId: nil, sessionLabel: nil, pid: 1),
+            clientFd: descriptors[0],
+            callerIdentity: makeCaller("liar"))
+        drainMainQueue()
+
+        let pending = try XCTUnwrap(server.pendingRequest)
+        XCTAssertEqual(pending.request.credentialLabel, "Service A", "弹窗要显示本地记录的名字")
+        XCTAssertEqual(pending.request.fieldNames, ["access"], "字段以本地的机密字段为准")
+    }
+
+    /// 申请一个本地没有的凭据，直接拒绝，不弹窗。
+    func test申请不存在的凭据不会弹窗() throws {
+        let server = makeServer()
+        var descriptors = [Int32](repeating: -1, count: 2)
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { descriptors.forEach { close($0) } }
+
+        server.handleAuthRequest(
+            AuthRequest(credentialId: "no-such-id", credentialLabel: "Service A",
+                        fieldNames: ["access"], sessionId: nil, sessionLabel: nil, pid: 1),
+            clientFd: descriptors[0],
+            callerIdentity: makeCaller("ghost"))
+        drainMainQueue()
+
+        XCTAssertNil(server.pendingRequest)
+    }
+
     private func makeServer() -> IPCServer {
         IPCServer(
             session: QueueSession(),
