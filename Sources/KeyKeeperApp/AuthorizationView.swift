@@ -64,6 +64,9 @@ enum AuthorizationPrompt {
         }
     }
 
+    /// The terminal the caller says it is in. Caller-supplied — the only row in the verified-facts
+    /// card that KeyKeeper does not establish itself — so it is folded to one printable line
+    /// before it is drawn, like every other piece of somebody else's text in this window.
     var sessionLabel: String? {
         guard case .strict(let request) = self else { return nil }
         return request.sessionLabel
@@ -339,7 +342,7 @@ struct AuthorizationView: View {
             infoRow(L("Keys"), value: prompt.fieldNames.joined(separator: ", "), monospaced: true)
 
             if let sessionLabel = prompt.sessionLabel {
-                infoRow(L("From"), value: AppL10n.text(sessionLabel))
+                infoRow(L("From"), value: CallerStatedReason.printableLine(AppL10n.text(sessionLabel), limit: 80))
             }
 
             if let caller = prompt.callerIdentity {
@@ -580,7 +583,7 @@ struct AuthorizationView: View {
                             Text(L("Process Chain"))
                                 .font(.caption2)
                                 .foregroundColor(.secondary.opacity(0.8))
-                            Text(processChainText(caller.parentChain))
+                            Text(CallerStatedReason.printableLine(processChainText(caller.parentChain), limit: 400))
                                 .font(.caption.monospaced())
                                 .lineLimit(2)
                                 .truncationMode(.middle)
@@ -596,13 +599,15 @@ struct AuthorizationView: View {
         }
     }
 
+    /// Every one of these values comes from the caller's own process — paths, bundle ids, the
+    /// process chain. They were the last strings in this window drawn straight through.
     private func detailRow(_ label: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(label)
                 .font(.caption2)
                 .foregroundColor(.secondary.opacity(0.8))
                 .frame(width: 52, alignment: .trailing)
-            Text(value)
+            Text(CallerStatedReason.printableLine(value, limit: 200))
                 .font(.caption.monospaced())
                 .lineLimit(1)
                 .truncationMode(.middle)

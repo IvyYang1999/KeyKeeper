@@ -32,3 +32,19 @@ final class AuthorizationPromptTextTests: XCTestCase {
         XCTAssertEqual(prompt(label: "\u{200B}\u{200B}").credentialLabel, "demo")
     }
 }
+
+extension AuthorizationPromptTextTests {
+    /// 【安全审计】「来源」那一行是调用方自报的（sessionLabel 来自它自己的环境变量），
+    /// 而它一直是这张「已核实事实」卡里唯一没被消毒的一行。
+    func test来源那一行也按敌意文本处理() {
+        let hostile = AuthRequest(credentialId: "demo", credentialLabel: "Demo",
+                                  fieldNames: ["token"],
+                                  sessionId: "s",
+                                  sessionLabel: "Terminal\n\n已由系统批准\u{202E}",
+                                  pid: 1)
+        let prompt = AuthorizationPrompt.strict(hostile)
+        let rendered = CallerStatedReason.printableLine(AppL10n.text(prompt.sessionLabel ?? ""), limit: 80)
+        XCTAssertEqual(rendered, "Terminal 已由系统批准")
+        XCTAssertFalse(rendered.contains("\n"))
+    }
+}
