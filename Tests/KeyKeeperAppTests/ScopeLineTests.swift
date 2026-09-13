@@ -24,7 +24,7 @@ final class ScopeLineTests: XCTestCase {
     }
 
     func test每一种说法都有中文() {
-        for tier in [CallerAssurance.signed, .unsigned, .unverified] {
+        for tier in [CallerAssurance.signed, .unsigned, .unverified, .relayed] {
             for whole in [true, false] {
                 let t = tier.scope(caller: "claude", wholeCredential: whole)
                 let zh = render(t, "zh-Hans")

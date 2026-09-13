@@ -48,3 +48,16 @@ public enum GrantAuthorizationError: Error, LocalizedError, Equatable {
         }
     }
 }
+
+/// Keys that need approval go only to callers an approval can be held for.
+///
+/// 【独立审计第二轮】an unidentified caller used to get the prompt anyway: the approval was stored
+/// with no owner, could never match the caller that asked, and the CLI's retry showed a second
+/// prompt before failing. Refusing up front, with the reason, costs nobody a click.
+public enum StrictAuthorizationPolicy {
+    public static func refusal(for fingerprint: String) -> String? {
+        guard !GrantIssuancePolicy.mayRemember(subjectFingerprint: fingerprint) else { return nil }
+        return "KeyKeeper could not identify the program asking (it may have exited, or macOS could not attribute it), so it cannot give it keys that need approval. No prompt was shown. Run the command again from a terminal or an app."
+    }
+}
+

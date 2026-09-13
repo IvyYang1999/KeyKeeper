@@ -13,6 +13,8 @@ enum CallerAssurance: Equatable {
     case unsigned
     /// Could not be identified at all. Cannot hold an approval.
     case unverified
+    /// Came through the keykeeper command: recognised by the app or file it was started from.
+    case relayed
 
     /// Signed means a real team in the fingerprint. 【2026-09-13 修信使问题时引入】callers found
     /// upstream of the CLI arrive as `app:team=unsigned:…`, `script:…` or `executable:…`, and the
@@ -20,6 +22,7 @@ enum CallerAssurance: Equatable {
     static func of(_ subject: CallerSubject) -> CallerAssurance {
         let fingerprint = subject.fingerprint
         if fingerprint.hasPrefix(CallerSubject.unverifiedPrefix) { return .unverified }
+        if fingerprint.hasPrefix(CallerSubject.relayedPrefix) { return .relayed }
         if fingerprint.hasPrefix("app:team="), !fingerprint.hasPrefix("app:team=unsigned:") { return .signed }
         return .unsigned
     }
@@ -29,6 +32,7 @@ enum CallerAssurance: Equatable {
         case .signed: return L("Signed")
         case .unsigned: return L("Not signed")
         case .unverified: return L("Unidentified")
+        case .relayed: return L("Via the keykeeper command")
         }
     }
 
@@ -40,6 +44,8 @@ enum CallerAssurance: Equatable {
             return L("A local program with no signature — normal for scripts and agents. KeyKeeper recognises it by the file it runs from.")
         case .unverified:
             return L("KeyKeeper could not work out what is asking, so it cannot remember this decision. It will ask every time.")
+        case .relayed:
+            return L("The request came through the keykeeper command. KeyKeeper recognises where it was started from — the app or file it runs inside — not a signature, so an approval covers everything started from there.")
         }
     }
 
@@ -50,6 +56,7 @@ enum CallerAssurance: Equatable {
         case .signed: return "checkmark.seal"
         case .unsigned: return "questionmark.circle"
         case .unverified: return "exclamationmark.triangle"
+        case .relayed: return "terminal"
         }
     }
 }
@@ -71,6 +78,10 @@ extension CallerAssurance {
             return "Allowing lets \(caller) read every key in this credential. KeyKeeper recognises it by the file it runs from, so anything started from that same file counts as it too. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it."
         case (.unsigned, false):
             return "Allowing lets \(caller) read this key. KeyKeeper recognises it by the file it runs from, so anything started from that same file counts as it too. \u{201C}Always\u{201D} lasts until you revoke it."
+        case (.relayed, true):
+            return "Allowing lets \(caller) — and anything started inside it, like its terminals and the agents they run — read every key in this credential. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it."
+        case (.relayed, false):
+            return "Allowing lets \(caller) — and anything started inside it — read this key. \u{201C}Always\u{201D} lasts until you revoke it."
         case (.unverified, _):
             return "KeyKeeper could not identify \(caller), so this answer covers this request only and is not remembered."
         }

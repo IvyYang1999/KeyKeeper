@@ -27,3 +27,22 @@ final class CallerNameAndTierTests: XCTestCase {
         XCTAssertEqual(tier("app:team=ABCDE12345:bundle=com.example.a:signing=x"), .signed)
     }
 }
+
+extension CallerNameAndTierTests {
+    /// 【独立审计第二轮 · high】经 CLI 转来的调用方，身份其实是它所在的终端或 app，窗口却按「已签名」写
+    /// 「只有它，本机别的程序蹭不到」——那个终端里跑的任何程序都算它。
+    func test经CLI转来的身份不冒充已签名() throws {
+        let app = CallerSubject(kind: .app, fingerprint: "app:team=H7V7XYVQ7D:bundle=com.googlecode.iterm2:signing=com.googlecode.iterm2",
+                                displayName: "com.googlecode.iterm2", detail: "")
+        let relayed = CallerIdentityResolver.courierUpstream(app)
+        XCTAssertEqual(CallerAssurance.of(relayed), .relayed)
+        XCTAssertFalse(CallerAssurance.relayed.isReassuring)
+        let scope = CallerAssurance.relayed.scope(caller: "iTerm2", wholeCredential: true)
+        let en = AppL10n.render(scope.template, arguments: scope.arguments, language: "en")
+        XCTAssertFalse(en.contains("not other programs"), en)
+        XCTAssertTrue(en.contains("anything started inside it"), en)
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let server = try String(contentsOf: root.appendingPathComponent("Sources/KeyKeeperApp/IPCServer.swift"), encoding: .utf8)
+        XCTAssertTrue(server.contains("StrictAuthorizationPolicy.refusal("), "认不出的调用方在弹窗前就拒绝")
+    }
+}

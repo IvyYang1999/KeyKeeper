@@ -39,7 +39,31 @@ final class CourierIdentityTests: XCTestCase {
         let resolved = CallerIdentityResolver.courierUpstream(upstream)
         XCTAssertTrue(resolved.fingerprint.hasPrefix(CallerSubject.unverifiedPrefix), resolved.fingerprint)
         let app = CallerSubject(kind: .app, fingerprint: "app:team=unsigned:bundle=com.darkconstant.console:signing=Electron", displayName: "Console", detail: "")
-        XCTAssertEqual(CallerIdentityResolver.courierUpstream(app).fingerprint, app.fingerprint,
-                       "有身份的上游保持原样，已有授权才对得上")
+        XCTAssertEqual(CallerIdentityResolver.courierUpstream(app).fingerprint, CallerSubject.relayedPrefix + app.fingerprint,
+                       "有身份的上游标成「转来的」，不冒充在连接上核实过的签名")
+    }
+}
+
+extension CourierIdentityTests {
+    /// 【独立审计第二轮】Python SDK 的调用方会落到解释器自带的 Python.app（com.apple.python3），
+    /// 于是所有 Python 程序共用一个身份。框架里的 app 不是任何人批准过的那个程序。
+    func test解释器框架里的app不当成调用方() {
+        let chain = [
+            CallerProcess(pid: 10, parentPID: 9, executablePath: "/Applications/KeyKeeper.app/Contents/MacOS/keykeeper"),
+            CallerProcess(pid: 9, parentPID: 8,
+                          executablePath: "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python",
+                          bundleIdentifier: "com.apple.python3", scriptPath: "/Users/me/agent.py"),
+            CallerProcess(pid: 8, parentPID: 1, executablePath: "/Applications/iTerm.app/Contents/MacOS/iTerm2",
+                          bundleIdentifier: "com.googlecode.iterm2", teamIdentifier: "H7V7XYVQ7D"),
+        ]
+        let subject = CallerIdentityResolver.selectSubject(from: chain, peerPID: 10)
+        XCTAssertTrue(subject.fingerprint.contains("bundle=com.googlecode.iterm2"), subject.fingerprint)
+    }
+
+    /// 【独立审计第二轮】认不出的调用方要 strict 凭据：以前照样弹窗，批准后又对不上，CLI 重试再弹一次，最后报错。
+    func test认不出的调用方直接拒绝不弹窗() {
+        XCTAssertNotNil(StrictAuthorizationPolicy.refusal(for: CallerSubject.unverifiedPrefix + "no-code-object"))
+        XCTAssertNil(StrictAuthorizationPolicy.refusal(for: "unsigned:path=abc"))
+        XCTAssertNil(StrictAuthorizationPolicy.refusal(for: CallerSubject.relayedPrefix + "app:team=A:bundle=b:signing=c"))
     }
 }

@@ -552,6 +552,11 @@ final class IPCServer: ObservableObject {
         enrichedRequest.credentialLabel = credential.label
         enrichedRequest.fieldNames = credential.fields.filter { $0.value.secret }.keys.sorted()
 
+        if let refusal = StrictAuthorizationPolicy.refusal(for: callerIdentity.subject.fingerprint) {
+            send(.auth(AuthResponse(granted: false, error: refusal)), clientFd: clientFd)
+            return
+        }
+
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard self.clipboardSaveController?.isPending != true, self.browserSessionController?.isPending != true else {

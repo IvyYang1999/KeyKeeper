@@ -273,10 +273,23 @@ public enum CallerIdentityResolver {
     /// The caller upstream of our CLI. A bare pid is not an identity anyone can hold an approval
     /// under — pids are reused — so that fallback becomes unverified.
     public static func courierUpstream(_ subject: CallerSubject) -> CallerSubject {
-        guard subject.fingerprint.hasPrefix("executable:pid=") else { return subject }
+        guard !subject.fingerprint.hasPrefix("executable:pid=") else {
+            return CallerSubject(kind: subject.kind,
+                                 fingerprint: CallerSubject.unverifiedPrefix + "upstream-unidentified",
+                                 displayName: subject.displayName, detail: subject.detail)
+        }
+        // Marked relayed: found by walking the processes above our CLI, not measured from the
+        // connection. 【独立审计第二轮】it used to pass as a signed identity, and the window promised
+        // "only this program" for what is really the terminal or app everything runs inside.
         return CallerSubject(kind: subject.kind,
-                             fingerprint: CallerSubject.unverifiedPrefix + "upstream-unidentified",
+                             fingerprint: CallerSubject.relayedPrefix + subject.fingerprint,
                              displayName: subject.displayName, detail: subject.detail)
+    }
+
+    /// An app bundle that lives inside a framework is an interpreter's (Python.app inside
+    /// Python3.framework), not the program anyone approved: every Python script would share it.
+    static func isInsideFramework(_ path: String?) -> Bool {
+        path?.contains(".framework/") == true
     }
 
     public static func resolve(peerPID: Int32, maxDepth: Int = 12) -> CallerIdentity {
@@ -302,7 +315,7 @@ public enum CallerIdentityResolver {
             return URL(fileURLWithPath: executablePath).lastPathComponent != "keykeeper"
         }
 
-        if let app = nonKeyKeeperProcesses.first(where: { $0.bundleIdentifier != nil }) {
+        if let app = nonKeyKeeperProcesses.first(where: { $0.bundleIdentifier != nil && !isInsideFramework($0.executablePath) }) {
             let bundle = app.bundleIdentifier ?? "unknown-bundle"
             let team = app.teamIdentifier ?? "unsigned"
             let signing = app.signingIdentifier ?? bundle
@@ -526,3 +539,10 @@ public enum CallerIdentityResolver {
         URL(fileURLWithPath: path).standardizedFileURL.path
     }
 }
+
+extension CallerSubject {
+    /// A caller found upstream of KeyKeeper's own CLI. Recognised by where it was started from,
+    /// never by a signature on the connection.
+    public static let relayedPrefix = "relayed:"
+}
+
