@@ -18,6 +18,13 @@ extension AppL10n {
         "Stop all windows": "停止所有窗口",
         "Import only a website you select in the Chrome extension. Each open needs your confirmation and ends after 15 minutes. Account actions are NOT read-only.": "只导入你在 Chrome 扩展中选择的网站。每次打开都需你确认，15 分钟后结束。账号操作不是只读。",
         "No website sessions yet": "还没有网站登录态",
+        // 调用方可信程度（0.3.4）
+        "Signed": "已签名",
+        "Not signed": "未签名",
+        "Unidentified": "无法识别",
+        "Its signature checks out, so an approval can be remembered for this program alone.": "它的签名校验通过，所以这次批准可以只记给这一个程序。",
+        "A local program with no signature — normal for scripts and agents. KeyKeeper recognises it by the file it runs from.": "一个没有签名的本地程序——脚本和 Agent 通常都是这样。KeyKeeper 靠它运行的那个文件来认它。",
+        "KeyKeeper could not work out what is asking, so it cannot remember this decision. It will ask every time.": "KeyKeeper 判断不出是什么在请求，所以记不住这次决定，每次都会问。",
         "\u{201C}{0}\u{201D} would become an environment variable that decides how programs run, like PATH. Pick another name.": "「{0}」会变成一个决定程序怎么跑的环境变量（比如 PATH）。换个名字。",
         "Chrome is wired to something else": "Chrome 现在连到了别的程序",
         "KeyKeeper's registration file now points at another program. Something changed it. Register again to point it back.": "KeyKeeper 写的那份注册文件现在指向另一个程序——有人改过它。点「重新登记」把它指回来。",

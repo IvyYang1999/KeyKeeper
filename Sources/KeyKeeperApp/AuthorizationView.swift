@@ -343,13 +343,30 @@ struct AuthorizationView: View {
             }
 
             if let caller = prompt.callerIdentity {
-                infoRow(L("Caller"), value: TrustPromptModel.sanitizedCaller(caller.displayName))
+                infoRow(L("Caller"), value: callerName)
+                callerAssuranceRow(CallerAssurance.of(caller.subject))
             }
             // Subject fingerprint, PID and the process chain are diagnostics; they live
             // in the collapsible "Caller Details" section below.
         }
         .padding(14)
         .glassCard()
+    }
+
+    /// What is actually known about the asker, next to its name.
+    private func callerAssuranceRow(_ assurance: CallerAssurance) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: assurance.symbolName)
+                .foregroundColor(assurance.isReassuring ? .secondary : .orange)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(assurance.label).font(.caption.weight(.semibold))
+                Text(assurance.explanation)
+                    .font(.caption2).foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 2)
     }
 
     private func infoRow(_ label: String,
