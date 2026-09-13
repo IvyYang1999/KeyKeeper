@@ -36,18 +36,6 @@ public enum GrantAuthorizationPolicy {
             try grantStore.consumeGrant(id: grant.id)
         }
     }
-
-    /// After a grant issued before grants had an owner is actually used, it belongs to that
-    /// caller from then on. Narrowing only; a scoped grant is untouched.
-    public static func pinUnscopedGrantAfterUse(
-        _ grant: Grant?,
-        caller: CallerIdentity?,
-        grantStore: GrantStore
-    ) throws {
-        guard let grant, grant.subjectFingerprint == nil, let caller else { return }
-        try grantStore.pinGrantIfUnscoped(id: grant.id, to: caller.subject.fingerprint,
-                                          displayName: caller.displayName)
-    }
 }
 
 public enum GrantAuthorizationError: Error, LocalizedError, Equatable {

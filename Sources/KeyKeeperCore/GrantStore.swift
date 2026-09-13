@@ -73,11 +73,16 @@ public final class GrantStore: Sendable {
         let now = Date()
         return file.grants.first { grant in
             guard grant.credentialId == credentialId else { return false }
-            switch (grant.subjectFingerprint, fingerprint) {
-            case (nil, _): break                       // issued before grants had a caller
-            case (let owner?, let asking?) where owner == asking: break
-            default: return false
-            }
+            // An approval with no owner recorded matches nobody.
+            //
+            // 【曾经的洞】it used to match everybody, on the reasoning that tearing up old
+            // approvals would start prompting for agents the person had already allowed. A
+            // security audit found what that actually covered on this machine: an unowned
+            // "Always" for the Sparkle signing key and for the Apple notarisation password —
+            // so any process running as the user could take either with no prompt at all, and
+            // the "pin it to whoever used it first" migration handed the approval to the
+            // taker. Re-asking once per credential is the cheaper mistake.
+            guard let owner = grant.subjectFingerprint, owner == fingerprint else { return false }
             return isValid(grant: grant, sessionId: sessionId, now: now)
         }
     }
@@ -93,22 +98,9 @@ public final class GrantStore: Sendable {
         let file = try load()
         let now = Date()
         return file.grants.contains { grant in
-            grant.credentialId == credentialId && isValid(grant: grant, sessionId: sessionId, now: now)
-        }
-    }
-
-    /// Ties an old, unscoped grant to the program that just used it.
-    ///
-    /// The alternative was to invalidate all of them, which would start prompting for every agent
-    /// the person had already said "Always" to — the exact thing they clicked the button to stop.
-    /// Pinning keeps that promise for whoever is actually using it, and closes it to everything
-    /// else. It only ever narrows: a grant that is already scoped is left alone.
-    public func pinGrantIfUnscoped(id: String, to fingerprint: String, displayName: String) throws {
-        try withFileLock { file in
-            guard let index = file.grants.firstIndex(where: { $0.id == id }),
-                  file.grants[index].subjectFingerprint == nil else { return }
-            file.grants[index].subjectFingerprint = fingerprint
-            file.grants[index].subjectDisplayName = displayName
+            grant.credentialId == credentialId
+                && grant.subjectFingerprint != nil   // unowned approvals no longer satisfy anyone
+                && isValid(grant: grant, sessionId: sessionId, now: now)
         }
     }
 

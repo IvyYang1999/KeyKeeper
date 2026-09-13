@@ -21,12 +21,14 @@ final class GrantAuthorizationPolicyTests: XCTestCase {
             let alwaysGrant = Grant(
                 id: "always-grant",
                 credentialId: "always-credential",
-                duration: .always
+                duration: .always,
+                subjectFingerprint: "fp", subjectDisplayName: "Agent"
             )
             let timedGrant = Grant(
                 id: "timed-grant",
                 credentialId: "timed-credential",
-                duration: .timed(Date().addingTimeInterval(3600))
+                duration: .timed(Date().addingTimeInterval(3600)),
+                subjectFingerprint: "fp", subjectDisplayName: "Agent"
             )
             try grantStore.addGrant(alwaysGrant)
             try grantStore.addGrant(timedGrant)
@@ -34,11 +36,13 @@ final class GrantAuthorizationPolicyTests: XCTestCase {
             let matchedAlways = try GrantAuthorizationPolicy.validGrantForValueAccess(
                 credentialId: "always-credential",
                 sessionId: nil,
+                fingerprint: "fp",
                 grantStore: grantStore
             )
             let matchedTimed = try GrantAuthorizationPolicy.validGrantForValueAccess(
                 credentialId: "timed-credential",
                 sessionId: nil,
+                fingerprint: "fp",
                 grantStore: grantStore
             )
 
@@ -74,13 +78,15 @@ final class GrantAuthorizationPolicyTests: XCTestCase {
             let grant = Grant(
                 id: "once-grant",
                 credentialId: "once-credential",
-                duration: .once
+                duration: .once,
+                subjectFingerprint: "fp", subjectDisplayName: "Agent"
             )
             try grantStore.addGrant(grant)
 
             let preflightGrant = try GrantAuthorizationPolicy.validGrantForValueAccess(
                 credentialId: "once-credential",
                 sessionId: nil,
+                fingerprint: "fp",
                 grantStore: grantStore
             )
             XCTAssertEqual(preflightGrant?.id, "once-grant")

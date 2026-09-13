@@ -28,7 +28,7 @@ final class MetadataEditorTests: XCTestCase {
                                fields: ["cc": CredentialField(secret: true), "region": CredentialField(value: "bj", secret: false)],
                                security: .standard, created: "2026-03-02", updated: "2026-03-02"),
         ]))
-        try grants.addGrant(Grant(credentialId: "百度千帆", duration: .always))
+        try grants.addGrant(Grant(credentialId: "百度千帆", duration: .always, subjectFingerprint: "fp", subjectDisplayName: "python3"))
         try serviceGrants.addGrant(ServiceGrant(credentialId: "百度千帆", subjectFingerprint: "fp", subjectDisplayName: "python3",
                                                 fields: ["cc"], duration: .always))
     }
@@ -49,7 +49,7 @@ final class MetadataEditorTests: XCTestCase {
         XCTAssertThrowsError(try service.retrieve(credentialId: "百度千帆", fieldName: "cc"))
         XCTAssertEqual(try blobStore.fieldNamesByCredential(), ["baidu-qianfan": ["api-key"]])
         XCTAssertNoThrow(try service.validateStorage())
-        XCTAssertNotNil(try grants.findValidGrant(credentialId: "baidu-qianfan", sessionId: nil))
+        XCTAssertNotNil(try grants.findValidGrant(credentialId: "baidu-qianfan", sessionId: nil, fingerprint: "fp"))
         XCTAssertTrue(try grants.grants(for: "百度千帆").isEmpty)
         let moved = try serviceGrants.grants(credentialId: "baidu-qianfan")
         XCTAssertEqual(moved.map(\.fields), [["api-key"]])
@@ -98,7 +98,7 @@ final class MetadataEditorTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: metaURL), saved)
         XCTAssertEqual(try service.retrieve(credentialId: "百度千帆", fieldName: "cc"), "synthetic-value")
         XCTAssertNoThrow(try service.validateStorage())
-        XCTAssertNotNil(try grants.findValidGrant(credentialId: "百度千帆", sessionId: nil), "元数据没写成，授权也不动")
+        XCTAssertNotNil(try grants.findValidGrant(credentialId: "百度千帆", sessionId: nil, fingerprint: "fp"), "元数据没写成，授权也不动")
     }
 
     func test复制值时目标已有不同的值就拒绝() throws {

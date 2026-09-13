@@ -138,7 +138,9 @@ final class IPCValueHandlerTests: XCTestCase {
         let grant = Grant(
             id: "strict-once",
             credentialId: "service-a",
-            duration: .once
+            duration: .once,
+            subjectFingerprint: "test:ipc-value-caller",
+            subjectDisplayName: "IPC value test"
         )
         try grantStore.addGrant(grant)
         let session = FakeValueSession(

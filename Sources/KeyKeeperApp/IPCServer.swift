@@ -791,12 +791,7 @@ final class IPCServer: ObservableObject {
                 matchedStrictGrant,
                 grantStore: grantStore
             )
-            // An "Always" from before grants had an owner now belongs to whoever just used it.
-            try? GrantAuthorizationPolicy.pinUnscopedGrantAfterUse(
-                matchedStrictGrant,
-                caller: caller,
-                grantStore: grantStore
-            )
+
             if let matchedServiceGrant {
                 try? serviceGrantStore.noteSuccessfulUse(
                     grantId: matchedServiceGrant.id,

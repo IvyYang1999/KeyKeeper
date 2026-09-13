@@ -29,36 +29,36 @@ final class GrantScopeTests: XCTestCase {
                      "别的进程不该蹭到这条授权")
     }
 
-    /// 已经存在的授权（yyt 库里 57 条 always）没有指纹。直接作废会让他所有 Agent 重新开始
-    /// 弹窗——正是他点 always 想避免的事。所以沿用它，但**第一次被用到时钉死在那个调用方
-    /// 身上**，之后别人再来就不算数。这比现状严格，永远不会比现状更松。
-    func test旧授权首次使用时钉死在使用者身上() throws {
+    /// 【推翻我自己】原来的迁移是「旧授权照常放行，第一次被用到时钉死在使用者身上」。
+    /// 安全审计把这条打穿了：库里 54 条未绑定的 always 里，有 `keykeeper-sparkle-signing`
+    /// （发版签名私钥）和 `apple-notary`（Apple 应用专用密码）。在那套迁移下，本机**任何**
+    /// 进程跑一句 `keykeeper run -c keykeeper-sparkle-signing -- …` 就能拿走签名私钥，
+    /// 全程不弹窗——而且拿到之后那条授权还会被钉给攻击者，维护者下次发版反倒被拦。
+    ///
+    /// 「先给值、再认人」的顺序本身就是错的。现在未绑定的授权一律不匹配：第一次用到时
+    /// 重新问一次，新授权带着调用方。代价是每条凭据多弹一次窗，一次而已。
+    func test未绑定调用方的旧授权不再放行任何人() throws {
         let (store, dir) = try store()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let legacy = Grant(credentialId: "openai", duration: .always)
-        try store.addGrant(legacy)
-        XCTAssertNil(try store.findValidGrant(credentialId: "openai", sessionId: nil,
-                                              fingerprint: "app:bundle=com.anything")?.subjectFingerprint,
-                     "还没钉死之前谁都能用，和升级前一样")
+        try store.addGrant(.init(credentialId: "keykeeper-sparkle-signing", duration: .always))
 
-        try store.pinGrantIfUnscoped(id: legacy.id, to: "app:bundle=com.example.agent", displayName: "Agent")
-
-        XCTAssertNotNil(try store.findValidGrant(credentialId: "openai", sessionId: nil,
-                                                 fingerprint: "app:bundle=com.example.agent"))
-        XCTAssertNil(try store.findValidGrant(credentialId: "openai", sessionId: nil,
-                                              fingerprint: "app:bundle=com.other"),
-                     "钉死之后别人再也蹭不到")
+        XCTAssertNil(try store.findValidGrant(credentialId: "keykeeper-sparkle-signing",
+                                              sessionId: nil, fingerprint: "app:bundle=com.attacker"),
+                     "未绑定的授权不能成为通配符")
+        XCTAssertNil(try store.findValidGrant(credentialId: "keykeeper-sparkle-signing",
+                                              sessionId: nil, fingerprint: nil))
+        XCTAssertFalse(try store.hasLikelyValidGrant(credentialId: "keykeeper-sparkle-signing", sessionId: nil),
+                       "命令行的自查也要认这条，否则它会跳过弹窗、然后被 App 拒绝")
     }
 
-    /// 钉死只发生一次，不会被后来的调用方改写。
-    func test钉死之后不会被改写() throws {
+    func test旧版行为的回归测试_钉死机制已移除() throws {
         let (store, dir) = try store()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let legacy = Grant(credentialId: "openai", duration: .always)
-        try store.addGrant(legacy)
-        try store.pinGrantIfUnscoped(id: legacy.id, to: "first", displayName: "First")
-        try store.pinGrantIfUnscoped(id: legacy.id, to: "second", displayName: "Second")
-        XCTAssertEqual(try store.grants(for: "openai").first?.subjectFingerprint, "first")
+        try store.addGrant(.init(credentialId: "openai", duration: .always))
+        // 旧授权仍然留在文件里（界面上看得见、撤得掉），但对任何调用方都不再生效。
+        XCTAssertEqual(try store.grants(for: "openai").count, 1)
+        XCTAssertNil(try store.findValidGrant(credentialId: "openai", sessionId: nil,
+                                              fingerprint: "app:bundle=com.example.agent"))
     }
 
     /// 不传指纹时（拿不到调用方身份）只认还没钉死的旧授权，绝不放行已经钉死的。
