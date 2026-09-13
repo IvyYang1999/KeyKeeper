@@ -91,3 +91,25 @@ class TestRun(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReasonTests(unittest.TestCase):
+    """授权窗上的「调用方留言」只有调用方自己写得出来。SDK 一直没有这个参数，
+    所以任何走 SDK 的请求在弹窗里都是一片空白——用户只看得到一个 bundle id。"""
+
+    @patch("keykeeper.subprocess.run")
+    @patch("keykeeper._find_cli", return_value="/usr/local/bin/keykeeper")
+    def test_reason_reaches_the_cli(self, _cli, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="value", stderr="")
+
+        get_field("neon-costs", "api-key", reason="查一下本月账单")
+        self.assertEqual(mock_run.call_args[0][0][-2:], ["--reason", "查一下本月账单"])
+
+        run("neon-costs", ["echo", "hi"], reason="跑一次对账脚本")
+        args = mock_run.call_args[0][0]
+        self.assertIn("--reason", args)
+        self.assertEqual(args[args.index("--reason") + 1], "跑一次对账脚本")
+
+        # 不写就还是不写，不要替调用方编一个理由
+        get_field("neon-costs", "api-key")
+        self.assertNotIn("--reason", mock_run.call_args[0][0])

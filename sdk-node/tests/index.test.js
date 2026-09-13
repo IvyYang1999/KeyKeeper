@@ -53,3 +53,25 @@ describe('module exports', () => {
     }
   });
 });
+
+describe('caller reason', () => {
+  // 授权窗上的「调用方留言」只有调用方写得出来。SDK 一直没有这个参数，
+  // 所以每一个走 SDK 的请求在弹窗里都是一片空白，用户只看得到一个 bundle id。
+  it('passes --reason through to the CLI when given', () => {
+    const calls = [];
+    const original = childProcess.spawnSync;
+    childProcess.spawnSync = (cli, args) => { calls.push(args); return { status: 0 }; };
+    try {
+      runWithSecrets('neon-costs', ['echo', 'hi'], { reason: '跑一次对账脚本' });
+      const args = calls[0];
+      assert.ok(args.includes('--reason'));
+      assert.strictEqual(args[args.indexOf('--reason') + 1], '跑一次对账脚本');
+      assert.ok(args.indexOf('--reason') < args.indexOf('--'), '--reason 必须在 -- 之前，否则会被当成子命令的参数');
+
+      runWithSecrets('neon-costs', ['echo', 'hi']);
+      assert.ok(!calls[1].includes('--reason'), '没写就不写，不要替调用方编理由');
+    } finally {
+      childProcess.spawnSync = original;
+    }
+  });
+});

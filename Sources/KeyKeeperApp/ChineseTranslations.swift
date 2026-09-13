@@ -231,6 +231,7 @@ extension AppL10n {
         "Launch KeyKeeper at login": "登录时启动 KeyKeeper",
         "Starts with your Mac, so it is in the menu bar before any script asks for a key.": "随 Mac 启动，脚本来要 key 之前它就已经在菜单栏里了。",
         "Unknown terminal": "未知终端",
+        "No terminal session": "无终端会话",
         "Available when KeyKeeper runs from the .app in Applications.": "从“应用程序”中的 KeyKeeper.app 运行时可用。",
         "Command line": "命令行",
         "Show setup again": "重新打开设置向导",

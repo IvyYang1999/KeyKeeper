@@ -43,15 +43,25 @@ def list_credentials():
     return names
 
 
-def get_field(credential_id, field_name):
-    return _run("get", credential_id, field_name)
+def _reason_args(reason):
+    """A sentence for the approval window, written by the caller.
+
+    KeyKeeper shows it marked as unverified and it never affects any decision — but without
+    it the person approving sees only a bundle id and a credential name, which is what
+    happens to every SDK caller today.
+    """
+    return ["--reason", reason] if reason else []
 
 
-def get_key(credential_id, field_name):
-    return _run("get", credential_id, field_name)
+def get_field(credential_id, field_name, reason=None):
+    return _run("get", credential_id, field_name, *_reason_args(reason))
 
 
-def run(credential_ids, command, prefix="", verbose=False):
+def get_key(credential_id, field_name, reason=None):
+    return get_field(credential_id, field_name, reason=reason)
+
+
+def run(credential_ids, command, prefix="", verbose=False, reason=None):
     """Run a command with secrets injected as environment variables.
 
     Args:
@@ -59,6 +69,7 @@ def run(credential_ids, command, prefix="", verbose=False):
         command: Command and arguments as a list (e.g. ["python", "script.py"]).
         prefix: Optional prefix for env var names.
         verbose: If True, print injected variable names to stderr.
+        reason: One line shown in KeyKeeper's approval window explaining why you need this.
 
     Returns:
         subprocess.CompletedProcess
@@ -73,6 +84,7 @@ def run(credential_ids, command, prefix="", verbose=False):
         args.extend(["--prefix", prefix])
     if verbose:
         args.append("--verbose")
+    args.extend(_reason_args(reason))
     args.append("--")
     args.extend(command)
     return subprocess.run(args)

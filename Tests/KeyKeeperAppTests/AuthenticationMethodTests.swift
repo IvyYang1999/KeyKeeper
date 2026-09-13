@@ -71,4 +71,20 @@ final class AuthenticationMethodTests: XCTestCase {
         XCTAssertNotEqual(outcome, .authorize)
         XCTAssertNotEqual(outcome, .askForDevicePassword)
     }
+
+    /// 【曾经的 bug】yyt 2026-09-13 下午：「点击 usePassword 之后，还是会变成按指纹的弹窗，
+    /// 再点一次 usePassword 才会变成输入密码的输入条」。第二轮用的是
+    /// `.deviceOwnerAuthentication`——那个策略本来就先出 Touch ID，于是又回到原地。
+    /// 密码轮必须是「只认密码」的那种提示，绝不能再走任何会弹指纹的策略。
+    func test曾经的Bug密码轮绝不再弹指纹() throws {
+        XCTAssertNil(AuthorizationView.AuthenticationRound.devicePasswordOnly.policy,
+                     "密码轮一旦还挂着 LAPolicy，系统就会再弹一次 Touch ID")
+        XCTAssertEqual(AuthorizationView.AuthenticationRound.devicePasswordOnly.accessControlFlags, .devicePasscode)
+        XCTAssertEqual(AuthorizationView.AuthenticationRound.biometrics.policy, .deviceOwnerAuthenticationWithBiometrics)
+        XCTAssertNil(AuthorizationView.AuthenticationRound.biometrics.accessControlFlags)
+        XCTAssertNotNil(AuthorizationView.AuthenticationRound.devicePasswordOnly.accessControl(),
+                        "只认密码的 SecAccessControl 必须能建出来，否则密码轮无路可走")
+        XCTAssertTrue(AuthorizationView.AuthenticationRound.devicePasswordOnly.isPasswordRound)
+        XCTAssertFalse(AuthorizationView.AuthenticationRound.biometrics.isPasswordRound)
+    }
 }

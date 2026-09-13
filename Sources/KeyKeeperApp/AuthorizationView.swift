@@ -141,6 +141,39 @@ struct AuthorizationView: View {
         }
     }
 
+    /// One round of verification, and what the system will actually show for it.
+    ///
+    /// 【曾经的 bug】yyt 2026-09-13 下午：点「使用密码」之后又弹出一次 Touch ID，要再点一次
+    /// 才出密码输入框。因为第二轮用的是 `.deviceOwnerAuthentication`，而那个策略本来就先试
+    /// 生物识别。密码轮必须走「只认密码」的 SecAccessControl，绕开生物识别这条路。
+    enum AuthenticationRound: Equatable {
+        case biometrics
+        case devicePasswordOnly
+
+        /// Nil for the password round on purpose: any LAPolicy here can put Touch ID back on screen.
+        var policy: LAPolicy? {
+            switch self {
+            case .biometrics: return .deviceOwnerAuthenticationWithBiometrics
+            case .devicePasswordOnly: return nil
+            }
+        }
+
+        var accessControlFlags: SecAccessControlCreateFlags? {
+            switch self {
+            case .biometrics: return nil
+            case .devicePasswordOnly: return .devicePasscode
+            }
+        }
+
+        var isPasswordRound: Bool { self == .devicePasswordOnly }
+
+        func accessControl() -> SecAccessControl? {
+            guard let accessControlFlags else { return nil }
+            return SecAccessControlCreateWithFlags(
+                nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, accessControlFlags, nil)
+        }
+    }
+
     /// How the "Authorize" click is confirmed. The button icon must match what will
     /// actually happen; a Touch ID glyph on a machine without Touch ID promised a
     /// check that never ran.
@@ -607,28 +640,26 @@ struct AuthorizationView: View {
             finishAuthorization(completion)
             return
         }
-        runAuthentication(policy: policy,
-                          isPasswordRound: policy == .deviceOwnerAuthentication,
+        runAuthentication(round: policy == .deviceOwnerAuthentication ? .devicePasswordOnly : .biometrics,
                           completion: completion)
     }
 
     /// One LocalAuthentication round. Choosing "Use Password…" runs a second round with the
     /// device-password policy; nothing is released until a round actually succeeds.
-    private func runAuthentication(policy: LAPolicy,
-                                   isPasswordRound: Bool,
+    private func runAuthentication(round: AuthenticationRound,
                                    completion: @escaping () throws -> Void) {
         isAuthenticating = true
         errorMessage = nil
 
         let context = LAContext()
-        context.evaluatePolicy(policy,
-                               localizedReason: L("Authorize access to \"\(prompt.credentialLabel)\"")) { success, authError in
+        let reason = L("Authorize access to \"\(prompt.credentialLabel)\"")
+        let handle: (Bool, Error?) -> Void = { success, authError in
             DispatchQueue.main.async {
                 let outcome = AuthenticationOutcome.decide(
                     success: success,
                     code: (authError as? LAError)?.code,
                     devicePasswordAvailable: LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil),
-                    isPasswordRound: isPasswordRound,
+                    isPasswordRound: round.isPasswordRound,
                     message: authError?.localizedDescription
                 )
                 switch outcome {
@@ -637,9 +668,7 @@ struct AuthorizationView: View {
                     finishAuthorization(completion)
                 case .askForDevicePassword:
                     // The system password sheet is the next step; keep the window busy.
-                    runAuthentication(policy: .deviceOwnerAuthentication,
-                                      isPasswordRound: true,
-                                      completion: completion)
+                    runAuthentication(round: .devicePasswordOnly, completion: completion)
                 case .cancelled:
                     isAuthenticating = false
                     errorMessage = L("Cancelled")
@@ -648,6 +677,14 @@ struct AuthorizationView: View {
                     errorMessage = message
                 }
             }
+        }
+        if let policy = round.policy {
+            context.evaluatePolicy(policy, localizedReason: reason, reply: handle)
+        } else if let accessControl = round.accessControl() {
+            // Password only: no policy, so the system cannot decide to try Touch ID first.
+            context.evaluateAccessControl(accessControl, operation: .useKeyDecrypt, localizedReason: reason, reply: handle)
+        } else {
+            handle(false, nil)
         }
     }
 

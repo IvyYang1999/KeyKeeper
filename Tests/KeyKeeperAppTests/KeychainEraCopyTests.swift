@@ -22,5 +22,6 @@ final class KeychainEraCopyTests: XCTestCase {
 
     func test曾经的Bug未知终端有中文() {
         XCTAssertEqual(AppL10n.render("Unknown terminal", language: "zh-Hans"), "未知终端")
+        XCTAssertEqual(AppL10n.render("No terminal session", language: "zh-Hans"), "无终端会话")
     }
 }

@@ -37,16 +37,23 @@ async function listCredentials() {
     .map(line => line.split(' | ')[0].trim());
 }
 
-async function getField(credentialId, fieldName) {
-  return run('get', credentialId, fieldName);
+// A sentence for the approval window, written by the caller. KeyKeeper shows it marked as
+// unverified and it never affects any decision — but without it the person approving sees only
+// a bundle id and a credential name, which is what every SDK caller looks like today.
+function reasonArgs(reason) {
+  return reason ? ['--reason', reason] : [];
 }
 
-async function getKey(credentialId, fieldName) {
-  return run('get', credentialId, fieldName);
+async function getField(credentialId, fieldName, options = {}) {
+  return run('get', credentialId, fieldName, ...reasonArgs(options.reason));
+}
+
+async function getKey(credentialId, fieldName, options = {}) {
+  return getField(credentialId, fieldName, options);
 }
 
 function runWithSecrets(credentialIds, command, options = {}) {
-  const { prefix = '', verbose = false } = options;
+  const { prefix = '', verbose = false, reason = '' } = options;
   if (typeof credentialIds === 'string') credentialIds = [credentialIds];
 
   const cli = findCli();
@@ -56,6 +63,7 @@ function runWithSecrets(credentialIds, command, options = {}) {
   }
   if (prefix) args.push('--prefix', prefix);
   if (verbose) args.push('--verbose');
+  args.push(...reasonArgs(reason));
   args.push('--', ...command);
 
   const { spawnSync } = require('node:child_process');

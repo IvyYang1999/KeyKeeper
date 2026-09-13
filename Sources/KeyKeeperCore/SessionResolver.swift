@@ -23,7 +23,9 @@ public enum SessionResolver {
             }
         }
 
-        return SessionInfo(id: nil, label: "Unknown terminal")
+        // Not "unknown": there is no terminal at all. SDK, IDE and cron callers land here, and
+        // the authorization window says as much in the sentence under the duration picker.
+        return SessionInfo(id: nil, label: "No terminal session")
     }
 
     private static func humanLabel(source: String, value: String,
