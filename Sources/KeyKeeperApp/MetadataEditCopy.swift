@@ -12,6 +12,7 @@ enum MetadataEditCopy {
         case .invalidFieldName: return L("Field names can only use letters, digits, '-', '_' and '.', with no spaces. Put the wording you like in the display name.")
         case .fieldNameTaken(let name): return L("\u{201C}\(name)\u{201D} is already a field name here, now or in the past.")
         case .fieldIsSecret(let name): return L("\u{201C}\(name)\u{201D} is a secret field. Change it in KeyKeeper, where the value stays in the Keychain.")
+        case .reservedFieldName(let name): return L("\u{201C}\(name)\u{201D} would become an environment variable that decides how programs run, like PATH. Pick another name.")
         case .tooLong: return L("That text is too long.")
         case .nothingToChange: return L("Nothing to change.")
         }

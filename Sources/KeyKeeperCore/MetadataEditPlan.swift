@@ -68,6 +68,7 @@ public enum MetadataEditError: Error, Equatable, LocalizedError {
     case invalidFieldName(String)
     case fieldNameTaken(String)
     case fieldIsSecret(String)
+    case reservedFieldName(String)
     case tooLong(String)
     case nothingToChange
 
@@ -78,6 +79,7 @@ public enum MetadataEditError: Error, Equatable, LocalizedError {
         case .groupIdTaken(let id): return "'\(id)' is already used by another credential, now or in the past. Old names stay reserved."
         case .fieldNotFound(let name): return "This credential has no field called '\(name)'."
         case .invalidFieldName(let name): return "'\(name)' is not a valid field name. Use letters, digits, '-', '_' or '.', starting with a letter or digit (at most 64)."
+        case .reservedFieldName(let name): return "'\(name)' would become an environment variable that decides how programs run (like PATH or DYLD_INSERT_LIBRARIES). Pick another name."
         case .fieldNameTaken(let name): return "'\(name)' is already a field name (or an old one) in this credential."
         case .fieldIsSecret(let name): return "'\(name)' is a secret field. Change secrets in the KeyKeeper app, where the value stays in the Keychain."
         case .tooLong(let what): return "The \(what) is too long."
@@ -139,6 +141,9 @@ public enum MetadataEditPlan {
             }
             guard to != current else { continue }
             guard CredentialNames.isValidFieldName(to) else { throw MetadataEditError.invalidFieldName(to) }
+            guard !EnvironmentVariableName.isReserved(fieldName: to) else {
+                throw MetadataEditError.reservedFieldName(to)
+            }
             let takenElsewhere = credential.fields.contains { key, other in
                 key != current && (key == to || other.aliases?.contains(to) == true)
             }
@@ -164,6 +169,11 @@ public enum MetadataEditPlan {
                 continue
             }
             guard CredentialNames.isValidFieldName(name) else { throw MetadataEditError.invalidFieldName(field) }
+            // A field name becomes an environment variable. Some of those decide what the child
+            // process runs, and this path never asks anyone.
+            guard !EnvironmentVariableName.isReserved(fieldName: name) else {
+                throw MetadataEditError.reservedFieldName(field)
+            }
             let cleaned = String(String.UnicodeScalarView(value.unicodeScalars.filter {
                 !CharacterSet.controlCharacters.contains($0)
             })).trimmingCharacters(in: .whitespacesAndNewlines)
