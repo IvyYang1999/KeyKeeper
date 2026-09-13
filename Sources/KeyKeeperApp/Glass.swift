@@ -129,18 +129,26 @@ extension View {
     }
 
     /// Full-window glass (`.base`).
+    ///
+    /// The glass never animates. The window's height is driven by this view's layout and
+    /// jumps to its new value on the first frame, so a glass that eased into place (a
+    /// disclosure opening) left the window taller than the glass for the whole 0.3 s: that
+    /// bare strip had no blur and put the glass's own square edge inside the window, which
+    /// is the "square corners" yyt reported on 2026-09-13.
     func glassWindowBackground(intensity: Double = 1) -> some View {
-        self.background(GlassSurface(intensity: intensity))
+        self.background(
+            GlassSurface(intensity: intensity)
+                .transaction { $0.animation = nil }
+        )
     }
 
-    /// Root chrome for a transparent panel window: the content keeps its own width, and the
-    /// glass fills whatever size the window ends up at.
+    /// Root chrome for a transparent panel window: a fixed width, glass behind everything.
     ///
-    /// 【曾经的 bug】yyt 2026-09-13：「展开调用详情之后，弹窗又变成这个奇怪的直角了」。窗口
-    /// 会跟着展开的内容长高，但玻璃只贴在内容盒上，多出来的那条没有玻璃，露出实色直角。
+    /// Deliberately no `.frame(maxHeight: .infinity)`: that would drop the hosting view's
+    /// max-size constraint, so the window could never shrink back after a disclosure closed
+    /// (and crashed AppKit's constraint pass on 2026-09-13).
     func glassPanel(width: CGFloat, intensity: Double = 1) -> some View {
         frame(width: width)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .glassWindowBackground(intensity: intensity)
     }
 }

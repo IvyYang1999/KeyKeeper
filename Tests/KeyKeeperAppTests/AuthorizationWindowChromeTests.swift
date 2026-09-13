@@ -4,52 +4,98 @@ import XCTest
 @testable import KeyKeeperApp
 import KeyKeeperCore
 
+/// 透明磨砂面板（授权窗、保存确认面板）在内容展开/收起时的两条不变量。
+///
+/// 【曾经的 bug】yyt 2026-09-13：「展开调用详情之后，弹窗又变成这个奇怪的直角了」。
+/// 窗口高度由 NSHostingView 的约束驱动，展开第一帧就跳到最终高度；而玻璃是 SwiftUI 的
+/// `.background(GlassSurface)`，跟着内容走 0.3 秒展开动画。这 0.3 秒里窗口比玻璃高，
+/// 上下各露一条：那里没有 NSVisualEffectView（不磨砂），玻璃自己的边缘又落在窗口中部
+/// （拿不到窗口圆角），看起来就是直角实边。
 @MainActor
 final class AuthorizationWindowChromeTests: XCTestCase {
-    /// 【曾经的 bug】yyt 2026-09-13：「展开调用详情之后，弹窗又变成这个奇怪的直角了」。
-    /// 展开「调用方详情」后窗口会跟着长高，但磨砂是贴在内容盒上的，窗口多出来的那块没有玻璃，
-    /// 于是底部露出直角的实色底。磨砂必须铺满整个宿主视图，窗口多高都一样。
-    func test曾经的Bug窗口比内容高时磨砂仍铺满整窗() throws {
-        let hosting = NSHostingView(rootView: Self.authorizationView())
-        hosting.frame = NSRect(x: 0, y: 0, width: 420, height: 900)
-        hosting.layoutSubtreeIfNeeded()
+    /// 展开与收起的每一帧，磨砂都要和窗口内容区严丝合缝。
+    func test曾经的Bug展开动画期间磨砂始终铺满窗口() throws {
+        let model = PanelToggle()
+        let (window, hosting) = Self.makePanelWindow(model: model)
+        defer { window.close() }
 
-        let effects = Self.visualEffectViews(in: hosting)
-        XCTAssertFalse(effects.isEmpty, "授权窗应该有磨砂层")
-        let covers = effects.contains { effect in
-            let rect = effect.convert(effect.bounds, to: hosting)
-            return rect.width >= hosting.bounds.width - 1 && rect.height >= hosting.bounds.height - 1
+        for expanded in [true, false] {
+            withAnimation(.easeInOut(duration: 0.3)) { model.expanded = expanded }
+            for _ in 0..<10 {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.035))
+                hosting.layoutSubtreeIfNeeded()
+                let content = try XCTUnwrap(window.contentView).bounds
+                let glass = try XCTUnwrap(Self.visualEffectViews(in: hosting).first)
+                let rect = glass.convert(glass.bounds, to: window.contentView)
+                XCTAssertEqual(rect.height, content.height, accuracy: 1,
+                               "展开=\(expanded) 的动画途中玻璃比窗口矮了 \(content.height - rect.height)pt，露出的那条就是直角实边")
+                XCTAssertEqual(rect.width, content.width, accuracy: 1)
+            }
         }
-        XCTAssertTrue(covers, "磨砂层没铺满窗口，实际：\(effects.map { $0.convert($0.bounds, to: hosting) })")
     }
 
-    /// 同一个病在保存确认面板上也成立：它同样是透明窗 + 可展开的「详细说明」。
-    func test保存确认面板的磨砂也铺满整窗() throws {
-        let model = TrustPromptModel.save(.init(
-            request: ClipboardSaveRequest(credentialId: "cloudflare-billing", fieldName: "api-token", create: true),
-            callerName: "com.openai.codex"
-        ))
-        let hosting = NSHostingView(rootView: TrustPromptView(model: model, onCancel: {}, onConfirm: {}))
-        hosting.frame = NSRect(x: 0, y: 0, width: 440, height: 900)
+    /// 【曾经的 bug】2026-09-13 我给玻璃加 `.frame(maxHeight: .infinity)` 想让它铺满窗口，
+    /// 结果拿掉了 NSHostingView 给窗口的最大高度约束：收起之后窗口再也缩不回去。
+    func test曾经的Bug收起之后窗口高度缩回内容高度() throws {
+        let model = PanelToggle()
+        let (window, hosting) = Self.makePanelWindow(model: model)
+        defer { window.close() }
+        let collapsed = hosting.fittingSize.height
+
+        withAnimation(.easeInOut(duration: 0.3)) { model.expanded = true }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
         hosting.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(try XCTUnwrap(window.contentView).bounds.height, collapsed + 100, "展开后窗口应该长高")
 
-        let effects = Self.visualEffectViews(in: hosting)
-        XCTAssertTrue(effects.contains { effect in
-            let rect = effect.convert(effect.bounds, to: hosting)
-            return rect.width >= hosting.bounds.width - 1 && rect.height >= hosting.bounds.height - 1
-        }, "保存面板的磨砂没铺满窗口，实际：\(effects.map { $0.convert($0.bounds, to: hosting) })")
+        withAnimation(.easeInOut(duration: 0.3)) { model.expanded = false }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        hosting.layoutSubtreeIfNeeded()
+        XCTAssertEqual(try XCTUnwrap(window.contentView).bounds.height, hosting.fittingSize.height, accuracy: 1)
+        XCTAssertEqual(try XCTUnwrap(window.contentView).bounds.height, collapsed, accuracy: 1, "收起后应该缩回原来的高度")
     }
 
-    private static func authorizationView() -> AuthorizationView {
-        AuthorizationView(
-            prompt: .strict(AuthRequest(credentialId: "cloudflare-billing",
-                                        credentialLabel: "cloudflare-billing",
-                                        fieldNames: ["api-token"],
-                                        sessionId: nil, sessionLabel: nil, pid: 1)),
-            onAuthorizeGrant: { _ in },
-            onAuthorizeService: nil,
-            onDeny: {}
-        )
+    // MARK: 同款窗口
+
+    final class PanelToggle: ObservableObject {
+        @Published var expanded = false
+    }
+
+    /// 和 AuthorizationWindowController / TrustPromptPresenter 同款：透明窗 + 全尺寸内容 +
+    /// NSHostingView，内容用同一个 `glassPanel` 外壳。
+    private struct PanelUnderTest: View {
+        @ObservedObject var model: PanelToggle
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Authorization Request")
+                if model.expanded {
+                    Color.clear.frame(height: 220)
+                }
+                Text("Allow / Deny")
+            }
+            .padding(20)
+            .glassPanel(width: 420)
+        }
+    }
+
+    private static func makePanelWindow(model: PanelToggle) -> (NSWindow, NSHostingView<PanelUnderTest>) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 200),
+                              styleMask: [.titled, .closable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.titlebarAppearsTransparent = true
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        // Without this the window is deallocated by close() while the test still holds it,
+        // which crashes the whole test process when the next case runs.
+        window.isReleasedWhenClosed = false
+        let hosting = NSHostingView(rootView: PanelUnderTest(model: model))
+        hosting.safeAreaRegions = []
+        window.contentView = hosting
+        window.setContentSize(hosting.fittingSize)
+        window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))   // 不抢占屏幕
+        window.orderBack(nil)
+        hosting.layoutSubtreeIfNeeded()
+        return (window, hosting)
     }
 
     private static func visualEffectViews(in view: NSView) -> [NSVisualEffectView] {
