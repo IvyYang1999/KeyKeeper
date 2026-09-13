@@ -52,7 +52,8 @@ public final class GrantStore: Sendable {
         // open(O_CREAT) and nothing else: FileManager.createFile REPLACES an existing file, which
         // would swap the inode out from under a lock somebody else is already holding — the very
         // bug this lock file exists to avoid.
-        let fd = open(lockURL.path, O_RDWR | O_CREAT, 0o600)
+        // O_NOFOLLOW: a .lock swapped for a symlink must not make us create or lock a file elsewhere.
+        let fd = open(lockURL.path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
         guard fd >= 0 else {
             throw GrantStoreError.lockFailed
         }

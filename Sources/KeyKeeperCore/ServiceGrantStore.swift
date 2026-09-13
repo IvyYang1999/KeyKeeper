@@ -249,9 +249,10 @@ public final class ServiceGrantStore: Sendable {
     }
 
     private func withFileLock<T>(_ body: (inout ServiceGrantFile) throws -> T) throws -> T {
-        if !FileManager.default.fileExists(atPath: fileURL.path) {
-            try save(ServiceGrantFile())
-        }
+        // 【独立审计 2026-09-13】the data file used to be pre-created here, outside the lock — the
+        // race GrantStore had already removed: an empty file written after another writer's
+        // locked save wiped that grant and reverted `enforced` to `permissive`. load() treats a
+        // missing file as empty, and save() creates it inside the critical section.
 
         // Lock a file that is never replaced.
         //
@@ -265,7 +266,8 @@ public final class ServiceGrantStore: Sendable {
         // open(O_CREAT) and nothing else: FileManager.createFile REPLACES an existing file, which
         // would swap the inode out from under a lock somebody else is already holding — the very
         // bug this lock file exists to avoid.
-        let fd = open(lockURL.path, O_RDWR | O_CREAT, 0o600)
+        // O_NOFOLLOW: a .lock swapped for a symlink must not make us create or lock a file elsewhere.
+        let fd = open(lockURL.path, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
         guard fd >= 0 else {
             throw ServiceGrantStoreError.lockFailed
         }
