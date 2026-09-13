@@ -62,7 +62,17 @@ public enum MetaIntegrityKey {
         var bytes = Data(count: length)
         let status = bytes.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, length, $0.baseAddress!) }
         guard status == errSecSuccess else { throw KeychainError.unexpectedData }
-        try io.writeBlob(bytes, replacingExisting: true)
+        do {
+            // Create-only. 【独立审计 2026-09-13 · critical】this said replacingExisting: true, which for
+            // the real Keychain means update-only: with no key yet it threw, so the key was never
+            // created — every signed approvals save failed and meta.json was never signed. The test
+            // doubles ignored the flag, which is why nothing went red.
+            try io.writeBlob(bytes, replacingExisting: false)
+        } catch {
+            // Someone else created it between our read and our write: theirs is the key.
+            if let created = try existing(io: io) { return created }
+            throw error
+        }
         return bytes
     }
 }
