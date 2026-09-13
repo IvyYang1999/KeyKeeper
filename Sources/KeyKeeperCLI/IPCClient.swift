@@ -55,7 +55,7 @@ enum IPCClient {
     private static func requestLocalImport(_ envelope: IPCRequest) throws -> ClipboardSaveResponse {
         let fd = try connectWithRetry(launchIfNeeded: true)
         defer { close(fd) }
-        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout), tv_usec: 0)
+        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout + IPCConstants.clientGrace), tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         try IPCMessage.writeMessage(fd: fd, message: envelope)
         guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else { throw IPCError.appNotResponding }
@@ -66,7 +66,7 @@ enum IPCClient {
         try request.validate()
         let fd = try connectWithRetry(launchIfNeeded: true)
         defer { close(fd) }
-        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout), tv_usec: 0)
+        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout + IPCConstants.clientGrace), tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         try IPCMessage.writeMessage(fd: fd, message: fromBrowser ? IPCRequest.browserImport(request) : IPCRequest.clipboardSave(request))
         guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else {
@@ -98,7 +98,7 @@ enum IPCClient {
         defer { close(fd) }
 
         // Set read timeout
-        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout), tv_usec: 0)
+        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout + IPCConstants.clientGrace), tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
 
         // Send envelope
@@ -127,7 +127,7 @@ enum IPCClient {
         let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: .value(request)))
         defer { close(fd) }
 
-        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout), tv_usec: 0)
+        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout + IPCConstants.clientGrace), tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         try IPCMessage.writeMessage(fd: fd, message: IPCRequest.value(request))
 
@@ -230,7 +230,7 @@ enum IPCClient {
         let fd = try connectWithRetry(launchIfNeeded: launchIfNeeded)
         defer { close(fd) }
 
-        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout), tv_usec: 0)
+        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout + IPCConstants.clientGrace), tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
 
         try IPCMessage.writeMessage(fd: fd, message: IPCRequest.sessionControl(request))

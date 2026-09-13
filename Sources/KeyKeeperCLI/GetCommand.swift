@@ -80,8 +80,9 @@ struct GetCommand: ParsableCommand {
             print(value, terminator: "")
         } else {
             // This value comes straight out of meta.json, so it is only as trustworthy as that file.
-            guard PlainValuePolicy.mayServe(IPCClient.requestMetadataIntegrity()) else {
-                throw CommandFailure(PlainValueRefusal.message)
+            let verdict = IPCClient.requestMetadataIntegrity()
+            guard PlainValuePolicy.mayServe(verdict) else {
+                throw CommandFailure(PlainValueRefusal.message(for: verdict))
             }
             print(field.value ?? "", terminator: "")
         }

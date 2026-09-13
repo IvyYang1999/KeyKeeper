@@ -163,8 +163,9 @@ struct RunCommand: ParsableCommand {
         let injectsPlainValues = credentialIds.contains { id in
             meta.credentials[id]?.fields.values.contains { !$0.secret && $0.value?.isEmpty == false } == true
         }
-        if injectsPlainValues, !PlainValuePolicy.mayServe(IPCClient.requestMetadataIntegrity()) {
-            throw CommandFailure(PlainValueRefusal.message)
+        if injectsPlainValues {
+            let verdict = IPCClient.requestMetadataIntegrity()
+            guard PlainValuePolicy.mayServe(verdict) else { throw CommandFailure(PlainValueRefusal.message(for: verdict)) }
         }
 
         // Collect all secret fields from requested credentials
@@ -913,5 +914,13 @@ final class OutputRedactor: @unchecked Sendable {
 }
 
 enum PlainValueRefusal {
-    static let message = "KeyKeeper's metadata file has been changed outside KeyKeeper, or KeyKeeper could not confirm it. No plain values were used. Open KeyKeeper to review the change."
+    /// Two different situations, two different sentences. 【独立审计第二轮】"could not reach the app"
+    /// used to be reported as "changed outside KeyKeeper", sending people to look for a change that
+    /// never happened.
+    static func message(for verdict: MetadataIntegrityResponse.Verdict?) -> String {
+        if verdict == .tampered {
+            return "KeyKeeper's credential list was changed outside KeyKeeper. No plain values were used. Open KeyKeeper: it shows the warning and lets you confirm the list."
+        }
+        return "KeyKeeper could not confirm its credential list with the app (it is not running, still starting, or busy), so no plain values were used. Open KeyKeeper and run the command again."
+    }
 }

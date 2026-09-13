@@ -21,6 +21,10 @@ public enum IPCConstants {
 
     /// Maximum time (seconds) CLI waits for authorization response
     public static let authTimeout: TimeInterval = 120
+    /// How much longer the CLI waits for an answer than the app keeps a request open, so the app
+    /// always gets to say why it ended. 【独立审计第二轮】equal timeouts meant the CLI always gave up
+    /// first and reported "the app did not answer" instead of "the request expired".
+    public static let clientGrace: TimeInterval = 15
 
     /// Maximum time (seconds) the app waits for a client to send a complete request.
     public static let serverReadTimeout: TimeInterval = 5
@@ -445,19 +449,25 @@ public enum IPCMessage {
     public static func readExact(fd: Int32, count: Int, deadline: Date? = nil) -> Data? {
         var buffer = Data(count: count)
         var offset = 0
+        // Monotonic, not the wall clock: a clock change or sleep must not cut a request short or
+        // stretch it without end. 【独立审计第二轮】
+        let limit = deadline.map { ProcessInfo.processInfo.systemUptime + $0.timeIntervalSinceNow }
         while offset < count {
             // The per-read socket timeout restarts on every byte, so a caller that dribbles one
             // byte at a time can hold the server's serial queue open indefinitely. A deadline for
             // the whole message is what actually bounds it — and it has to be enforced by waiting
             // with poll(), not by checking the clock before a read that then blocks anyway.
-            if let deadline {
-                let remaining = deadline.timeIntervalSinceNow
-                guard remaining > 0 else { return nil }
+            if let limit {
+                let remaining = limit - ProcessInfo.processInfo.systemUptime
                 var poller = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-                let ready = poll(&poller, 1, Int32(min(remaining * 1000, 3_600_000).rounded(.up)))
-                // A signal, or the one-hour cap on a single wait, is not the deadline: look at the
-                // clock again instead of dropping a message that is still on its way.
-                if ready == 0 || (ready < 0 && errno == EINTR) { continue }
+                // Past the deadline this is a zero-length wait: what has already arrived is still read.
+                let ready = poll(&poller, 1, Int32(max(0, min(remaining * 1000, 3_600_000)).rounded(.up)))
+                if ready < 0 && errno == EINTR { continue }
+                if ready == 0 {
+                    // A signal, or the one-hour cap on a single wait, is not the deadline.
+                    if remaining > 0 { continue }
+                    return nil
+                }
                 guard ready > 0 else { return nil }
             }
             let n = buffer.withUnsafeMutableBytes { ptr in
@@ -500,7 +510,7 @@ public enum IPCMessage {
     /// queue. `deadline` is for the server — the whole write has to finish inside it.
     public static func writeMessage<T: Encodable>(fd: Int32, message: T, deadline: TimeInterval? = nil) throws {
         let data = try encode(message)
-        let limit = deadline.map { Date().addingTimeInterval($0) }
+        let limit = deadline.map { ProcessInfo.processInfo.systemUptime + $0 }
         var restoreFlags: Int32?
         if limit != nil {
             // Non-blocking for the duration, so poll() is what waits and the deadline holds even
@@ -512,7 +522,7 @@ public enum IPCMessage {
         var offset = 0
         while offset < data.count {
             if let limit {
-                let remaining = limit.timeIntervalSinceNow
+                let remaining = limit - ProcessInfo.processInfo.systemUptime
                 guard remaining > 0 else { throw IPCError.writeFailed }
                 var poller = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
                 let ready = poll(&poller, 1, Int32(min(remaining * 1000, 3_600_000).rounded(.up)))
@@ -523,7 +533,10 @@ public enum IPCMessage {
                 Darwin.write(fd, ptr.baseAddress!.advanced(by: offset), data.count - offset)
             }
             if n > 0 { offset += n; continue }
-            if n < 0 && (errno == EINTR || errno == EAGAIN) { continue }
+            if n < 0 && errno == EINTR { continue }
+            // Without a deadline the socket's own send timeout is the limit, and EAGAIN means it ran
+            // out with nothing written: retrying would never return. 【独立审计第二轮】
+            if n < 0 && errno == EAGAIN && limit != nil { continue }
             throw IPCError.writeFailed
         }
     }

@@ -62,7 +62,7 @@ final class IPCRobustnessTests: XCTestCase {
             box.done.signal()
         }
         let text = String(repeating: "x", count: 300_000)
-        XCTAssertNoThrow(try IPCMessage.writeMessage(fd: fds[1], message: BigMessage(text: text)))
+        XCTAssertNoThrow(try IPCMessage.writeMessage(fd: fds[1], message: BigMessage(text: text), deadline: 10))
         XCTAssertEqual(box.done.wait(timeout: .now() + 10), .success)
         XCTAssertEqual(box.message?.text.count, text.count)
     }
@@ -84,3 +84,20 @@ extension IPCRobustnessTests {
         XCTAssertEqual(flags & O_NONBLOCK, 0, "写完要把 socket 的阻塞模式还回去")
     }
 }
+
+extension IPCRobustnessTests {
+    /// 【独立审计第二轮】不带时限的写遇到发送超时（EAGAIN）会无限重试，socket 的 SO_SNDTIMEO 形同虚设。
+    func test不带时限时发送超时照样报错() throws {
+        var fds: [Int32] = [0, 0]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds), 0)
+        defer { close(fds[0]); close(fds[1]) }
+        var small: Int32 = 4096
+        setsockopt(fds[1], SOL_SOCKET, SO_SNDBUF, &small, socklen_t(MemoryLayout<Int32>.size))
+        var timeout = timeval(tv_sec: 0, tv_usec: 200_000)
+        setsockopt(fds[1], SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        let started = Date()
+        XCTAssertThrowsError(try IPCMessage.writeMessage(fd: fds[1], message: BigMessage(text: String(repeating: "x", count: 300_000))))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+    }
+}
+
