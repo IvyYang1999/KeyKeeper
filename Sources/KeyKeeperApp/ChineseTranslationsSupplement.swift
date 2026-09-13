@@ -158,7 +158,7 @@ extension AppL10n {
         "not verified": "未核实",
         "Written by the process asking for the key. KeyKeeper doesn't check it, and it doesn't limit what allowing grants.": "这段话由来要 key 的那个程序自己写，KeyKeeper 没有核实；允许之后的范围也不受它限制。",
         "Cut off at {0} characters. Written by the process asking for the key; KeyKeeper doesn't check it and it doesn't limit what allowing grants.": "超过 {0} 字已截断。这段话由来要 key 的那个程序自己写，KeyKeeper 没有核实；允许之后的范围也不受它限制。",
-        "Allowing lets {0} read every key in this credential — only {0}, not other programs on this Mac. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it.": "允许之后，{0} 能读这一组里的全部密钥——只有 {0}，本机别的程序蹭不到。选「始终允许」对它以后的会话同样有效，直到你撤销。",
+        "Allowing lets {0} read every key in this credential — only {1}, not other programs on this Mac. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it.": "允许之后，{0} 能读这一组里的全部密钥——只有 {1}，本机别的程序蹭不到。选「始终允许」对它以后的会话同样有效，直到你撤销。",
         "\u{201C}{0}\u{201D} is a secret field. Change it in KeyKeeper, where the value stays in the Keychain.": "「{0}」是机密字段。请在 KeyKeeper 里改，值始终留在钥匙串。",
         "Plain field {0} = {1}": "明文字段 {0} = {1}",
         "Plain field {0} removed": "删掉了明文字段 {0}",

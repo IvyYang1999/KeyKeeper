@@ -314,12 +314,10 @@ struct RunCommand: ParsableCommand {
     static func ensureGrant(credentialId: String, credential: Credential,
                             grantStore: GrantStore, session: SessionInfo,
                             statedReason: CallerStatedReason? = nil) throws {
-        // Check for existing valid grant
-        if try GrantAuthorizationPolicy.validGrantForValueAccess(
-            credentialId: credentialId,
-            sessionId: session.id,
-            grantStore: grantStore
-        ) != nil {
+        // Only deciding whether to raise a window; the App checks properly before any value
+        // moves. It must not ask for a fingerprint here — the CLI cannot compute its own, and
+        // demanding one made every call prompt again even with a standing approval.
+        if try grantStore.hasLikelyValidGrant(credentialId: credentialId, sessionId: session.id) {
             return
         }
 

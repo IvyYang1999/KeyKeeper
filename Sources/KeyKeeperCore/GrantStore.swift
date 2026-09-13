@@ -82,6 +82,21 @@ public final class GrantStore: Sendable {
         }
     }
 
+    /// Is there any approval that could cover this call, ignoring who it was issued to?
+    ///
+    /// For the CLI's pre-flight only, and deliberately looser than `findValidGrant`: the CLI
+    /// cannot compute its own fingerprint (the app derives it from the connection's peer), so
+    /// asking it to match one would mean it never recognises its own approvals and prompts every
+    /// single time. This is not a security boundary — the app checks properly before any value
+    /// moves — it only decides whether to raise a window the person has already answered.
+    public func hasLikelyValidGrant(credentialId: String, sessionId: String?) throws -> Bool {
+        let file = try load()
+        let now = Date()
+        return file.grants.contains { grant in
+            grant.credentialId == credentialId && isValid(grant: grant, sessionId: sessionId, now: now)
+        }
+    }
+
     /// Ties an old, unscoped grant to the program that just used it.
     ///
     /// The alternative was to invalidate all of them, which would start prompting for every agent

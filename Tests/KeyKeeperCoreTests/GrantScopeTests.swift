@@ -120,3 +120,42 @@ final class GrantPruningTests: XCTestCase {
         XCTAssertEqual(try store.grants(for: "b").count, 0, "超过 24 小时硬上限的该走")
     }
 }
+
+/// 【曾经的 bug】yyt 2026-09-13 晚：「现在为啥老弹出这个呀」——每次调用都弹授权窗，
+/// 哪怕这条凭据对这个调用方已经有一条 always。
+///
+/// 原因是我把授权判据收紧成「必须对上调用方」之后，只改了 App 那一侧。命令行在发请求
+/// 之前会先自查一次有没有授权，而它**算不出自己的指纹**（指纹是 App 从连接对端的 PID
+/// 推出来的），于是传了 nil；按新规矩，nil 对不上任何已绑定的授权，自查永远失败，
+/// 于是每次都去申请授权。
+///
+/// 命令行那次自查从来就不是安全边界（App 会重新判一遍），它只是为了少弹一次窗。所以它
+/// 该问的是「这条凭据有没有一条还在有效期内的授权」，而不是「这条授权是不是发给我的」。
+final class GrantPrecheckTests: XCTestCase {
+    func test命令行自查不因为算不出指纹就认为没有授权() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("precheck-\(UUID())")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = GrantStore(directory: dir)
+        try store.addGrant(.init(credentialId: "dc", duration: .always,
+                                 subjectFingerprint: "app:bundle=com.example.console",
+                                 subjectDisplayName: "Console"))
+
+        // 安全判定（App 侧）：拿不到指纹就不能放行
+        XCTAssertNil(try store.findValidGrant(credentialId: "dc", sessionId: nil, fingerprint: nil))
+        // 体验判定（命令行侧）：有一条还有效的授权，就别再弹窗了，交给 App 去判
+        XCTAssertTrue(try store.hasLikelyValidGrant(credentialId: "dc", sessionId: nil))
+        XCTAssertFalse(try store.hasLikelyValidGrant(credentialId: "other", sessionId: nil))
+    }
+
+    /// 过期的、用掉的仍然算「没有」，该弹还是要弹。
+    func test自查不会把失效的授权当成有效() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("precheck-\(UUID())")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = GrantStore(directory: dir)
+        try store.addGrant(.init(credentialId: "dc", duration: .timed(Date().addingTimeInterval(-1)),
+                                 subjectFingerprint: "f", subjectDisplayName: "X"))
+        XCTAssertFalse(try store.hasLikelyValidGrant(credentialId: "dc", sessionId: nil))
+    }
+}
