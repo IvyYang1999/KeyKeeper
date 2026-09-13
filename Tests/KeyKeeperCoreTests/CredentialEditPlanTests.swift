@@ -151,4 +151,69 @@ final class CredentialEditPlanTests: XCTestCase {
         XCTAssertNil(same.metadata.fields["cc"]?.aliases)
         XCTAssertEqual(same.metadata.fields["cc"]?.displayName, "千帆 Key", "只改值不丢显示名")
     }
+
+    /// 非机密字段：值明文写在 meta.json 里，不进钥匙串。
+    func test非机密字段的值写进Meta不写钥匙串() {
+        let plan = CredentialEditPlan(
+            inputFields: [.init(name: "apple-id", value: "a@b.invalid", isSecret: false)],
+            existingFields: [:],
+            security: .standard
+        )
+        XCTAssertEqual(plan.valueWrites, [], "非机密不写钥匙串")
+        XCTAssertEqual(plan.metadata.fields["apple-id"]?.value, "a@b.invalid")
+        XCTAssertEqual(plan.metadata.fields["apple-id"]?.secret, false)
+    }
+
+    /// 机密 → 非机密：值要搬进 meta 明文，钥匙串里的旧值随后删除。
+    func test机密转非机密时值搬进Meta并删掉钥匙串里的() {
+        let plan = CredentialEditPlan(
+            inputFields: [.init(name: "token", value: "moved-value", originalName: "token", isSecret: false)],
+            existingFields: ["token": CredentialField(secret: true, displayName: "Token")],
+            security: .standard
+        )
+        XCTAssertEqual(plan.metadata.fields["token"]?.value, "moved-value")
+        XCTAssertEqual(plan.metadata.fields["token"]?.secret, false)
+        XCTAssertEqual(plan.metadata.fields["token"]?.displayName, "Token", "显示名不丢")
+        XCTAssertEqual(plan.valueDeletions, ["token"], "钥匙串里的旧值要删掉，不能留孤儿")
+        XCTAssertEqual(plan.valueWrites, [])
+    }
+
+    /// 【安全红线】转非机密却没拿到值时，绝不能删钥匙串、也不能写一个空的明文字段——
+    /// 那等于把值弄丢。这种情况保持机密不动。
+    func test转非机密但没有值时保持机密不动() {
+        let plan = CredentialEditPlan(
+            inputFields: [.init(name: "token", value: "", originalName: "token", isSecret: false)],
+            existingFields: ["token": CredentialField(secret: true)],
+            security: .standard
+        )
+        XCTAssertEqual(plan.metadata.fields["token"]?.secret, true)
+        XCTAssertNil(plan.metadata.fields["token"]?.value)
+        XCTAssertEqual(plan.valueDeletions, [])
+    }
+
+    /// 非机密 → 机密：值从 meta 搬进钥匙串，meta 里不再留明文。
+    func test非机密转机密时值写进钥匙串并从Meta清掉() {
+        let plan = CredentialEditPlan(
+            inputFields: [.init(name: "apple-id", value: "a@b.invalid", originalName: "apple-id", isSecret: true)],
+            existingFields: ["apple-id": CredentialField(value: "a@b.invalid", secret: false)],
+            security: .standard
+        )
+        XCTAssertEqual(plan.valueWrites, [.init(fieldName: "apple-id", value: "a@b.invalid")])
+        XCTAssertEqual(plan.metadata.fields["apple-id"]?.secret, true)
+        XCTAssertNil(plan.metadata.fields["apple-id"]?.value, "明文不能留在 meta 里")
+    }
+
+    /// 非机密字段改名：明文值跟着走，不需要动钥匙串。
+    func test非机密字段改名值跟着走() {
+        let plan = CredentialEditPlan(
+            inputFields: [.init(name: "account", value: "a@b.invalid", originalName: "apple-id", isSecret: false)],
+            existingFields: ["apple-id": CredentialField(value: "a@b.invalid", secret: false)],
+            security: .standard
+        )
+        XCTAssertEqual(plan.metadata.fields["account"]?.value, "a@b.invalid")
+        XCTAssertEqual(plan.metadata.fields["account"]?.aliases, ["apple-id"])
+        XCTAssertEqual(plan.valueRenames, [], "非机密不涉及钥匙串搬值")
+        XCTAssertEqual(plan.valueDeletions, [])
+        XCTAssertEqual(plan.fieldRenames, ["apple-id": "account"])
+    }
 }

@@ -89,6 +89,25 @@ open "keykeeper://add?label=OpenAI&fields=api-key,org-id"
 
 After manual entry, accept only the credential ID/field names from the user, verify safe use, and resume the original task. Never ask them to paste the value into chat.
 
+## Two kinds of fields
+
+A credential holds two kinds of fields, and `keykeeper run` injects both:
+
+- **Secret fields** live in the macOS Keychain. Reading one may need the user's approval, and
+  the value never reaches you — it goes straight into the child process.
+- **Plain fields** (an account id, a team id, an email, a region) live in the metadata in the
+  clear. They are injected without any prompt, and `keykeeper meta <id>` shows them.
+
+So a credential can carry everything a command needs:
+
+```bash
+keykeeper run -c apple-notary -- ./scripts/notarize.sh
+# APPLE_ID and APPLE_TEAM_ID come from plain fields; APPLE_APP_SPECIFIC_PASSWORD from the Keychain
+```
+
+An "ask every time" credential only prompts when a secret is actually read; a credential with
+nothing but plain fields never prompts. Never put a password, token or key in a plain field.
+
 ## Saying why you need a key
 
 When a key is set to ask every time, KeyKeeper shows the user an approval window. You can put

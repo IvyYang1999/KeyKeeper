@@ -7,11 +7,15 @@ public struct CredentialEditPlan: Sendable {
         /// The field's name when the editor opened, for fields that already existed.
         /// Lets a rename carry the stored value instead of looking like "delete + add empty".
         public var originalName: String?
+        /// False for plain metadata (an account id, a region): the value lives in meta.json in
+        /// the clear, never in the Keychain.
+        public var isSecret: Bool
 
-        public init(name: String, value: String, originalName: String? = nil) {
+        public init(name: String, value: String, originalName: String? = nil, isSecret: Bool = true) {
             self.name = name
             self.value = value
             self.originalName = originalName
+            self.isSecret = isSecret
         }
     }
 
@@ -76,6 +80,32 @@ public struct CredentialEditPlan: Sendable {
         }
 
         for field in inputFields where !field.name.isEmpty {
+            let existing = field.originalName.flatMap { existingFields[$0] } ?? existingFields[field.name]
+
+            if !field.isSecret {
+                // Plain metadata. A secret becomes plain only when the editor actually has the
+                // value in hand: otherwise the Keychain entry would be deleted with nothing to
+                // put in its place, which is how a value goes missing for good.
+                guard !field.value.isEmpty else {
+                    if let existing, existing.secret {
+                        metadataFields[field.name] = carried(existing, from: field.originalName ?? field.name, to: field.name)
+                        if let original = field.originalName, original != field.name {
+                            if existing.secret { valueRenames.append(.init(from: original, to: field.name)) }
+                            fieldRenames[original] = field.name
+                        }
+                    }
+                    continue
+                }
+                var plain = existing.map { carried($0, from: field.originalName ?? field.name, to: field.name) }
+                    ?? CredentialField(secret: false)
+                plain.secret = false
+                plain.fileFormat = nil
+                plain.value = field.value
+                metadataFields[field.name] = plain
+                if let original = field.originalName, original != field.name { fieldRenames[original] = field.name }
+                continue
+            }
+
             if !field.value.isEmpty {
                 valueWrites.append(.init(fieldName: field.name, value: field.value))
                 // A new value for a field that already existed keeps its display name and old names.
@@ -106,8 +136,16 @@ public struct CredentialEditPlan: Sendable {
         self.valueWrites = valueWrites
         self.valueRenames = valueRenames
         self.fieldRenames = fieldRenames
+        // Delete a Keychain entry when metadata no longer refers to it, and also when the
+        // field is still there but has become plain (its value now lives in meta.json).
         self.valueDeletions = existingFields
-            .filter { $0.value.secret && metadataFields[$0.key] == nil }
+            .filter { name, field in
+                guard field.secret else { return false }
+                // Still a secret under the same name: keep it. Gone (removed or renamed away)
+                // or now plain (its value moved into meta.json): the Keychain entry must go.
+                guard let now = metadataFields[name] else { return true }
+                return now.secret == false
+            }
             .map(\.key)
             .sorted()
         self.metadata = Metadata(fields: metadataFields, security: security)

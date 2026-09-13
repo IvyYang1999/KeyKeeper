@@ -32,7 +32,15 @@ struct FileInjectionPlan {
         }
         for id in credentials {
             guard let credential = meta.credentials[id] else { throw CommandFailure("Credential not found. Check its ID with keykeeper list.") }
-            for (field, entry) in credential.fields where entry.secret {
+            for (field, entry) in credential.fields {
+                guard entry.secret else {
+                    // Plain values claim their variable names too, so a clash surfaces here.
+                    guard entry.value?.isEmpty == false else { continue }
+                    guard usedNames.insert(prefix + EnvironmentVariableName.from(fieldName: field)).inserted else {
+                        throw CommandFailure("Environment variable conflict between credential fields.")
+                    }
+                    continue
+                }
                 if entry.fileFormat != nil {
                     guard names["\(id):\(field)"] != nil else {
                         throw CommandFailure("Credential contains a file. Add --file credential-id:field=ENV_NAME; file contents are never implicitly injected as text.")

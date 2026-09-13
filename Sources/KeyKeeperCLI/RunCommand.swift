@@ -67,6 +67,26 @@ struct RunCommand: ParsableCommand {
         guard file.isEmpty || !tty else { throw ValidationError("Credential files require output redaction; --file cannot be combined with --tty.") }
     }
 
+    /// Plain values that live in meta.json (an account id, a region, an email): they are not
+    /// secrets, so they are injected straight from metadata — no keychain, no approval, no
+    /// audit entry. Earlier field names keep their variables, same as secret fields.
+    static func nonSecretEnvironment(for credential: Credential, prefix: String) -> [String: String] {
+        var result: [String: String] = [:]
+        for (field, entry) in credential.fields.sorted(by: { $0.key < $1.key }) where !entry.secret {
+            guard let value = entry.value, !value.isEmpty else { continue }
+            for name in credential.environmentNames(forField: field, prefix: prefix) where result[name] == nil {
+                result[name] = value
+            }
+        }
+        return result
+    }
+
+    /// An "ask every time" credential only needs an approval when something secret is actually
+    /// read. If it holds nothing but plain metadata, a prompt would protect nothing.
+    static func requiresAuthorization(for credential: Credential) -> Bool {
+        credential.security == .strict && credential.fields.values.contains { $0.secret }
+    }
+
     /// The caller's own sentence for the approval window, folded to one line and capped.
     func statedReason() -> CallerStatedReason? {
         CallerStatedReason.sanitize(reason)
@@ -103,13 +123,24 @@ struct RunCommand: ParsableCommand {
                 throw CommandFailure("Credential '\(credId)' not found. Run 'keykeeper list' to see the available IDs.")
             }
 
-            // For strict credentials, check/request grant before accessing the value
-            if cred.security == .strict {
+            // Only ask when something secret will actually be read.
+            if Self.requiresAuthorization(for: cred) {
                 try Self.ensureGrant(
                     credentialId: credId, credential: cred,
                     grantStore: grantStore, session: session,
                     statedReason: statedReason()
                 )
+            }
+
+            // Plain metadata values (an account id, a region): straight from meta.json.
+            for (envName, value) in Self.nonSecretEnvironment(for: cred, prefix: prefix).sorted(by: { $0.key < $1.key }) {
+                if let existing = injectedEnv[envName], existing != value {
+                    throw CommandFailure(
+                        "Environment variable conflict: '\(envName)' would be set by multiple fields. " +
+                        "Use --prefix to disambiguate."
+                    )
+                }
+                injectedEnv[envName] = value
             }
 
             let secretFieldNames = cred.fields
