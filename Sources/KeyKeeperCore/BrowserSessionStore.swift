@@ -36,7 +36,12 @@ public final class BrowserSessionStore {
         var security: SecurityLevel?
         var level: SecurityLevel { security ?? .strict }
     }
-    private struct Document: Codable { var version = 1; var records: [String: Record] = [:] }
+    private struct Document: Codable {
+        var version = 1
+        var records: [String: Record] = [:]
+        /// Absent in documents written before 0.3.4: no grants, which is the safe reading.
+        var grants: [BrowserSessionGrant]? = nil
+    }
     private let io: KeychainBlobIO
     private let marker: BrowserSessionMarker
     private let lock = NSRecursiveLock()
@@ -108,6 +113,53 @@ public final class BrowserSessionStore {
         lock.lock(); defer { lock.unlock() }
         var document = try load()
         guard document.records.removeValue(forKey: id) != nil else { throw BrowserSessionError.notFound }
+        // Grants go with it. Otherwise saving a new snapshot under the same id would inherit
+        // permission somebody gave to the old one.
+        document.grants = (document.grants ?? []).filter { $0.sessionId != id }
+        try write(document)
+    }
+
+    // MARK: Grants
+
+    public func addGrant(_ grant: BrowserSessionGrant) throws {
+        lock.lock(); defer { lock.unlock() }
+        var document = try load()
+        guard document.records[grant.sessionId] != nil else { throw BrowserSessionError.notFound }
+        var grants = (document.grants ?? []).filter { $0.id != grant.id }
+        guard grants.count < 64 else { throw BrowserSessionError.capacity }
+        grants.append(grant)
+        document.grants = grants
+        try write(document)
+    }
+
+    /// The permission that covers this caller opening this login right now, if any.
+    public func validGrant(sessionId: String, fingerprint: String, now: Date = Date()) throws -> BrowserSessionGrant? {
+        lock.lock(); defer { lock.unlock() }
+        return (try load().grants ?? []).first {
+            $0.sessionId == sessionId && $0.subjectFingerprint == fingerprint && $0.isValid(now: now)
+        }
+    }
+
+    public func consumeGrant(id: String, now: Date = Date()) throws {
+        lock.lock(); defer { lock.unlock() }
+        var document = try load()
+        var grants = document.grants ?? []
+        guard let index = grants.firstIndex(where: { $0.id == id }) else { return }
+        grants[index].consumed = true
+        grants[index].lastUsedAt = now
+        document.grants = grants
+        try write(document)
+    }
+
+    public func grants(for sessionId: String) throws -> [BrowserSessionGrant] {
+        lock.lock(); defer { lock.unlock() }
+        return (try load().grants ?? []).filter { $0.sessionId == sessionId }
+    }
+
+    public func revokeGrant(id: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        var document = try load()
+        document.grants = (document.grants ?? []).filter { $0.id != id }
         try write(document)
     }
 

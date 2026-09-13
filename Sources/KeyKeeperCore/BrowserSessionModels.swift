@@ -134,3 +134,42 @@ public struct BrowserSessionSummary: Codable, Sendable, Equatable, Identifiable 
 public enum BrowserSessionError: String, Error, Codable, Sendable {
     case invalidImport, unavailable, conflict, notFound, expired, capacity, denied, busy, disconnected, unsupported
 }
+
+/// Permission for one caller to open one saved login without asking again.
+///
+/// Matched the way a service grant is — by the caller's subject fingerprint — because "any
+/// process on this Mac, forever" is not a thing anyone means to grant. (That is what a strict
+/// key grant actually does today; this deliberately does not copy it.)
+///
+/// Stored inside the same Keychain item as the snapshots rather than in a JSON file. The
+/// adversary in this threat model is a local process running as the same user, and it can write
+/// any file this app can. A forged grant would open a logged-in window with nobody watching.
+public struct BrowserSessionGrant: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var sessionId: String
+    public var subjectFingerprint: String
+    public var subjectDisplayName: String
+    public var duration: ServiceGrantDuration
+    public var createdAt: Date
+    public var lastUsedAt: Date?
+    /// Set once a `.once` grant has been spent.
+    public var consumed: Bool
+
+    public init(id: String = UUID().uuidString, sessionId: String, subjectFingerprint: String,
+                subjectDisplayName: String, duration: ServiceGrantDuration,
+                createdAt: Date = Date(), lastUsedAt: Date? = nil, consumed: Bool = false) {
+        self.id = id; self.sessionId = sessionId
+        self.subjectFingerprint = subjectFingerprint
+        self.subjectDisplayName = subjectDisplayName
+        self.duration = duration; self.createdAt = createdAt
+        self.lastUsedAt = lastUsedAt; self.consumed = consumed
+    }
+
+    public func isValid(now: Date) -> Bool {
+        switch duration {
+        case .once: return !consumed
+        case .timed(let expiry): return now < expiry
+        case .always: return true
+        }
+    }
+}
