@@ -89,6 +89,23 @@ open "keykeeper://add?label=OpenAI&fields=api-key,org-id"
 
 After manual entry, accept only the credential ID/field names from the user, verify safe use, and resume the original task. Never ask them to paste the value into chat.
 
+## Saying why you need a key
+
+When a key is set to ask every time, KeyKeeper shows the user an approval window. You can put
+one line in it:
+
+```bash
+keykeeper run -c cloudflare-billing --reason "Checking this month's bill; one read-only call, then done" -- python bill.py
+keykeeper get stripe secret-key --reason "Refunding order #1821 at the user's request"
+```
+
+- It appears under the facts KeyKeeper verified, labelled **unverified**, as plain text.
+- It changes nothing: not the prompt's default duration, not what an approval grants. Allowing
+  gives the caller every key in that credential, so don't promise a narrower scope than that.
+- Long text is folded to one line and cut at 200 characters. Write for the person, not for the
+  machine: what you are doing and why now.
+- Leave it out when the user did not ask for the action; a reason you invented is worse than none.
+
 ## Tidying names and notes
 
 Titles, notes and field display names are free text for the user and for you. The group ID

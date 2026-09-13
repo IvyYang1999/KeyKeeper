@@ -45,6 +45,9 @@ struct RunCommand: ParsableCommand {
     @Option(name: .long, help: "File mapping credential-id:field=ENV_NAME (repeatable; requires -c for that credential). JSON contents never become an env value.")
     var file: [String] = []
 
+    @Option(name: .long, help: "One line for the human: why you need this key and what you will do with it. Shown in the approval window, marked as unverified; it never changes what an approval grants.")
+    var reason: String?
+
     @Flag(name: .long, help: "Print injected variable names (not values) before running the command.")
     var verbose: Bool = false
 
@@ -62,6 +65,11 @@ struct RunCommand: ParsableCommand {
             throw ValidationError("At least one credential ID is required (-c <id>).")
         }
         guard file.isEmpty || !tty else { throw ValidationError("Credential files require output redaction; --file cannot be combined with --tty.") }
+    }
+
+    /// The caller's own sentence for the approval window, folded to one line and capped.
+    func statedReason() -> CallerStatedReason? {
+        CallerStatedReason.sanitize(reason)
     }
 
     /// `-c` accepts current and earlier group IDs; everything after this uses the current one.
@@ -99,7 +107,8 @@ struct RunCommand: ParsableCommand {
             if cred.security == .strict {
                 try Self.ensureGrant(
                     credentialId: credId, credential: cred,
-                    grantStore: grantStore, session: session
+                    grantStore: grantStore, session: session,
+                    statedReason: statedReason()
                 )
             }
 
@@ -124,7 +133,8 @@ struct RunCommand: ParsableCommand {
                     credentialId: credId,
                     fieldName: fieldName,
                     sessionId: session.id,
-                    requestedFieldNames: secretFieldNames
+                    requestedFieldNames: secretFieldNames,
+                    statedReason: statedReason()
                 )
                 if let format = cred.fields[fieldName]?.fileFormat {
                     _ = try format.validate(Data(value.utf8))
@@ -248,7 +258,8 @@ struct RunCommand: ParsableCommand {
     /// Ensure a valid grant exists for a strict credential.
     /// If no valid grant, request authorization via IPC to the app.
     static func ensureGrant(credentialId: String, credential: Credential,
-                            grantStore: GrantStore, session: SessionInfo) throws {
+                            grantStore: GrantStore, session: SessionInfo,
+                            statedReason: CallerStatedReason? = nil) throws {
         // Check for existing valid grant
         if try GrantAuthorizationPolicy.validGrantForValueAccess(
             credentialId: credentialId,
@@ -266,7 +277,8 @@ struct RunCommand: ParsableCommand {
             fieldNames: fieldNames,
             sessionId: session.id,
             sessionLabel: session.label,
-            pid: ProcessInfo.processInfo.processIdentifier
+            pid: ProcessInfo.processInfo.processIdentifier,
+            statedReason: statedReason
         )
 
         FileHandle.standardError.write(

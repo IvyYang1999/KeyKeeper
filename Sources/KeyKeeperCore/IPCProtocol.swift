@@ -234,19 +234,23 @@ public struct ValueRequest: Codable, Sendable {
     public var fieldName: String
     public var sessionId: String?
     public var requestedFieldNames: [String]
+    /// What the caller says it needs the value for. Shown in the prompt, never trusted.
+    public var statedReason: CallerStatedReason?
 
     private enum CodingKeys: String, CodingKey {
-        case credentialId, fieldName, sessionId, requestedFieldNames
+        case credentialId, fieldName, sessionId, requestedFieldNames, statedReason
     }
 
     public init(credentialId: String,
                 fieldName: String,
                 sessionId: String?,
-                requestedFieldNames: [String]? = nil) {
+                requestedFieldNames: [String]? = nil,
+                statedReason: CallerStatedReason? = nil) {
         self.credentialId = credentialId
         self.fieldName = fieldName
         self.sessionId = sessionId
         self.requestedFieldNames = requestedFieldNames ?? [fieldName]
+        self.statedReason = statedReason
     }
 
     public init(from decoder: Decoder) throws {
@@ -256,6 +260,7 @@ public struct ValueRequest: Codable, Sendable {
         sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
         requestedFieldNames = try container.decodeIfPresent([String].self, forKey: .requestedFieldNames)
             ?? [fieldName]
+        statedReason = try container.decodeIfPresent(CallerStatedReason.self, forKey: .statedReason)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -264,6 +269,7 @@ public struct ValueRequest: Codable, Sendable {
         try container.encode(fieldName, forKey: .fieldName)
         try container.encodeIfPresent(sessionId, forKey: .sessionId)
         try container.encode(requestedFieldNames, forKey: .requestedFieldNames)
+        try container.encodeIfPresent(statedReason, forKey: .statedReason)
     }
 }
 
@@ -314,11 +320,14 @@ public struct AuthRequest: Codable, Sendable {
     public var sessionLabel: String?
     public var pid: Int32
     public var callerIdentity: CallerIdentity?
+    /// What the caller says it needs the key for. Shown in the prompt, never trusted.
+    public var statedReason: CallerStatedReason?
 
     public init(credentialId: String, credentialLabel: String,
                 fieldNames: [String], sessionId: String?,
                 sessionLabel: String?, pid: Int32,
-                callerIdentity: CallerIdentity? = nil) {
+                callerIdentity: CallerIdentity? = nil,
+                statedReason: CallerStatedReason? = nil) {
         self.credentialId = credentialId
         self.credentialLabel = credentialLabel
         self.fieldNames = fieldNames
@@ -326,6 +335,7 @@ public struct AuthRequest: Codable, Sendable {
         self.sessionLabel = sessionLabel
         self.pid = pid
         self.callerIdentity = callerIdentity
+        self.statedReason = statedReason
     }
 }
 

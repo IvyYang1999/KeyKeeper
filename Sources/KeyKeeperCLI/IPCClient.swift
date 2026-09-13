@@ -114,12 +114,14 @@ enum IPCClient {
     /// Request a secret value from the KeyKeeper app's unlocked age session.
     static func requestValue(credentialId: String, fieldName: String,
                              sessionId: String?,
-                             requestedFieldNames: [String]? = nil) throws -> String {
+                             requestedFieldNames: [String]? = nil,
+                             statedReason: CallerStatedReason? = nil) throws -> String {
         let request = ValueRequest(
             credentialId: credentialId,
             fieldName: fieldName,
             sessionId: sessionId,
-            requestedFieldNames: requestedFieldNames
+            requestedFieldNames: requestedFieldNames,
+            statedReason: statedReason
         )
         let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: .value(request)))
         defer { close(fd) }

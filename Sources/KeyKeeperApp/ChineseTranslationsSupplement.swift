@@ -132,6 +132,12 @@ extension AppL10n {
         "Dismiss": "知道了",
         // Authorization fallback
         "This Mac can't verify it is you right now. Unlock it with your Mac password or set up Touch ID, then try again.": "现在这台 Mac 无法验证是你本人。请先用 Mac 密码解锁，或设置好 Touch ID，再重试。",
+        // Caller-stated reason
+        "What the caller says": "调用方留言",
+        "not verified": "未核实",
+        "Written by the process asking for the key. KeyKeeper doesn't check it, and it doesn't limit what allowing grants.": "这段话由来要 key 的那个程序自己写，KeyKeeper 没有核实；允许之后的范围也不受它限制。",
+        "Cut off at {0} characters. Written by the process asking for the key; KeyKeeper doesn't check it and it doesn't limit what allowing grants.": "超过 {0} 字已截断。这段话由来要 key 的那个程序自己写，KeyKeeper 没有核实；允许之后的范围也不受它限制。",
+        "Allowing lets this caller read every key in this credential. \u{201C}Always allow\u{201D} also covers future sessions.": "允许之后，这个调用方能读这一组里的全部密钥；选「始终允许」对以后的会话同样有效。",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",

@@ -24,6 +24,17 @@ enum AuthorizationPrompt {
         }
     }
 
+    /// The caller's own sentence about why it wants this. Sanitized again here: the view
+    /// never renders a string straight off the socket.
+    var statedReason: CallerStatedReason? {
+        switch self {
+        case .strict(let request):
+            return CallerStatedReason.sanitize(request.statedReason?.text)
+        case .service(let request):
+            return CallerStatedReason.sanitize(request.request.statedReason?.text)
+        }
+    }
+
     var fieldNames: [String] {
         switch self {
         case .strict(let request):
@@ -197,12 +208,14 @@ struct AuthorizationView: View {
             case .strict:
                 header
                 requestInfo
+                statedReasonSection
                 callerDetailsSection
                 strictDurationPicker
                 strictButtons
             case .service:
                 serviceHeader
                 serviceRequestCard
+                statedReasonSection
                 callerDetailsSection
                 serviceButtons
             }
@@ -283,6 +296,44 @@ struct AuthorizationView: View {
         return .subheadline
     }
 
+    /// What the caller wrote about this request. It sits below the facts KeyKeeper verified
+    /// and above the diagnostics, is plain text with no emphasis of its own, and says plainly
+    /// that nobody checked it — the process that wants the value is the one that wrote it.
+    @ViewBuilder
+    private var statedReasonSection: some View {
+        if let reason = prompt.statedReason {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "quote.bubble")
+                    Text(L("What the caller says"))
+                    Text(L("not verified"))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+                Text(verbatim: reason.text)
+                    .font(.callout)
+                    .foregroundColor(.primary)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+
+                Text(reason.truncated
+                     ? L("Cut off at \(CallerStatedReason.maximumLength) characters. Written by the process asking for the key; KeyKeeper doesn't check it and it doesn't limit what allowing grants.")
+                     : L("Written by the process asking for the key. KeyKeeper doesn't check it, and it doesn't limit what allowing grants."))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .surface(.card)
+        }
+    }
+
     private var strictDurationPicker: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(L("Grant access for:"))
@@ -295,6 +346,13 @@ struct AuthorizationView: View {
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
+
+            // What an approval actually covers, next to the choice — a caller's note may
+            // promise "just one field, just once", but the grant is per credential.
+            Text(L("Allowing lets this caller read every key in this credential. \u{201C}Always allow\u{201D} also covers future sessions."))
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             if !prompt.hasTerminalSession {
                 Text(L("This caller has no terminal session (cron, IDE or SDK), so a per-session grant isn't available."))

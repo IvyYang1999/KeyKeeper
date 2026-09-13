@@ -492,6 +492,8 @@ final class IPCServer: ObservableObject {
         var enrichedRequest = request
         enrichedRequest.pid = callerIdentity.peerPID
         enrichedRequest.callerIdentity = callerIdentity
+        // Never trust a string that arrived over the socket, even if the CLI sanitized it.
+        enrichedRequest.statedReason = CallerStatedReason.sanitize(request.statedReason?.text)
 
         // 【曾经的 bug】窗口上的凭据名和字段名原样用调用方自报的值，从不和本地核对：一个进程
         // 可以一边申请 aws-prod-root、一边让弹窗写「OpenAI 测试 key」，把用户骗去点允许。
@@ -609,8 +611,10 @@ final class IPCServer: ObservableObject {
            let field = meta.credentials[id]?.resolveFieldName(request.fieldName) {
             let requested = request.requestedFieldNames.map { meta.credentials[id]?.resolveFieldName($0) ?? $0 }
             request = ValueRequest(credentialId: id, fieldName: field, sessionId: request.sessionId,
-                                   requestedFieldNames: requested)
+                                   requestedFieldNames: requested,
+                                   statedReason: request.statedReason)
         }
+        request.statedReason = CallerStatedReason.sanitize(request.statedReason?.text)
         guard let meta = try? metaStore.load(),
               let cred = meta.credentials[request.credentialId],
               let field = cred.fields[request.fieldName],

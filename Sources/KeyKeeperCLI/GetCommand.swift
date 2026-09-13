@@ -20,6 +20,9 @@ struct GetCommand: ParsableCommand {
     @Argument(help: "Field name")
     var fieldName: String
 
+    @Option(name: .long, help: "One line for the human: why you need this key and what you will do with it. Shown in the approval window, marked as unverified; it never changes what an approval grants.")
+    var reason: String?
+
     @Flag(name: .long, help: "Print the secret even though stdout is a terminal.")
     var reveal = false
 
@@ -30,6 +33,11 @@ struct GetCommand: ParsableCommand {
     /// Secrets go to pipes (SDKs) freely; to a terminal only when explicitly asked.
     static func refusesToPrint(stdoutIsTerminal: Bool, reveal: Bool) -> Bool {
         stdoutIsTerminal && !reveal
+    }
+
+    /// The caller's own sentence for the approval window, folded to one line and capped.
+    func statedReason() -> CallerStatedReason? {
+        CallerStatedReason.sanitize(reason)
     }
 
     func run() throws {
@@ -55,7 +63,8 @@ struct GetCommand: ParsableCommand {
                 let grantStore = GrantStore.default
                 try RunCommand.ensureGrant(
                     credentialId: credentialId, credential: cred,
-                    grantStore: grantStore, session: session
+                    grantStore: grantStore, session: session,
+                    statedReason: statedReason()
                 )
             }
 
@@ -63,7 +72,8 @@ struct GetCommand: ParsableCommand {
             let value = try IPCClient.requestValue(
                 credentialId: credentialId, fieldName: fieldName,
                 sessionId: session.id,
-                requestedFieldNames: [fieldName])
+                requestedFieldNames: [fieldName],
+                statedReason: statedReason())
             print(value, terminator: "")
         } else {
             print(field.value ?? "", terminator: "")

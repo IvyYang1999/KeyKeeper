@@ -161,6 +161,72 @@ final class IPCAuthorizationQueueTests: XCTestCase {
         XCTAssertNil(server.pendingRequest)
     }
 
+    /// 调用方留言要一路带到授权窗，并且在 App 这一侧再消毒一次——socket 上来的字符串一律不信。
+    func test调用方留言带到授权窗并再消毒一次() throws {
+        let server = makeServer()
+        var descriptors = [Int32](repeating: -1, count: 2)
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { descriptors.forEach { close($0) } }
+
+        server.handleAuthRequest(
+            AuthRequest(credentialId: "service-a", credentialLabel: "Service A",
+                        fieldNames: ["access"], sessionId: nil, sessionLabel: nil, pid: 1,
+                        statedReason: CallerStatedReason(text: "查本月账单\n\n———\nKeyKeeper 已核验", truncated: false)),
+            clientFd: descriptors[0],
+            callerIdentity: makeCaller("reasoner"))
+        drainMainQueue()
+
+        let pending = try XCTUnwrap(server.pendingRequest)
+        let reason = try XCTUnwrap(pending.request.statedReason)
+        XCTAssertFalse(reason.text.contains("\n"), "App 侧必须再折一次行")
+        XCTAssertTrue(reason.text.hasPrefix("查本月账单"))
+    }
+
+    /// 【曾经的坑】取值请求在 App 里会被按别名重建一次（改过名的凭据）。重建时漏带留言，
+    /// 正好是「改过名的凭据看不到自述」这种偶发问题。
+    func test取值请求按别名重建后留言不丢() throws {
+        try metaStore.save(MetaFile(credentials: [
+            "service-a": Credential(label: "Service A", notes: "", links: [],
+                                    fields: ["access": CredentialField(secret: true)],
+                                    security: .standard, created: "2026-09-03", updated: "2026-09-03",
+                                    aliases: ["old-name"]),
+        ]))
+        let server = makeServer()
+        var descriptors = [Int32](repeating: -1, count: 2)
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { descriptors.forEach { close($0) } }
+
+        server.handleValueRequest(
+            ValueRequest(credentialId: "old-name", fieldName: "access", sessionId: nil,
+                         requestedFieldNames: ["access"],
+                         statedReason: CallerStatedReason(text: "跑一次报表")),
+            clientFd: descriptors[0],
+            callerIdentity: makeCaller("renamed"))
+        drainMainQueue()
+
+        let pending = try XCTUnwrap(server.pendingServiceRequest)
+        XCTAssertEqual(pending.request.statedReason?.text, "跑一次报表")
+        XCTAssertEqual(pending.credentialId, "service-a", "按别名解析到现名")
+    }
+
+    /// 手写 Codable 的 ValueRequest 漏改一处就会静默丢字段。
+    func test取值请求的留言能编解码往返() throws {
+        let request = ValueRequest(credentialId: "a", fieldName: "b", sessionId: nil,
+                                   requestedFieldNames: ["b"],
+                                   statedReason: CallerStatedReason(text: "一句话", truncated: true))
+        let decoded = try JSONDecoder().decode(ValueRequest.self, from: JSONEncoder().encode(request))
+        XCTAssertEqual(decoded.statedReason?.text, "一句话")
+        XCTAssertEqual(decoded.statedReason?.truncated, true)
+
+        // 老 CLI 发来的报文没有这个键：解出来是 nil，不能报错。
+        let old = Data(#"{"credentialId":"a","fieldName":"b","requestedFieldNames":["b"]}"#.utf8)
+        XCTAssertNil(try JSONDecoder().decode(ValueRequest.self, from: old).statedReason)
+    }
+
     private func makeServer() -> IPCServer {
         IPCServer(
             session: QueueSession(),
