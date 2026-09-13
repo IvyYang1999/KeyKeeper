@@ -63,3 +63,40 @@ final class BrowserSessionCaptureTests: XCTestCase {
         }
     }
 }
+
+/// yyt 2026-09-13：填 `https://www.xiaohongshu.com/` 被拒，提示「不要带路径」——
+/// 末尾一个斜杠在任何人眼里都不是「路径」。输入框该自己把人话整理成规范形式，
+/// 而不是让人去猜自己哪里写错了。
+final class BrowserSessionOriginInputTests: XCTestCase {
+    func test人会怎么打就怎么认() {
+        for typed in ["https://www.xiaohongshu.com/",
+                      "https://www.xiaohongshu.com",
+                      "www.xiaohongshu.com",
+                      "xiaohongshu.com/",
+                      "  https://WWW.XiaoHongShu.com/  ",
+                      "http://www.xiaohongshu.com/"] {
+            let normalized = BrowserSessionImport.normalizeOrigin(typed)
+            XCTAssertNotNil(normalized, typed)
+            XCTAssertNoThrow(try BrowserSessionImport.canonicalOrigin(normalized ?? ""), typed)
+        }
+        XCTAssertEqual(BrowserSessionImport.normalizeOrigin("xiaohongshu.com/"), "https://xiaohongshu.com")
+        XCTAssertEqual(BrowserSessionImport.normalizeOrigin("https://WWW.XiaoHongShu.com/"), "https://www.xiaohongshu.com")
+    }
+
+    /// 真的带了路径、参数、账号密码的，还是要拒——那不是手滑，是另一个意思。
+    func test真的带了路径还是拒绝() {
+        for bad in ["https://www.xiaohongshu.com/explore",
+                    "https://www.xiaohongshu.com/?from=x",
+                    "https://user:pass@example.com/",
+                    "", "  ", "https://"] {
+            XCTAssertNil(BrowserSessionImport.normalizeOrigin(bad), bad)
+        }
+    }
+
+    /// 名字不该让人现起。默认就用站点名，人想改再改。
+    func test名字默认就是站点名() {
+        XCTAssertEqual(BrowserSessionImport.suggestedLabel(forOrigin: "https://www.xiaohongshu.com"), "xiaohongshu.com")
+        XCTAssertEqual(BrowserSessionImport.suggestedLabel(forOrigin: "https://app.example.co.uk"), "app.example.co.uk")
+        XCTAssertNil(BrowserSessionImport.suggestedLabel(forOrigin: "not a url"))
+    }
+}

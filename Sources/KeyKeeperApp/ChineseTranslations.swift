@@ -41,7 +41,7 @@ extension AppL10n {
         "A window opens with nothing in it — none of your browser's logins. Sign in there, press Save, and KeyKeeper keeps that site's session. This does not touch the login you already have in your browser.": "会打开一个空窗口——里面没有你浏览器里的任何登录。在那里登录，点保存，KeyKeeper 就留下这个网站的登录态。这不会动你浏览器里已经有的登录。",
         "A name you will recognise": "起个你认得出的名字",
         "Open the login window": "打开登录窗口",
-        "Use the site's address with no path, like https://example.com.": "填网站地址，不要带路径，例如 https://example.com。",
+        "That does not look like a website address. Use the site's home address, like example.com.": "这不像一个网站地址。填这个网站的首页地址就行，例如 example.com。",
         "Nothing was saved: no usable login was found for that site. Sign in first, then press Save.": "没有保存：没在这个网站上找到可用的登录态。请先登录，再点保存。",
         "Log in to {0}": "登录 {0}",
         "Save this login": "保存这个登录态",

@@ -24,6 +24,36 @@ public struct BrowserSessionImport: Codable, Sendable, Equatable {
         return expected
     }
 
+    /// What someone types, turned into the exact form `canonicalOrigin` accepts.
+    ///
+    /// Typing `https://www.example.com/` and being told "no paths allowed" is not a useful
+    /// conversation: that trailing slash is not a path to anyone but a parser. The canonical form
+    /// stays strict — it is what gets stored and matched against — but the input does not have to
+    /// be typed in it.
+    public static func normalizeOrigin(_ typed: String) -> String? {
+        var text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        if !text.contains("://") { text = "https://" + text }
+        guard var parts = URLComponents(string: text), let host = parts.host, !host.isEmpty,
+              parts.user == nil, parts.password == nil,
+              parts.query == nil, parts.fragment == nil,
+              parts.path.isEmpty || parts.path == "/"
+        else { return nil }
+        // An http address here is a typo, not a request to drop TLS: sessions are https only.
+        parts.scheme = "https"
+        parts.host = host.lowercased()
+        parts.path = ""
+        guard let normalized = parts.string, (try? canonicalOrigin(normalized)) != nil else { return nil }
+        return normalized
+    }
+
+    /// A name nobody should have to invent. The site is the name until someone says otherwise.
+    public static func suggestedLabel(forOrigin origin: String) -> String? {
+        guard let normalized = normalizeOrigin(origin), let host = URLComponents(string: normalized)?.host
+        else { return nil }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
     public func validate(now: Date = Date(), requireUnexpired: Bool = true) throws {
         let canonical = try Self.canonicalOrigin(origin)
         guard UUID(uuidString: id) != nil, !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,

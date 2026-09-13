@@ -49,6 +49,7 @@ struct BrowserSessionManagerView: View {
     @State private var loginLabel = ""
     @State private var loginError: String?
     @State private var loginWindow: SessionLoginWindow?
+    @State private var lastSuggestedLabel = ""
 
     var body: some View {
         ScrollView {
@@ -126,6 +127,16 @@ struct BrowserSessionManagerView: View {
                 .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             TextField("https://example.com", text: $loginSite)
                 .textFieldStyle(.roundedBorder).font(.callout.monospaced())
+                .onChange(of: loginSite) { _, typed in
+                    loginError = nil
+                    // The name is the site until someone says otherwise; nobody should have to
+                    // invent one to get past this sheet.
+                    if let suggested = BrowserSessionImport.suggestedLabel(forOrigin: typed),
+                       loginLabel.isEmpty || loginLabel == lastSuggestedLabel {
+                        loginLabel = suggested
+                        lastSuggestedLabel = suggested
+                    }
+                }
             TextField(L("A name you will recognise"), text: $loginLabel)
                 .textFieldStyle(.roundedBorder)
             if let loginError {
@@ -136,7 +147,7 @@ struct BrowserSessionManagerView: View {
                 Button(L("Cancel")) { showingLogin = false; loginError = nil }
                 Button(L("Open the login window")) { startLogin() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(loginSite.isEmpty || loginLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(BrowserSessionImport.normalizeOrigin(loginSite) == nil)
             }
         }
         .padding(20)
@@ -144,10 +155,9 @@ struct BrowserSessionManagerView: View {
     }
 
     private func startLogin() {
-        let site = loginSite.trimmingCharacters(in: .whitespacesAndNewlines)
-        let label = loginLabel
-        guard let origin = try? BrowserSessionImport.canonicalOrigin(site) else {
-            loginError = L("Use the site's address with no path, like https://example.com.")
+        let label = loginLabel.isEmpty ? (BrowserSessionImport.suggestedLabel(forOrigin: loginSite) ?? "") : loginLabel
+        guard let origin = BrowserSessionImport.normalizeOrigin(loginSite), !label.isEmpty else {
+            loginError = L("That does not look like a website address. Use the site's home address, like example.com.")
             return
         }
         loginError = nil
