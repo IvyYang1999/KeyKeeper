@@ -127,9 +127,53 @@ private final class SessionControllerMarker: BrowserSessionMarker {
         reauthorize = handler
     }
     var activeIDs: [String] = []; var openCount = 0
-    func open(_ snapshot: BrowserSessionImport, completion: @escaping (Bool) -> Void) {
+    func open(_ snapshot: BrowserSessionImport, bringToFront: Bool, completion: @escaping (Bool) -> Void) {
         openCount += 1; activeIDs.append(snapshot.id); completion(true)
     }
     func stop(id: String) { activeIDs.removeAll { $0 == id } }
     func stopAll() { activeIDs = [] }
+}
+
+/// 对抗审计（2026-09-13）：`open` 里无条件 `NSApp.activate(ignoringOtherApps: true)`。
+/// 今天每次打开都要真人点一下，所以抢焦点还算合理；一旦「后台放行」上线，一个没人批准的
+/// 窗口会突然弹到你面前——你正在打的字就进了一个已登录的页面。
+@MainActor final class BrowserSessionFocusTests: XCTestCase {
+    func test人点过头的才允许抢焦点() throws {
+        let io = SessionControllerIO(), runtime = FocusTrackingRuntime()
+        let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
+        var decide: ((Bool) -> Void)?
+        let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
+            present: { _, reply in decide = reply }, dismiss: {})
+        let input = BrowserSessionImport(id: UUID().uuidString, origin: "https://example.com", label: "Synthetic", cookies: [
+            .init(name: "fixture", value: "synthetic", domain: "example.com", hostOnly: true,
+                  path: "/", secure: true, httpOnly: true, sameSite: "lax", expirationDate: nil)
+        ])
+        _ = try store.save(input)
+        controller.refresh()
+
+        // 每次询问：人刚刚点了「允许」，窗口该到人面前来
+        controller.receive(.init(action: .open, id: input.id), caller: "Fixture") { _ in }
+        decide?(true)
+        XCTAssertEqual(runtime.lastBringToFront, true)
+
+        // 后台放行：没人点过头，就别抢焦点
+        try store.setSecurity(id: input.id, to: .standard)
+        controller.refresh()
+        runtime.stop(id: input.id)
+        controller.receive(.init(action: .open, id: input.id), caller: "Fixture") { _ in }
+        XCTAssertEqual(runtime.lastBringToFront, false, "没人批准的窗口不该弹到人脸上")
+    }
+}
+
+@MainActor private final class FocusTrackingRuntime: BrowserSessionRuntime {
+    private var open: Set<String> = []
+    var lastBringToFront: Bool?
+    var activeIDs: [String] { open.sorted() }
+    func open(_ snapshot: BrowserSessionImport, bringToFront: Bool, completion: @escaping (Bool) -> Void) {
+        lastBringToFront = bringToFront
+        open.insert(snapshot.id)
+        completion(true)
+    }
+    func stop(id: String) { open.remove(id) }
+    func stopAll() { open.removeAll() }
 }

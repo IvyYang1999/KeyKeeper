@@ -65,7 +65,7 @@ enum SessionBrowserPolicy {
         try snapshot.validate()
         for item in snapshot.cookies { _ = try SessionBrowserPolicy.cookie(item, origin: snapshot.origin) }
     }
-    func open(_ snapshot: BrowserSessionImport, completion: @escaping (Bool) -> Void) {
+    func open(_ snapshot: BrowserSessionImport, bringToFront: Bool = true, completion: @escaping (Bool) -> Void) {
         do { try validate(snapshot) } catch { completion(false); return }
         guard windows.count < 2, windows[snapshot.id] == nil else { completion(false); return }
         let window = IsolatedSessionWindow(
@@ -76,6 +76,7 @@ enum SessionBrowserPolicy {
                 ask(snapshot.id, decided)
             },
             onClose: { [weak self] in self?.windows.removeValue(forKey: snapshot.id) })
+        window.bringToFront = bringToFront
         windows[snapshot.id] = window
         window.prepare(snapshot.cookies) { [weak self, weak window] ok in
             guard let self, let window, self.windows[snapshot.id] === window else { return }
@@ -103,6 +104,8 @@ enum SessionBrowserPolicy {
     private var asking = false
     /// Added when the window freezes: a rule list that blocks every load, of every type.
     private var freezeRules: WKContentRuleList?
+    /// Only a window somebody just approved is allowed to take over the screen.
+    var bringToFront = true
     init(origin: String, label: String, policy: SessionWindowPolicy = .default,
          trustEvaluator: ((URLProtectionSpace) -> Bool)?,
          onReauthorize: @escaping (@escaping (Bool) -> Void) -> Void = { $0(false) },
@@ -117,6 +120,8 @@ enum SessionBrowserPolicy {
         window.title = "KeyKeeper · \(origin) · \(L("Ends in 15 minutes"))"
         window.isReleasedWhenClosed = false; window.delegate = self
         window.minSize = NSSize(width: 640, height: 480)
+        // A logged-in page should not be readable by every other process's screen capture.
+        window.sharingType = .none
         let config = WKWebViewConfiguration(); config.websiteDataStore = .nonPersistent()
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
         let web = WKWebView(frame: window.contentView!.bounds, configuration: config)
@@ -152,7 +157,14 @@ enum SessionBrowserPolicy {
                     }) else { completion(false); return }
                     guard !self.closed else { return }
                     web.load(URLRequest(url: URL(string: self.origin + "/")!))
-                    self.window.center(); self.window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+                    self.window.center()
+                    if self.bringToFront {
+                        self.window.makeKeyAndOrderFront(nil)
+                        NSApp.activate(ignoringOtherApps: true)
+                    } else {
+                        // Present, findable, but it does not steal what the person is typing into.
+                        self.window.orderFrontRegardless()
+                    }
                     self.startedAt = Date()
                     // Checked on a tick rather than scheduled once: the deadline moves whenever
                     // someone authorizes again, and a frozen window has its own grace period.

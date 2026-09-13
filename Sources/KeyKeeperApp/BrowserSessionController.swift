@@ -6,7 +6,9 @@ import KeyKeeperCore
     func validate(_ snapshot: BrowserSessionImport) throws
     /// Called by the runtime when an open window's time runs out.
     func setReauthorizationHandler(_ handler: @escaping (String, @escaping (Bool) -> Void) -> Void)
-    func open(_ snapshot: BrowserSessionImport, completion: @escaping (Bool) -> Void)
+    /// `bringToFront` is false when nobody just approved this: a window opened under a standing
+    /// permission must not jump in front of whatever the person is typing into.
+    func open(_ snapshot: BrowserSessionImport, bringToFront: Bool, completion: @escaping (Bool) -> Void)
     func stop(id: String)
     func stopAll()
 }
@@ -42,6 +44,9 @@ struct BrowserSessionPresentation {
     }
     private var pending: Pending?
     private var openingID: String?
+    /// Whether a person just clicked Allow for the window about to open — the only case where it
+    /// may take over the screen.
+    private var humanApprovedOpen = true
     var activeIDs: [String] { runtime.activeIDs }
 
     init(store: BrowserSessionStore, runtime: BrowserSessionRuntime, now: @escaping () -> Date = Date.init,
@@ -107,6 +112,14 @@ struct BrowserSessionPresentation {
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.expireIfNeeded() }
             }
+            // "Background OK" means exactly that for opening a window it already covers. Saving
+            // and deleting still ask: those change what exists, not just what is used.
+            if request.action == .open, summary.security == .standard {
+                humanApprovedOpen = false
+                resolve(approved: true)
+                return
+            }
+            humanApprovedOpen = true
             let displayCaller = String(caller.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.prefix(120))
             present(.init(action: request.action, session: summary, caller: displayCaller)) { [weak self] approved in
                 guard self?.pending?.ticket == ticket else { return }
@@ -151,7 +164,7 @@ struct BrowserSessionPresentation {
                 guard !activeIDs.contains(id) else { throw BrowserSessionError.busy }
                 try store.withSnapshot(id: id, now: now()) { snapshot in
                     openingID = id
-                    runtime.open(snapshot) { [weak self] opened in
+                    runtime.open(snapshot, bringToFront: humanApprovedOpen) { [weak self] opened in
                         guard let self, self.pending?.ticket == pending.ticket else { return }
                         self.expireIfNeeded()
                         guard self.pending?.ticket == pending.ticket else { return }
