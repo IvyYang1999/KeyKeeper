@@ -211,7 +211,9 @@ public enum CallerIdentityResolver {
         guard SecCodeCopyGuestWithAttributes(nil, attributes, [], &code) == errSecSuccess,
               let code else { return unverified("no-code-object") }
         // Recorded, not required: an unsigned caller still gets a (weaker) identity below.
-        let validSignature = SecCodeCheckValidity(code, [], nil) == errSecSuccess
+        // Intact is not enough: a self-signed certificate can carry any team identifier and still
+        // produce an intact signature. Only a chain to Apple makes the team mean something.
+        let validSignature = appleAnchoredRequirement.map { SecCodeCheckValidity(code, [], $0) == errSecSuccess } ?? false
         var staticCode: SecStaticCode?
         guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess,
               let staticCode else { return unverified("no-static-code") }
@@ -459,10 +461,39 @@ public enum CallerIdentityResolver {
         var signingIdentifier: String?
     }
 
+    /// Signatures that chain to Apple: Developer ID, App Store, Apple Development, Apple's own.
+    ///
+    /// 【独立审计 2026-09-13】the connection's peer was checked for an intact signature only, and the
+    /// processes upstream of the CLI were not checked at all — their team identifier was read
+    /// straight out of the signature. A self-signed certificate can name any team.
+    nonisolated(unsafe) static let appleAnchoredRequirement: SecRequirement? = {
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString("anchor apple generic" as CFString, [], &requirement) == errSecSuccess
+        else { return nil }
+        return requirement
+    }()
+
+    public static func isAppleAnchored(path: String) -> Bool {
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(URL(fileURLWithPath: path) as CFURL, [], &staticCode) == errSecSuccess,
+              let staticCode else { return false }
+        return isAppleAnchored(staticCode)
+    }
+
+    /// Resources are not re-validated: this runs for every process in the chain on every request,
+    /// and a large app bundle takes seconds. The executable's own signature and chain are checked.
+    private static func isAppleAnchored(_ staticCode: SecStaticCode) -> Bool {
+        guard let requirement = appleAnchoredRequirement else { return false }
+        return SecStaticCodeCheckValidity(staticCode, SecCSFlags(rawValue: kSecCSDoNotValidateResources),
+                                          requirement) == errSecSuccess
+    }
+
     private static func codeSignatureInfo(path: String) -> SignatureInfo? {
         var staticCode: SecStaticCode?
         let createStatus = SecStaticCodeCreateWithPath(URL(fileURLWithPath: path) as CFURL, [], &staticCode)
         guard createStatus == errSecSuccess, let staticCode else { return nil }
+        // An identity that does not chain to Apple names nobody: report it as unsigned.
+        guard isAppleAnchored(staticCode) else { return SignatureInfo(teamIdentifier: nil, signingIdentifier: nil) }
 
         var info: CFDictionary?
         let copyStatus = SecCodeCopySigningInformation(
