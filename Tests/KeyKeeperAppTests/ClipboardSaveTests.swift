@@ -52,8 +52,9 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         controller = nil
         try FileManager.default.removeItem(at: directory)
     }
-    private func request(create: Bool = true) {
-        controller.receive(.init(credentialId: "fixture", fieldName: "key", create: create), callerName: "Test caller",
+    private func request(create: Bool = true, expect: String? = nil) {
+        controller.receive(.init(credentialId: "fixture", fieldName: "key", create: create, expect: expect),
+            callerName: "Test caller",
             isConnected: { self.connected }, completion: { self.results.append($0) })
     }
     private func credential() -> Credential {
@@ -65,7 +66,10 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         XCTAssertTrue(controller.isPending)
         XCTAssertEqual(clipboard.reads, 0)
         controller.resolve(approved: true)
-        XCTAssertEqual(results, [.init(success: true)])
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results.first?.success, true)
+        XCTAssertEqual(results.first?.shape, ValueShape.of("synthetic-import"),
+                       "回报形状（长度、是否 Base64），但绝不回报值")
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "synthetic-import")
         XCTAssertEqual(try meta.load().credentials["fixture"]?.security, .strict)
         XCTAssertEqual(clipboard.clears, 1)
@@ -87,7 +91,7 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         XCTAssertEqual(shown?.fromBrowser, false)
         XCTAssertEqual(io.writes, 0)
         controller.resolve(approved: true)
-        XCTAssertEqual(results.last, .init(success: true))
+        XCTAssertEqual(results.last?.success, true)
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "synthetic-value")
         XCTAssertNil(try meta.load().credentials["fixture"]?.fields["key"]?.fileFormat)
         XCTAssertEqual(try meta.load().credentials["fixture"]?.security, .strict)
@@ -125,7 +129,7 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
                            completion: { self.results.append($0) })
         XCTAssertEqual(io.writes, 0)
         controller.resolve(approved: true)
-        XCTAssertEqual(results.last, .init(success: true))
+        XCTAssertEqual(results.last?.success, true)
         XCTAssertEqual(try meta.load().credentials["fixture"]?.fields["key"]?.fileFormat, .serviceAccountJSON)
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), value)
         XCTAssertEqual(try String(contentsOf: file), value)
@@ -164,7 +168,7 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         controller.presentPending()
         XCTAssertEqual(presentations, 1)
         controller.resolve(approved: true)
-        XCTAssertEqual(results.last, .init(success: true))
+        XCTAssertEqual(results.last?.success, true)
         XCTAssertEqual(browserSource.clears, 1)
         XCTAssertEqual(clipboard.reads, 0)
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "synthetic-browser")
@@ -188,7 +192,7 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         XCTAssertEqual(results.last?.errorCode, .busy)
         XCTAssertEqual(clipboard.reads, 0)
         controller.resolve(approved: true)
-        XCTAssertEqual(results.last, .init(success: true)); XCTAssertEqual(io.writes, 1)
+        XCTAssertEqual(results.last?.success, true); XCTAssertEqual(io.writes, 1)
     }
     func testRestorePartialStorePreservesMetadataAndOtherValues() throws {
         try service.save(credentialId: "other", fieldName: "key", value: "synthetic-original", security: .standard)
@@ -196,7 +200,7 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         try meta.save(original)
         let before = try Data(contentsOf: meta.fileURL)
         request(create: false); controller.resolve(approved: true)
-        XCTAssertEqual(results.last, .init(success: true))
+        XCTAssertEqual(results.last?.success, true)
         XCTAssertEqual(try Data(contentsOf: meta.fileURL), before)
         XCTAssertEqual(try service.retrieve(credentialId: "other", fieldName: "key"), "synthetic-original")
         XCTAssertThrowsError(try service.validateStorage())
@@ -277,4 +281,42 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         close(fds[1])
         XCTAssertFalse(IPCServer.isClientConnected(fds[0]))
     }
+
+    // MARK: 【真实事故】2026-09-13 剪贴板被覆盖，存进去的是一段提示词
+
+    /// 调用方可以声明它期待的形状。对不上就拒绝入库——这是唯一能确定性拦下那次事故的检查：
+    /// 一把 ed25519 私钥（Base64、32 字节）和一段中文提示词，形状差了十万八千里。
+    func test声明的形状对不上就拒绝入库() throws {
+        clipboard.text = "请你帮我把这个值存进 KeyKeeper，注意不要读取它的内容。"
+        request(expect: "base64:32")
+        controller.resolve(approved: true)
+
+        XCTAssertEqual(results.first?.success, false)
+        XCTAssertEqual(results.first?.errorCode, .shapeMismatch)
+        XCTAssertEqual(io.writes, 0, "拒绝就是一个字节都不能写")
+        XCTAssertNil(try? meta.load().credentials["fixture"])
+        XCTAssertEqual(clipboard.clears, 0, "没存成功就别清空用户的剪贴板")
+        XCTAssertEqual(results.first?.shape, ValueShape.of(clipboard.text!),
+                       "拒绝时把实际形状告诉调用方，它才知道自己贴错了什么")
+    }
+
+    func test声明的形状对得上就照常入库() throws {
+        let key = Data(repeating: 3, count: 32).base64EncodedString()
+        clipboard.text = key
+        request(expect: "base64:32")
+        controller.resolve(approved: true)
+
+        XCTAssertEqual(results.first?.success, true)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), key)
+        XCTAssertEqual(results.first?.shape?.base64DecodedBytes, 32)
+    }
+
+    /// 声明本身写错了，也是拒绝，不是放行。
+    func test看不懂的声明一律拒绝() throws {
+        request(expect: "一把密钥")
+        XCTAssertEqual(results.first?.errorCode, .invalidExpectation)
+        XCTAssertFalse(controller.isPending, "连弹窗都不该弹")
+        XCTAssertEqual(clipboard.reads, 0)
+    }
+
 }

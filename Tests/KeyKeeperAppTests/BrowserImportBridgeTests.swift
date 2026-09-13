@@ -76,7 +76,10 @@ private final class BrowserTestIO: KeychainBlobIO, @unchecked Sendable {
         XCTAssertTrue(controller.isPending, "A rejected replay must not cancel the original approval")
         decision?(true)
         let (body, _) = try await submission.value
-        XCTAssertEqual(try JSONDecoder().decode(ClipboardSaveResponse.self, from: body), .init(success: true))
+        let saved = try JSONDecoder().decode(ClipboardSaveResponse.self, from: body)
+        XCTAssertEqual(saved.success, true)
+        // 形状可以回（长度、是否 Base64），值永远不回。粘贴页本来就持有这个值，回形状不扩大暴露面。
+        XCTAssertEqual(saved.shape, ValueShape.of("synthetic-browser"))
         XCTAssertFalse(String(decoding: body, as: UTF8.self).contains("synthetic-browser"))
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "synthetic-browser")
         XCTAssertEqual(try meta.load().credentials["fixture"]?.security, .strict)

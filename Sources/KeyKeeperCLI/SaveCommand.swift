@@ -20,6 +20,8 @@ struct SaveCommand: ParsableCommand {
     var pythonSymbol: String?
     @Flag(help: "Create a new strict credential; refuses an existing ID.")
     var create = false
+    @Option(help: "What the value should look like: base64[:BYTES], hex[:BYTES], bytes:N or chars:N. Refuses the save if it does not match, before anything is written.")
+    var expect: String?
 
     mutating func validate() throws {
         guard [fromClipboard, fromBrowser, fromFile != nil, fromSource != nil].filter({ $0 }).count == 1 else {
@@ -35,7 +37,19 @@ struct SaveCommand: ParsableCommand {
         }
     }
     var request: ClipboardSaveRequest {
-        .init(credentialId: credential, fieldName: field, create: create)
+        .init(credentialId: credential, fieldName: field, create: create, expect: expect)
+    }
+
+    /// What went in, without saying what it is. The clipboard is a shared channel and a save
+    /// that only ever prints "Saved." cannot tell you it stored the wrong thing.
+    static func storedSummary(_ shape: ValueShape) -> String {
+        var parts = ["\(shape.characters) characters"]
+        if shape.bytes != shape.characters { parts.append("\(shape.bytes) bytes") }
+        if let base64 = shape.base64DecodedBytes { parts.append("Base64 (\(base64) bytes)") }
+        else if let hex = shape.hexDecodedBytes { parts.append("hex (\(hex) bytes)") }
+        if shape.lines > 1 { parts.append("\(shape.lines) lines") }
+        if shape.hasNonASCII { parts.append("non-ASCII") }
+        return parts.joined(separator: ", ")
     }
     mutating func run() throws {
         if let fromSource, let pythonSymbol {
@@ -54,7 +68,15 @@ struct SaveCommand: ParsableCommand {
             print("Open this single-use URL, paste through the SAME clipboard transport used to copy, then confirm in KeyKeeper. Ordinary Chrome: native Copy + native Paste; do not mix browser-tool and system clipboards:")
             print(url); fflush(stdout)
         }
-        guard result.success else { throw CommandFailure(result.errorCode?.localizedDescription ?? "Save failed.") }
-        print(fromBrowser ? "Saved. Browser clipboard was not cleared. No read permission was granted." : "Saved. Clipboard cleared if unchanged. No read permission was granted.")
+        guard result.success else {
+            var message = result.errorCode?.localizedDescription ?? "Save failed."
+            // On a shape refusal the App reports what was there instead: that is the fastest
+            // way to see that the clipboard was overwritten between the copy and the save.
+            if let shape = result.shape { message += " Clipboard holds: \(Self.storedSummary(shape))." }
+            throw CommandFailure(message)
+        }
+        var note = fromBrowser ? "Saved. Browser clipboard was not cleared. No read permission was granted." : "Saved. Clipboard cleared if unchanged. No read permission was granted."
+        if let shape = result.shape { note += " Stored: \(Self.storedSummary(shape))." }
+        print(note)
     }
 }

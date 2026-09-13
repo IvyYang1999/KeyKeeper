@@ -65,4 +65,26 @@ final class SaveCommandTests: XCTestCase {
         XCTAssertThrowsError(try IPCClient.decodeClipboardSaveResponse(.value(.init(success: false, errorCode: .invalidRequest))))
         XCTAssertEqual(try IPCClient.decodeClipboardSaveResponse(.clipboardSave(.init(success: true))), .init(success: true))
     }
+
+    /// 【真实事故】2026-09-13：剪贴板在复制与保存之间被覆盖，存进去的是一段提示词，
+    /// 而命令行只打印了一句「Saved.」。现在可以先声明形状，存完还会回报存了个什么形状。
+    func test可以声明期待的形状并且形状会被回报() throws {
+        let command = try SaveCommand.parse(["-c", "sparkle", "--field", "private-key",
+                                             "--from-clipboard", "--expect", "base64:32"])
+        XCTAssertEqual(command.request.expect, "base64:32")
+        XCTAssertNoThrow(try command.request.validate())
+
+        // 声明写错了，解析阶段就拒绝，连请求都不发出去
+        XCTAssertThrowsError(try SaveCommand.parse(["-c", "sparkle", "--field", "k", "--from-clipboard", "--expect", "一把钥匙"]))
+
+        // 形状随请求原样过 IPC
+        let data = try JSONEncoder().encode(IPCRequest.clipboardSave(command.request))
+        guard case .clipboardSave(let decoded) = try JSONDecoder().decode(IPCRequest.self, from: data) else { return XCTFail() }
+        XCTAssertEqual(decoded.expect, "base64:32")
+
+        XCTAssertEqual(SaveCommand.storedSummary(ValueShape.of(Data(repeating: 1, count: 32).base64EncodedString())),
+                       "44 characters, Base64 (32 bytes)")
+        XCTAssertEqual(SaveCommand.storedSummary(ValueShape.of("请把这个存进去\n第二行")),
+                       "11 characters, 31 bytes, 2 lines, non-ASCII")
+    }
 }

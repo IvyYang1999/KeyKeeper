@@ -5,14 +5,26 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
     public var credentialId: String
     public var fieldName: String
     public var create: Bool
+    /// What the caller expects the value to look like ("base64:32", "bytes:64", "hex:32",
+    /// "chars:40"). Checked after approval, before anything is written.
+    ///
+    /// This exists because of a real incident: a value was copied to the clipboard, something
+    /// else overwrote it before the save, and KeyKeeper stored a paragraph of prose as a signing
+    /// key and reported success. Declaring the shape costs the caller nothing and can only ever
+    /// cause a refusal, never a wider permission — so it is safe to accept from any process.
+    public var expect: String?
 
-    public init(credentialId: String, fieldName: String, create: Bool = false) {
+    public init(credentialId: String, fieldName: String, create: Bool = false, expect: String? = nil) {
         self.credentialId = credentialId
         self.fieldName = fieldName
         self.create = create
+        self.expect = expect
     }
 
     public func validate() throws {
+        if let expect {
+            guard ValueExpectation.parse(expect) != nil else { throw ClipboardSaveError.invalidExpectation }
+        }
         for name in [credentialId, fieldName] {
             guard !name.isEmpty, name.utf8.count <= 128,
                   name == name.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -27,6 +39,7 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
     case invalidSource, unsupportedSource, sourceParserUnavailable
     case invalidFile, fileChanged, wrongFieldType
     case invalidTarget, valueExists, targetNotFound, metadataChanged, clipboardChanged
+    case invalidExpectation, shapeMismatch
     case emptyClipboard, busy, denied, expired, disconnected, storageUnavailable, metadataCommitFailed, staleGrants
     public var errorDescription: String? {
         switch self {
@@ -41,6 +54,8 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
         case .targetNotFound: return "Secret field not found. Use --create only for a new credential ID."
         case .metadataChanged: return "Credential metadata changed. Check the target and retry."
         case .clipboardChanged: return "Clipboard changed while awaiting approval. Copy the intended key and try again."
+        case .invalidExpectation: return "Use --expect base64[:BYTES], hex[:BYTES], bytes:N or chars:N. Nothing was read or saved."
+        case .shapeMismatch: return "The value does not look like what you said to expect, so nothing was saved. Check what is actually on the clipboard."
         case .emptyClipboard: return "Clipboard must contain nonempty text no larger than 64 KiB."
         case .busy: return "Another confirmation is pending. Finish it before requesting a save."
         case .denied: return "Save cancelled. Nothing was saved."
@@ -56,8 +71,17 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
 public struct ClipboardSaveResponse: Codable, Sendable, Equatable {
     public var success: Bool
     public var errorCode: ClipboardSaveError?
-    public init(success: Bool, errorCode: ClipboardSaveError? = nil) {
+    /// What was stored — or, on a refusal, what was on the clipboard instead. Counts and
+    /// yes/no answers only; never the value, never any part of it.
+    ///
+    /// The caller learns the length and character class of something it never sees, which is a
+    /// small disclosure. It is bounded by the user having just approved this exact save, and it
+    /// buys the thing that was missing when a wrong paste went through unnoticed: the caller
+    /// can check what it actually stored.
+    public var shape: ValueShape?
+    public init(success: Bool, errorCode: ClipboardSaveError? = nil, shape: ValueShape? = nil) {
         self.success = success
         self.errorCode = errorCode
+        self.shape = shape
     }
 }

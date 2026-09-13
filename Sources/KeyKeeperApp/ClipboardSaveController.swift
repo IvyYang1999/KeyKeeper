@@ -115,6 +115,9 @@ extension ClipboardSaveSource {
         expireIfNeeded()
         guard let pending, isPresented else { return }
         guard approved else { cancel(); return }
+        // Reported only when a declared shape did not match: the caller needs to know what it
+        // nearly stored. Every other failure says nothing about the clipboard.
+        var shapeOnFailure: ValueShape?
         do {
             let clipboard = pending.source
             let request = pending.presentation.request
@@ -129,6 +132,19 @@ extension ClipboardSaveSource {
                 throw ClipboardSaveError.emptyClipboard
             }
             guard clipboard.changeCount == pending.changeCount else { throw changed }
+            // What the caller said to expect, checked before a single byte is written. The
+            // clipboard is a shared, racy channel: what the user copied is not always what is
+            // there when the save runs, and "saved" must not mean "stored whatever was there".
+            let shape = ValueShape.of(value)
+            if let expect = request.expect {
+                guard let expectation = ValueExpectation.parse(expect) else {
+                    throw ClipboardSaveError.invalidExpectation
+                }
+                guard expectation.matches(shape) else {
+                    shapeOnFailure = shape
+                    throw ClipboardSaveError.shapeMismatch
+                }
+            }
             guard now() < pending.expiresAt else { throw ClipboardSaveError.expired }
             guard pending.isConnected() else { throw ClipboardSaveError.disconnected }
             try service.saveMissing(credentialId: request.credentialId, fieldName: request.fieldName, value: value)
@@ -145,10 +161,11 @@ extension ClipboardSaveSource {
                 throw ClipboardSaveError.storageUnavailable
             }
             clipboard.clearIfUnchanged(since: pending.changeCount)
-            finish(.init(success: true))
+            finish(.init(success: true, shape: shape))
             NotificationCenter.default.post(name: .clipboardCredentialSaved, object: nil)
         } catch {
-            finish(.init(success: false, errorCode: error as? ClipboardSaveError ?? .storageUnavailable))
+            finish(.init(success: false, errorCode: error as? ClipboardSaveError ?? .storageUnavailable,
+                         shape: shapeOnFailure))
         }
     }
 
