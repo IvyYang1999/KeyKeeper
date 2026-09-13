@@ -223,6 +223,11 @@ extension ClipboardSaveSource {
     private func validateTarget(_ request: ClipboardSaveRequest, metadata: MetaFile,
                                 fileFormat: CredentialFileFormat?) throws {
         guard metadata.version == 1 else { throw ClipboardSaveError.storageUnavailable }
+        // 【独立审计 2026-09-13】the field name comes straight from the agent's request. Refused
+        // before any prompt: nobody should be asked to approve a name that would steer `run`.
+        if request.create, EnvironmentVariableName.isReserved(fieldName: request.fieldName) {
+            throw ClipboardSaveError.reservedFieldName
+        }
         if request.create {
             guard metadata.credentials[request.credentialId] == nil else { throw ClipboardSaveError.valueExists }
             let directory = metaStore.fileURL.deletingLastPathComponent()

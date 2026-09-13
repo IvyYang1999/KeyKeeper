@@ -116,3 +116,29 @@ extension StorageProtectionTests {
         XCTAssertNotNil(try metaStore.load().credentials["fixture"])
     }
 }
+
+extension StorageProtectionTests {
+    /// 【独立审计 2026-09-13】保留变量名只在 metadata 改名路径上拦，App 里新建凭据绕过去了。
+    func test界面新建不接受执行控制变量名() throws {
+        let add = AddCredentialViewModel(session: session, store: metaStore)
+        add.label = "Synthetic fixture"
+        add.credentialId = "fixture"
+        add.fields = [FieldEntry(name: "path", value: "synthetic")]
+        XCTAssertFalse(add.save())
+        XCTAssertNil(try metaStore.load().credentials["fixture"])
+        XCTAssertEqual(io.writes, 0)
+    }
+
+    /// 同上：给已有凭据加一个字段，也绕过去了。
+    func test详情页加字段不接受执行控制变量名() throws {
+        try session.save(credentialId: "fixture", fieldName: "one", value: "synthetic-one", security: .standard)
+        var existing = credential()
+        existing.fields = ["one": .init(secret: true)]
+        try metaStore.save(MetaFile(credentials: ["fixture": existing]))
+        let detail = CredentialDetailViewModel(credentialId: "fixture", credential: existing, session: session, store: metaStore)
+        detail.fields.append(FieldEntry(name: "node_options", value: "synthetic"))
+        XCTAssertFalse(detail.saveChanges())
+        XCTAssertNil(try metaStore.load().credentials["fixture"]?.fields["node_options"])
+        XCTAssertEqual(try session.storedFieldNames(credentialId: "fixture"), ["one"])
+    }
+}

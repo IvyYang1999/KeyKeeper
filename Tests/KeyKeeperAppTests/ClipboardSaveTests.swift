@@ -488,3 +488,16 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
     }
 
 }
+
+extension ClipboardSaveTests {
+    /// 【独立审计 2026-09-13】剪贴板新建凭据时，字段名直接来自 Agent 的请求，没过保留变量名检查。
+    func test剪贴板新建不接受执行控制变量名() throws {
+        controller.receive(.init(credentialId: "fixture", fieldName: "dyld-insert-libraries", create: true, expect: nil,
+                                 useCurrentClipboard: true),
+            callerName: "Test caller", isConnected: { true }, completion: { self.results.append($0) })
+        XCTAssertFalse(controller.isPending, "不该弹窗让人批准一个注定危险的名字")
+        XCTAssertEqual(results.first?.success, false)
+        XCTAssertEqual(clipboard.reads, 0)
+        XCTAssertEqual(io.writes, 0)
+    }
+}

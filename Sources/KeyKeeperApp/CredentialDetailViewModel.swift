@@ -157,6 +157,10 @@ final class CredentialDetailViewModel: ObservableObject {
                     errorMessage = L("Field names can only use letters, digits, '-', '_' and '.', with no spaces. Put the wording you like in the display name.")
                     return false
                 }
+                guard !EnvironmentVariableName.isReserved(fieldName: entry.name) else {
+                    errorMessage = MetadataEditCopy.message(.reservedFieldName(entry.name))
+                    return false
+                }
             }
             var plan = CredentialEditPlan(
                 inputFields: fields.map { .init(name: $0.name, value: $0.value, originalName: $0.originalName, isSecret: $0.isSecret) },

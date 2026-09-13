@@ -32,10 +32,22 @@ public enum EnvironmentVariableName {
         "GIT_SSH", "GIT_SSH_COMMAND", "GIT_EXTERNAL_DIFF", "GIT_PAGER", "GIT_EDITOR",
         "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME", "NODE_OPTIONS", "NODE_PATH",
         "PERL5OPT", "PERL5LIB", "RUBYOPT", "RUBYLIB", "JAVA_TOOL_OPTIONS",
-        "EDITOR", "VISUAL", "PAGER", "TMPDIR", "HOME", "USER", "LOGNAME",
+        "EDITOR", "VISUAL", "PAGER", "TMPDIR", "HOME",
+        // Not USER or LOGNAME: they name someone, they do not decide what runs. And a credential
+        // on the maintainer's own Mac has a field called `User` — refusing it at injection would
+        // make that credential unusable for no gain.
     ]
 
     public static func isReserved(fieldName: String, prefix: String = "") -> Bool {
-        reservedNames.contains(from(fieldName: fieldName, prefix: prefix))
+        isReservedVariable(from(fieldName: fieldName, prefix: prefix))
+    }
+
+    /// For a finished variable name — what `run` is about to set.
+    public static func isReservedVariable(_ name: String) -> Bool {
+        reservedNames.contains(name) || name.hasPrefix("DYLD_") || name.hasPrefix("LD_")
+    }
+
+    public static func refusalMessage(_ name: String) -> String {
+        "'\(name)' is an environment variable that decides how programs run (like PATH), so KeyKeeper will not set it. Rename the field in KeyKeeper, or use a different --prefix."
     }
 }

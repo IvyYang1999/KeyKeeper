@@ -98,6 +98,9 @@ struct RunCommand: ParsableCommand {
                                  aliases: inout [String: String]) throws {
         let currentNames = nonSecretCurrentNames(for: credential, prefix: prefix)
         for (envName, value) in nonSecretEnvironment(for: credential, prefix: prefix).sorted(by: { $0.key < $1.key }) {
+            guard !EnvironmentVariableName.isReservedVariable(envName) else {
+                throw CommandFailure(EnvironmentVariableName.refusalMessage(envName))
+            }
             guard currentNames.contains(envName) else {
                 aliases[envName] = aliases[envName] ?? value
                 continue

@@ -15,8 +15,7 @@ struct FileInjectionPlan {
             let target = parts[0].split(separator: ":", omittingEmptySubsequences: false)
             let name = String(parts[1])
             guard target.count == 2, Self.validEnvironmentName(name),
-                  !["PATH", "HOME", "TMPDIR", "SHELL", "ENV", "BASH_ENV"].contains(name),
-                  !name.hasPrefix("DYLD_"), !name.hasPrefix("LD_") else {
+                  !EnvironmentVariableName.isReservedVariable(name) else {
                 throw CommandFailure("Invalid credential file mapping or reserved environment variable.")
             }
             // Earlier group IDs and field names resolve to the current ones.
@@ -33,6 +32,14 @@ struct FileInjectionPlan {
         for id in credentials {
             guard let credential = meta.credentials[id] else { throw CommandFailure("Credential not found. Check its ID with keykeeper list.") }
             for (field, entry) in credential.fields {
+                // 【独立审计 2026-09-13】checked where names become variables, not at one of the ways
+                // a name gets in: a prefix, or a field's earlier name, can produce one too.
+                if entry.fileFormat == nil, entry.secret || entry.value?.isEmpty == false {
+                    for variable in credential.environmentNames(forField: field, prefix: prefix)
+                    where EnvironmentVariableName.isReservedVariable(variable) {
+                        throw CommandFailure(EnvironmentVariableName.refusalMessage(variable))
+                    }
+                }
                 guard entry.secret else {
                     // Plain values claim their variable names too, so a clash surfaces here.
                     guard entry.value?.isEmpty == false else { continue }

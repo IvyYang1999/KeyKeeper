@@ -199,6 +199,9 @@ class AddCredentialViewModel: ObservableObject {
             let named = fields.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
             let machineNames = named.map { Self.machineFieldName($0.name) }
             guard Set(machineNames).count == machineNames.count else { throw ClipboardSaveError.invalidTarget }
+            if let reserved = machineNames.first(where: { EnvironmentVariableName.isReserved(fieldName: $0) }) {
+                throw MetadataEditError.reservedFieldName(reserved)
+            }
             var plan = CredentialEditPlan(
                 inputFields: zip(named, machineNames).map { .init(name: $1, value: $0.value, isSecret: $0.isSecret) },
                 existingFields: [:],
