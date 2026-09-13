@@ -40,3 +40,34 @@ final class IPCReadDeadlineTests: XCTestCase {
         guard case .serviceRequests = try XCTUnwrap(message) else { return XCTFail("解出来的类型不对") }
     }
 }
+
+/// 【曾经的 bug · 独立审计 2026-09-13 定为 critical】15 秒总时限一度是 readMessage 的**默认值**，
+/// 于是命令行等批准回包也受它限制——而授权窗常常开着超过 15 秒。结果是每一条需要人点头
+/// 的命令，都在人还在读弹窗的时候就失败了。时限只属于服务端读请求这一处。
+final class IPCDeadlineScopeTests: XCTestCase {
+    private var root: URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    func test命令行等回包不带时限() throws {
+        let client = try String(contentsOf: root.appendingPathComponent("Sources/KeyKeeperCLI/IPCClient.swift"), encoding: .utf8)
+        XCTAssertFalse(client.contains("deadline:"), "命令行要能等人读完弹窗")
+    }
+
+    func test服务端读请求带时限() throws {
+        let server = try String(contentsOf: root.appendingPathComponent("Sources/KeyKeeperApp/IPCServer.swift"), encoding: .utf8)
+        XCTAssertTrue(server.contains("deadline: IPCMessage.messageDeadline"))
+    }
+
+    /// 默认不带时限：发得慢但发得完的对端照样读得到。
+    func test默认读取不设时限() throws {
+        var fds: [Int32] = [0, 0]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds), 0)
+        defer { close(fds[0]); close(fds[1]) }
+        let writer = fds[1]
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+            try? IPCMessage.writeMessage(fd: writer, message: IPCRequest.serviceRequests(ServiceRequestsListRequest()))
+        }
+        XCTAssertNotNil(IPCMessage.readMessage(fd: fds[0], as: IPCRequest.self))
+    }
+}

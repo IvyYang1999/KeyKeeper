@@ -461,9 +461,15 @@ public enum IPCMessage {
     /// restarted by every byte and a slow sender holds the server for as long as it likes.
     public static let messageDeadline: TimeInterval = 15
 
+    /// `deadline` is for the server reading a request, and nothing else.
+    ///
+    /// 【曾经的 bug】it briefly defaulted to 15 seconds, which made the CLI give up on every
+    /// response that needs a person — an approval window routinely stays open longer than that —
+    /// so every prompt-requiring command failed while the person was still reading the prompt.
+    /// Clients keep their own socket timeout (the approval timeout) and pass no deadline.
     public static func readMessage<T: Decodable>(fd: Int32, as type: T.Type,
-                                                 deadline: TimeInterval = messageDeadline) -> T? {
-        let limit = Date().addingTimeInterval(deadline)
+                                                 deadline: TimeInterval? = nil) -> T? {
+        let limit = deadline.map { Date().addingTimeInterval($0) }
         guard let lengthData = readExact(fd: fd, count: 4, deadline: limit) else { return nil }
         let length = lengthData.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
         guard length > 0, length < 1_000_000 else { return nil }  // sanity check

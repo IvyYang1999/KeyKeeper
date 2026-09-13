@@ -315,7 +315,10 @@ final class IPCServer: ObservableObject {
         let peerPID = callerIdentity.peerPID
 
         // Read envelope
-        guard let envelope = IPCMessage.readMessage(fd: clientFd, as: IPCRequest.self) else {
+        // A request must arrive within the deadline; a byte-at-a-time sender cannot hold this
+        // serial queue. (Only here: clients waiting on a person must not inherit it.)
+        guard let envelope = IPCMessage.readMessage(fd: clientFd, as: IPCRequest.self,
+                                                    deadline: IPCMessage.messageDeadline) else {
             let response = IPCResponse.value(ValueResponse(
                 success: false,
                 error: "Invalid request",
