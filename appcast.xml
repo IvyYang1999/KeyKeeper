@@ -6,6 +6,67 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>KeyKeeper</title>
         <item>
+            <title>0.3.2</title>
+            <pubDate>Sun, 13 Sep 2026 13:34:47 +0800</pubDate>
+            <link>https://github.com/IvyYang1999/KeyKeeper</link>
+            <sparkle:version>0.3.2</sparkle:version>
+            <sparkle:shortVersionString>0.3.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# KeyKeeper 0.3.2
+
+## 下载与安装 / Installation
+
+适用于 Apple Silicon Mac（M1 及后续芯片），macOS 14 或更新版本。打开 DMG，将 KeyKeeper 拖到 Applications，再启动 App。CLI 可从 App 的设置向导安装。
+
+Requires an Apple Silicon Mac and macOS 14 or later. Open the DMG, drag KeyKeeper into Applications, and launch it. Install the bundled CLI from the setup assistant.
+
+## 本次更新：非机密字段
+
+一把密钥旁边常常还有几个并不机密、却每次都要一起用的值——Apple ID、团队 ID、账号邮箱、区域。以前它们只能当密钥存，于是每次取用都要验一次 Touch ID。现在它们是一等公民。
+
+- **每个字段可以标为「机密」或「明文」。** 机密值继续存在 macOS 钥匙串里；明文值存在 KeyKeeper 自己的元数据文件里，不加密，任何能读你用户目录的程序都能看到——所以只放本来就不怕被看见的东西。
+- **`keykeeper run` 会一并注入明文字段**，不弹窗、不记审计、不参与脱敏。整条凭据里若一个机密字段都没有，`run` 全程不需要授权。
+- **命令行可直接写明文字段**：`keykeeper edit <凭据> --set apple-id=you@example.com`、`--unset apple-id`。它碰不到机密字段——对机密字段用 `--set` 会被拒绝。
+- **界面上可以互相转换。** 详情页每一行都有「机密 / 明文」菜单。转成明文要确认一次（值会从钥匙串挪到元数据文件，并明确告诉你这意味着什么）；转回机密不需要确认。
+- 明文字段在详情页直接显示、可复制，标着「明文」，不再看着像「值丢了」。
+
+## What's new: non-secret fields
+
+A key usually travels with a few values that are not secret but are needed every single time — an Apple ID, a team ID, a region. Storing them as secrets meant a Touch ID check for every use. They are now first-class.
+
+- **Each field is either secret or plain.** Secret values stay in the macOS Keychain. Plain values live in KeyKeeper's metadata file in the clear — anything that can read your home directory can read them, so only put things there that you don't mind being read.
+- **`keykeeper run` injects plain fields too**, with no approval window and no audit entry. A credential with no secret fields at all never asks for approval.
+- **Write them from the command line**: `keykeeper edit <credential> --set apple-id=you@example.com` and `--unset apple-id`. It refuses to touch secret fields.
+- **Convert either way in the app.** Every row in the detail view has a secret/plain menu. Converting to plain asks once and explains where the value is going; converting back to secret does not ask.
+
+## 修复 / Fixes
+
+- 【可能丢值】同一次编辑里既给字段改名、又把它转成明文时，钥匙串里的旧值会在写 meta.json **之前**被删掉。中间只要出错或崩溃，值就两边都没有了。
+- 【安全】凭据标题会成为授权窗最上面那行粗体字，而改标题按设计不弹窗——本机任一进程都能把某条凭据改名成一句像系统文案的话再来请求授权。现在标题和「调用方留言」一样按敌意文本处理：折成一行、去掉不可见字符与 bidi 覆盖、限长。
+- 转明文之后如果钥匙串里的旧值没能删掉，会明确告诉你这个值现在同时存在两处，不再静默。
+- 明文字段那一套界面文案补齐了中文——包括「移出钥匙串」这个破坏性确认按钮，之前是中英混排。
+- `run` 注入时，明文字段的**旧名**不再硬占环境变量：撞上任何现名都安静让位（和机密字段一个规矩）。
+- 启动时不再每次去读钥匙串来记「曾经建过库」这个标记；标记在了就完全不读，要读也走非交互的读法。
+
+- 保存编辑时的完整性检查以前是全库判断：库里只要有一条凭据缺值，**所有**凭据都改不了，连给缺值的那条补录也做不了。现在只检查正在编辑的这一条，并明确放行补录；读不到密钥库时一律拒绝保存。
+- 「绝不自动重建空库」这条防线以前靠「元数据里还有机密字段」推断。若把最后一个机密字段转成明文，防线会自己关掉。现在建过库就永久留标记。
+
+- **Possible value loss**: renaming a field and converting it to plain in the same save deleted the Keychain copy *before* the metadata was written. Any error in between lost the value from both places.
+- **Security**: a credential's title becomes the authorization window's headline, and renaming is deliberately promptless — so any local process could rename a credential to something that reads like system text and then ask for approval. The title is now treated as hostile text, like a caller's stated reason: one printable line, no invisible or bidi characters, capped.
+- If the old Keychain copy cannot be removed after converting to plain, KeyKeeper now says so instead of staying quiet.
+- The save-time integrity check used to look at the whole store: one credential with missing values blocked edits to every other credential, including re-entering the missing values. It now checks only the credential being edited, explicitly allows re-entry, and still refuses to save if the store cannot be read at all.
+- The "never silently rebuild an empty store" guard used to infer its state from whether any secret fields remained. Converting the last secret field to plain switched the guard off. The store now carries a permanent marker instead.
+
+## 升级注意 / Upgrade notes
+
+明文字段不加密。把一个真正的密钥转成明文，等于把它写进磁盘上的普通文件。
+
+Plain fields are not encrypted. Converting a real secret to plain writes it to an ordinary file on disk.
+]]></description>
+            <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.2/KeyKeeper-0.3.2.dmg" length="6875025" type="application/octet-stream" sparkle:edSignature="s6jvzLqilPVfFtb2RML+5RaCl/a37V6ltlxe/neQwoe0eEgip3V5BbaY6MPzZ7jAKPqW/xgXpsbt66DekfP9BQ=="/>
+        </item>
+        <item>
             <title>0.3.1</title>
             <pubDate>Sun, 13 Sep 2026 11:33:06 +0800</pubDate>
             <link>https://github.com/IvyYang1999/KeyKeeper</link>
@@ -102,6 +163,6 @@ Secrets remain in macOS Keychain. This installer cannot recover missing secret v
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: eWYPMDTk7BGuo6ZV1ch8UmRqzUD4BnDmEe48N1/4LFV8SeE24Qmux+100t1UxFrH0fsGJgOaRV8i8Rua45IaAw==
-length: 8161
+edSignature: gUtEp4ybK2t/7YZPT8CqtMOGSzEvrWMZ4mwY+LTco7PrpB665cne58nZcOPtmHVsWRYYC6HZacliv0Kid6N3Aw==
+length: 14807
 -->
