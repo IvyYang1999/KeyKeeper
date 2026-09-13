@@ -3,6 +3,14 @@
 // collide; `AppL10n.render` consults the main catalog first, then this one.
 extension AppL10n {
     static let chineseSupplement: [String: String] = [
+        // 明文字段（0.3.2）
+        "Store this value as plain text?": "把这个值存成明文？",
+        "Move it out of the Keychain": "移出钥匙串",
+        "The value leaves the macOS Keychain and is written into KeyKeeper's metadata file in the clear, where anything running as you — your agents included — can read it. Good for an account id, an email or a region. Never for a password, token or key.": "值会离开 macOS 钥匙串，明文写进 KeyKeeper 的元数据文件；凡是以你的身份运行的程序——包括你的 Agent——都能读到。适合账号 ID、邮箱、区域这类信息，绝不要放密码、令牌或密钥。",
+        "Secret · stored in the Keychain": "机密 · 存在钥匙串里",
+        "Plain · readable by anything on this Mac": "明文 · 本机任何程序都能读",
+        "Plain value, e.g. an account id": "明文值，例如账号 ID",
+        "(empty)": "（空）",
         // Trust prompt
         "New, Ask every time": "新建，每次询问",
         "Fills in the missing value": "补回缺失的值",

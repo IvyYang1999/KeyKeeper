@@ -82,4 +82,18 @@ final class AppLocalizationTests: XCTestCase {
             XCTAssertNotNil(AppL10n.chinese[option.rawValue])
         }
     }
+
+    /// 明文字段那一套是 0.3.2 新加的界面文案，两张字典里一条都没有，简体中文下会原样显示英文
+    /// ——其中包括「把值移出钥匙串」这个破坏性确认按钮。按文件扫 L("…") 字面量，以后再漏也会红。
+    func test明文字段相关文案都有中文() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let pattern = try NSRegularExpression(pattern: #"L\("([^"\\]*)"\)"#)
+        for file in ["Sources/KeyKeeperApp/CredentialDetailView.swift", "Sources/KeyKeeperApp/AddCredentialView.swift"] {
+            let source = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
+            for match in pattern.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
+                let key = (source as NSString).substring(with: match.range(at: 1))
+                XCTAssertNotEqual(AppL10n.render(key, language: "zh-Hans"), key, "\(file): \(key)")
+            }
+        }
+    }
 }
