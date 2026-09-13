@@ -95,3 +95,24 @@ private final class StorageProtectionIO: KeychainBlobIO, @unchecked Sendable {
         blob = data
     }
 }
+
+extension StorageProtectionTests {
+    /// 【曾经的 bug · 2026-09-13 本机】列表里的删除用的是**整库**完整性检查：库里任意一条旧凭据
+    /// 缺值，所有凭据都删不掉——包括一条刚存错、值完好的凭据。编辑早就改成按这一条凭据判断，
+    /// 删除漏了。缺值的那条自己仍受保护（它的记录是找回的线索），别的凭据不该被它连累。
+    func test别的凭据缺值不挡删除一条完好的凭据() throws {
+        io.blob = Data(#"{"version":1,"credentials":{"fixture":{"one":"synthetic"},"healthy":{"one":"synthetic"}}}"#.utf8)
+        var healthy = credential()
+        healthy.fields = ["one": .init(secret: true)]
+        try metaStore.save(MetaFile(credentials: ["fixture": credential(), "healthy": healthy]))
+
+        let list = CredentialListViewModel(session: session, store: metaStore)
+        XCTAssertTrue(list.delete(id: "healthy"), list.errorMessage ?? "")
+        XCTAssertNil(try metaStore.load().credentials["healthy"])
+        XCTAssertNotNil(try metaStore.load().credentials["fixture"], "缺值的那条原样保留")
+        XCTAssertEqual(try session.storedFieldNames(credentialId: "fixture"), ["one"])
+
+        XCTAssertFalse(list.delete(id: "fixture"), "缺值的那条自己仍受保护")
+        XCTAssertNotNil(try metaStore.load().credentials["fixture"])
+    }
+}

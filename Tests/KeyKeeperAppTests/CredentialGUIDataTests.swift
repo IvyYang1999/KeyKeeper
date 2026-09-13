@@ -189,7 +189,7 @@ final class CredentialGUIDataTests: XCTestCase {
     func test删除凭据Vault失败则Metadata保留() throws {
         let existing = makeCredential(fields: ["token": CredentialField(secret: true)])
         try store.save(MetaFile(credentials: ["service": existing]))
-        let session = FakeCredentialSession()
+        let session = FakeCredentialSession(values: ["service.token": "synthetic"])
         session.errorForDelete = TestError.injectedFailure
         let vm = CredentialListViewModel(session: session, store: store)
 
@@ -206,7 +206,7 @@ final class CredentialGUIDataTests: XCTestCase {
             "b": CredentialField(secret: true)
         ])
         try store.save(MetaFile(credentials: ["service": existing]))
-        let session = FakeCredentialSession()
+        let session = FakeCredentialSession(values: ["service.a": "synthetic-a", "service.b": "synthetic-b"])
         session.onOperation = { [store] operation in
             guard case .delete = operation else { return }
             XCTAssertNotNil(try store?.load().credentials["service"])

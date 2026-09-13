@@ -93,7 +93,7 @@ class CredentialListViewModel: ObservableObject {
     @discardableResult
     func delete(id: String) -> Bool {
         do {
-            try CredentialOperationMessages.requireWritableStorage(session)
+            try CredentialOperationMessages.requireUnlocked(session)
             var meta = try store.load()
             guard let credential = meta.credentials[id] else { return false }
 
@@ -101,6 +101,20 @@ class CredentialListViewModel: ObservableObject {
                 .filter { $0.value.secret }
                 .map(\.key)
                 .sorted()
+
+            // Completeness is judged for this credential only, as the editor does: one credential
+            // that lost its value must not make every other credential undeletable. This one's own
+            // record stays protected while a value is missing — it is the trail back to what went
+            // missing. A store that cannot be read at all still blocks: storedFieldNames throws.
+            do {
+                let stored = try session.storedFieldNames(credentialId: id)
+                guard Set(secretFieldNames).isSubset(of: stored) else {
+                    throw CredentialStorageError.incompleteStore
+                }
+            } catch let error as ClipboardSaveError where error == .storageUnavailable {
+                // A session that cannot enumerate its store: keep the whole-store check.
+                try CredentialOperationMessages.requireWritableStorage(session)
+            }
             for fieldName in secretFieldNames {
                 try session.delete(credentialId: id, fieldName: fieldName)
             }
