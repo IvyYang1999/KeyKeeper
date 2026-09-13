@@ -40,6 +40,16 @@ if gh release view "$TAG" --repo IvyYang1999/KeyKeeper >/dev/null 2>&1; then
     exit 1
 fi
 
+# The DMG on disk may be a later local rebuild: any commit rebuilds it under the same name
+# (build-app.sh reads VERSION), and Sparkle checks the signed length before it will install.
+# Upload only the archive this appcast actually describes.
+DMG_BYTES="$(stat -f%z "$DMG")"
+if ! grep -F "KeyKeeper-$VERSION.dmg" "$APPCAST" | grep -Fq "length=\"$DMG_BYTES\""; then
+    echo "ERROR: $DMG ($DMG_BYTES bytes) is not the archive appcast.xml signed" >&2
+    echo "       re-run ./scripts/prepare-update.sh before publishing" >&2
+    exit 1
+fi
+
 git -C "$PROJECT_DIR" tag -a "$TAG" -m "KeyKeeper $VERSION"
 git -C "$PROJECT_DIR" push origin "$TAG"
 gh release create "$TAG" "$DMG" \
@@ -50,4 +60,7 @@ gh release create "$TAG" "$DMG" \
 
 git -C "$PROJECT_DIR" add appcast.xml
 git -C "$PROJECT_DIR" commit -m "发布：更新 appcast 至 $VERSION"
+# Installed apps read the feed from main on GitHub, so the commit above changes nothing until
+# it is pushed. Without this the script reports success while every user stays on the old version.
+git -C "$PROJECT_DIR" push origin main
 echo "Published KeyKeeper $VERSION and activated its signed update feed"

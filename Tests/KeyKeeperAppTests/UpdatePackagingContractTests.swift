@@ -99,5 +99,18 @@ final class UpdatePackagingContractTests: XCTestCase {
         XCTAssertTrue(publish.contains("--confirm-version"))
         XCTAssertTrue(publish.contains("gh release create"))
         XCTAssertTrue(publish.contains("git -C \"$PROJECT_DIR\" commit"))
+        // The feed lives on main (SUFeedURL points at raw.githubusercontent.com/.../main/appcast.xml),
+        // so a publish that commits the appcast without pushing leaves every installed app on the
+        // old version while reporting success.
+        XCTAssertTrue(
+            publish.contains("push origin main"),
+            "the appcast commit must reach the branch the update feed is served from"
+        )
+        // The DMG on disk can be a later local rebuild that no longer matches the signed feed.
+        XCTAssertTrue(publish.contains("stat -f%z"))
+        XCTAssertTrue(
+            publish.contains("length=\\\"$DMG_BYTES\\\""),
+            "the uploaded DMG must be the one the appcast signed"
+        )
     }
 }
