@@ -116,3 +116,38 @@ final class CLIInstallScriptTests: XCTestCase {
                        .current(installed: "abc123"))
     }
 }
+
+/// 【曾经的 bug】yyt 的机器上 `/usr/local/bin` 根本不存在，`keykeeper` 在
+/// `/opt/homebrew/bin`——而安装器把目标写死成 `/usr/local/bin/keykeeper`。于是点「更新」
+/// 是往一个**不在 PATH 上的地方**装一份新的，shell 里跑的还是那个旧的，看起来像是没反应。
+final class CLIInstallTargetTests: XCTestCase {
+    private func target(existing: [String], writable: Set<String>) -> CLIInstaller.Target {
+        CLIInstaller.preferredTarget(
+            existing: { existing.contains($0) },
+            writableDirectory: { writable.contains($0) })
+    }
+
+    func test已经装过的就装回同一个地方() {
+        let homebrew = target(existing: ["/opt/homebrew/bin/keykeeper"], writable: ["/opt/homebrew/bin"])
+        XCTAssertEqual(homebrew.path, "/opt/homebrew/bin/keykeeper")
+        XCTAssertFalse(homebrew.needsAdmin, "目录本来就能写，不该再要一次管理员密码")
+    }
+
+    func test目录能写就不要管理员密码() {
+        XCTAssertFalse(target(existing: [], writable: ["/opt/homebrew/bin"]).needsAdmin)
+    }
+
+    /// 两个地方都有的时候，PATH 上排在前面的那个才是真正会被跑到的。
+    func test两处都有时选PATH靠前的那个() {
+        let both = target(existing: ["/usr/local/bin/keykeeper", "/opt/homebrew/bin/keykeeper"],
+                          writable: ["/opt/homebrew/bin", "/usr/local/bin"])
+        XCTAssertEqual(both.path, CLIInstallState.searchPaths.first)
+    }
+
+    /// 全新的 Mac：哪儿都没有、哪儿都不能写，那就回到 /usr/local/bin 并要一次密码。
+    func test都没有时回到系统目录并要密码() {
+        let fresh = target(existing: [], writable: [])
+        XCTAssertEqual(fresh.path, "/usr/local/bin/keykeeper")
+        XCTAssertTrue(fresh.needsAdmin)
+    }
+}
