@@ -196,6 +196,26 @@ Both SDKs shell out to the `keykeeper` CLI; no native dependencies.
 | Clipboard | Copying a value from the app marks it concealed for clipboard managers and clears it after 30 s unless you copied something else. |
 | Backup | Preserve both the original login Keychain and KeyKeeper application data, and verify that the backup Keychain can be unlocked and its values read. Restoring the application folder alone does not restore keys. Encrypted export is not implemented; see [recovery guidance](docs/STORAGE-RECOVERY.md). |
 
+### What an approval actually covers
+
+When you approve a request, this is the exact scope. Nothing here is inferred — it is what the code checks.
+
+| Choice | Who it covers | What it covers | Until |
+|---|---|---|---|
+| Just this once | Only the program that asked | Every secret field of that one credential | The next successful read |
+| This terminal session | Only that program, in that terminal session | Same | The terminal session ends, or 24 hours, whichever comes first |
+| 1 hour | Only the program that asked | Same | One hour later |
+| Always allow | Only the program that asked | Same | You revoke it |
+
+Two things worth being precise about:
+
+- **"Only the program that asked" is identified by where it came from**, not by a name it gives itself: the first ancestor process with a bundle identifier (so an agent you launched from Terminal is identified as Terminal), otherwise the path of the script or executable. An agent running inside an app is covered by that app's approval.
+- **An approval covers the whole credential, not one key.** If a credential holds three secret fields, approving a request for one of them lets that program read all three. Split credentials you want to grant separately.
+
+Website sessions use the same three durations and the same per-caller rule, and are stored the same way the login snapshots are — in the Keychain, not in a file. Their windows also end permission on a timer: the window freezes and cannot reach the network until you authorize again.
+
+Approvals issued before KeyKeeper 0.3.4 carry no caller. They keep working, and the first program to use one becomes its owner from then on; after that, nothing else can use it. You can see and revoke every approval in the app.
+
 **What KeyKeeper does not do:** a child process you approve still receives the value and can misuse, save or transmit it. Output redaction is a safety net, not a sandbox. Only run software you trust with production credentials.
 
 ## Troubleshooting

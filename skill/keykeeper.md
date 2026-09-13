@@ -137,6 +137,21 @@ keykeeper get stripe secret-key --reason "Refunding order #1821 at the user's re
   machine: what you are doing and why now.
 - Leave it out when the user did not ask for the action; a reason you invented is worse than none.
 
+## What an approval covers, exactly
+
+Tell the user the truth about this if they ask, and never imply a narrower promise in a `--reason`:
+
+- **It covers every secret field of that one credential**, not the single field you asked for.
+- **It covers you, not the machine.** The approval is tied to the calling program, identified by
+  the first ancestor process with a bundle identifier — so an agent launched from a terminal is
+  identified as that terminal. Another program on the same Mac cannot use your approval.
+- **Durations**: just this once (until the next successful read) · this terminal session (until it
+  ends, capped at 24 hours) · 1 hour · always (until the user revokes it in the app).
+- Approvals made before KeyKeeper 0.3.4 have no owner recorded. They still work, and the first
+  program to use one becomes its owner permanently.
+- A website session approval works the same way, with the same three durations. Its window also
+  freezes when the time runs out and cannot reach the network until the user authorizes again.
+
 ## Tidying names and notes
 
 Titles, notes and field display names are free text for the user and for you. The group ID
