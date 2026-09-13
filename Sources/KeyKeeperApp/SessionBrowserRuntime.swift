@@ -104,6 +104,11 @@ enum SessionBrowserPolicy {
     private var asking = false
     /// Added when the window freezes: a rule list that blocks every load, of every type.
     private var freezeRules: WKContentRuleList?
+    /// That list, compiled before the page ever loads. 【独立审计 2026-09-13】it used to be compiled
+    /// at the moment of freezing, asynchronously, while the veil already said the page could not
+    /// reach the network — for that stretch the sentence was false. Compiled up front, freezing
+    /// blocks first and only then says so.
+    private var freezeList: WKContentRuleList?
     /// Only a window somebody just approved is allowed to take over the screen.
     var bringToFront = true
     init(origin: String, label: String, policy: SessionWindowPolicy = .default,
@@ -142,6 +147,14 @@ enum SessionBrowserPolicy {
             WKContentRuleListStore.default().compileContentRuleList(forIdentifier: ruleID, encodedContentRuleList: encoded) { [weak self] rules, _ in
                 WKContentRuleListStore.default().removeContentRuleList(forIdentifier: ruleID) { _ in }
                 guard let self, !self.closed, let rules else { completion(false); return }
+                let freezeID = "keykeeper-frozen-" + UUID().uuidString
+                WKContentRuleListStore.default().compileContentRuleList(
+                    forIdentifier: freezeID, encodedContentRuleList: SessionFreezeRules.encoded
+                ) { [weak self] freezeList, _ in
+                WKContentRuleListStore.default().removeContentRuleList(forIdentifier: freezeID) { _ in }
+                // No honest way to freeze means no session: fail closed before anything loads.
+                guard let self, !self.closed, let freezeList else { completion(false); return }
+                self.freezeList = freezeList
                 web.configuration.userContentController.add(rules)
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -173,6 +186,7 @@ enum SessionBrowserPolicy {
                     }
                     completion(true)
                 }
+                }
             }
         } catch { completion(false) }
     }
@@ -197,8 +211,12 @@ enum SessionBrowserPolicy {
 
     private func freeze() {
         guard veil == nil, let contentView = window.contentView else { return }
+        // Block first, synchronously. The veil and its sentence come after, when they are true.
+        guard let web = webView, let freezeList else { shutdown(); return }
+        web.stopLoading()
+        web.configuration.userContentController.add(freezeList)
+        freezeRules = freezeList
         frozenAt = Date()
-        stopNetwork()
         window.title = "KeyKeeper · \(origin) · \(L("Authorization expired"))"
         let veil = SessionExpiryVeil(
             onRenew: { [weak self] in self?.renew() },
@@ -227,37 +245,11 @@ enum SessionBrowserPolicy {
         }
     }
 
-    /// Freezing has to mean it, not just look like it.
-    ///
-    /// Swallowing clicks stops the person and anything driving the window by clicking — it does
-    /// nothing about the JavaScript already running in the page, which can keep using the
-    /// session's cookies for fetch and XHR. A content rule list blocks every load of every type,
-    /// so the page can still compute but cannot reach the network, and the cookies stay where
-    /// they are instead of being torn out (which the site would see as an immediate logout).
-    private func stopNetwork() {
-        guard let web = webView, freezeRules == nil else { return }
-        web.stopLoading()
-        let rules: [[String: Any]] = [["trigger": ["url-filter": ".*"], "action": ["type": "block"]]]
-        guard let encoded = try? JSONSerialization.data(withJSONObject: rules) else { return }
-        let identifier = "keykeeper-frozen-" + UUID().uuidString
-        WKContentRuleListStore.default().compileContentRuleList(
-            forIdentifier: identifier, encodedContentRuleList: String(decoding: encoded, as: UTF8.self)
-        ) { [weak self] list, _ in
-            WKContentRuleListStore.default().removeContentRuleList(forIdentifier: identifier) { _ in }
-            Task { @MainActor in
-                guard let self, !self.closed, self.frozenAt != nil else { return }
-                guard let list else {
-                    // Fail closed. The veil says the page cannot reach the network; if the block
-                    // list did not compile, that sentence is false and the only honest answer is
-                    // to take the session away.
-                    self.shutdown()
-                    return
-                }
-                self.freezeRules = list
-                self.webView?.configuration.userContentController.add(list)
-            }
-        }
-    }
+    // Freezing has to mean it, not just look like it: swallowing clicks does nothing about the
+    // JavaScript already running in the page, which could keep using the session's cookies for
+    // fetch and XHR. SessionFreezeRules blocks every load of every type, so the page can still
+    // compute but cannot reach the network, and the cookies stay put instead of being torn out
+    // (which the site would see as an immediate logout).
 
     private func resumeNetwork() {
         guard let list = freezeRules else { return }
@@ -364,4 +356,9 @@ enum SessionBrowserPolicy {
 
     @objc private func renewTapped() { onRenew() }
     @objc private func closeTapped() { onClose() }
+}
+
+/// The rule list a frozen session window wears: block every load, of every type.
+enum SessionFreezeRules {
+    static let encoded = #"[{"trigger":{"url-filter":".*"},"action":{"type":"block"}}]"#
 }
