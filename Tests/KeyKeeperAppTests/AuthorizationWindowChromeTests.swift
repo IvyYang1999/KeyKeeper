@@ -98,10 +98,51 @@ final class AuthorizationWindowChromeTests: XCTestCase {
         return (window, hosting)
     }
 
-    private static func visualEffectViews(in view: NSView) -> [NSVisualEffectView] {
+    static func visualEffectViews(in view: NSView) -> [NSVisualEffectView] {
         var found: [NSVisualEffectView] = []
         if let effect = view as? NSVisualEffectView { found.append(effect) }
         for sub in view.subviews { found += visualEffectViews(in: sub) }
         return found
+    }
+}
+
+/// 【又一次的方角】yyt 2026-09-13 晚：展开「调用方详情」之后整扇窗变成直角。
+///
+/// 上一次修的是动画期间的短暂错位。这次是另一回事：展开后的内容比屏幕还高，窗口被系统
+/// 钳制住，而磨砂是按**内容高度**画的圆角矩形——于是可见范围里只剩它中间那一段，四个角
+/// 全是直的。修法不是再去改玻璃，而是让内容超高时可以滚动，窗口永远不需要比屏幕高。
+@MainActor
+final class AuthorizationPanelHeightTests: XCTestCase {
+    func test内容超高时窗口不超过可用高度() throws {
+        let tall = VStack(spacing: 0) {
+            ForEach(0..<200, id: \.self) { _ in Text("很长的一行内容").frame(height: 20) }
+        }
+        let limited = NSHostingView(rootView: tall.authorizationPanel(width: 420, maxHeight: 400))
+        limited.layoutSubtreeIfNeeded()
+        XCTAssertLessThanOrEqual(limited.fittingSize.height, 400,
+                                 "超高内容必须能滚动，否则窗口会被钳制、玻璃露出直边")
+        XCTAssertEqual(limited.fittingSize.width, 420, accuracy: 1)
+    }
+
+    /// 内容不高时不该凭空长出空白——面板仍然贴着内容。
+    func test内容不高时面板还是贴着内容() throws {
+        let short = Text("一行").frame(height: 30)
+        let view = NSHostingView(rootView: short.authorizationPanel(width: 420, maxHeight: 900))
+        view.layoutSubtreeIfNeeded()
+        XCTAssertLessThan(view.fittingSize.height, 200, "短内容不该被撑到 maxHeight")
+    }
+
+    /// 磨砂要铺满可见内容区，两种高度下都要。
+    func test两种高度下磨砂都铺满() throws {
+        for (height, maxHeight) in [(20.0, 900.0), (4000.0, 400.0)] {
+            let content = Color.clear.frame(height: height)
+            let view = NSHostingView(rootView: content.authorizationPanel(width: 420, maxHeight: maxHeight))
+            view.frame = NSRect(origin: .zero, size: view.fittingSize)
+            view.layoutSubtreeIfNeeded()
+            let glass = try XCTUnwrap(AuthorizationWindowChromeTests.visualEffectViews(in: view).first)
+            let rect = glass.convert(glass.bounds, to: view)
+            XCTAssertEqual(rect.height, view.bounds.height, accuracy: 1, "高度 \(height)")
+            XCTAssertEqual(rect.width, view.bounds.width, accuracy: 1, "高度 \(height)")
+        }
     }
 }

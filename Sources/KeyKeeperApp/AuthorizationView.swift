@@ -283,9 +283,16 @@ struct AuthorizationView: View {
         .padding(.top, 40)   // the window's traffic lights sit in this band
         .padding(.bottom, 22)
         // Frosted like a system prompt, and the same surface as the save confirmations.
-        // The glass fills the window, not just the content, so opening the caller details
-        // can't leave a bare strip with square corners.
-        .glassPanel(width: 420)
+        // Capped at what the screen can show: expanded caller details used to make the window
+        // taller than the display, and a clamped window shows only the middle of the glass —
+        // which reads as four square corners.
+        .authorizationPanel(width: 420, maxHeight: Self.availableHeight)
+    }
+
+    /// What the screen can actually show, leaving room for the menu bar and a margin.
+    static var availableHeight: CGFloat {
+        let visible = NSScreen.main?.visibleFrame.height ?? 900
+        return max(360, visible - 80)
     }
 
     private var callerName: String {

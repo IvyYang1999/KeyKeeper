@@ -151,6 +151,21 @@ extension View {
         frame(width: width)
             .glassWindowBackground(intensity: intensity)
     }
+
+    /// A panel that never needs to be taller than the space it has.
+    ///
+    /// 【曾经的 bug】yyt 2026-09-13 晚：展开「调用方详情」后整扇窗变成直角。The glass draws a
+    /// rounded rectangle sized to the *content*; once the content is taller than the screen the
+    /// window gets clamped and only the middle band of that rectangle is visible — four straight
+    /// edges. Scrolling the overflow keeps the window inside the screen, so the glass corners are
+    /// always the window's corners. The height is only a ceiling: short content still hugs.
+    func authorizationPanel(width: CGFloat, maxHeight: CGFloat, intensity: Double = 1) -> some View {
+        ScrollView(.vertical) { self.frame(width: width) }
+            .frame(width: width)
+            .frame(maxHeight: maxHeight)
+            .scrollBounceBehavior(.basedOnSize)
+            .glassWindowBackground(intensity: intensity)
+    }
 }
 
 /// Small grey section heading used across the glass surfaces.
