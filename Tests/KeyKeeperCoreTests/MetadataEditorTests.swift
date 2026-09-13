@@ -56,6 +56,31 @@ final class MetadataEditorTests: XCTestCase {
         XCTAssertEqual(try metaStore.load().credentials["baidu-qianfan"]?.fields["region"]?.value, "bj", "非密字段原样搬过去")
     }
 
+    /// 【曾经的 bug】yyt 的库里有 49 条凭据的值在 9 月那次钥匙串重建中丢了。改名前的完整性
+    /// 检查是全库范围的，于是**任何一条**凭据都改不动，连值齐全的那几条也不行。
+    /// 检查应该只看正在编辑的这一条。
+    func test曾经的Bug别的凭据缺值不该挡住这一条的改名() throws {
+        var meta = try metaStore.load()
+        meta.credentials["broken"] = Credential(label: "Broken", notes: "", links: [],
+                                                fields: ["lost": CredentialField(secret: true)],
+                                                security: .standard, created: "2026-09-01", updated: "2026-09-01")
+        try metaStore.save(meta)   // 钥匙串里从来没有 broken.lost 的值
+
+        let result = try editor().apply(MetadataEdit(newGroupId: "baidu-qianfan"), groupId: "百度千帆")
+        XCTAssertEqual(result.groupId, "baidu-qianfan")
+        XCTAssertEqual(try service.retrieve(credentialId: "baidu-qianfan", fieldName: "cc"), "synthetic-value")
+    }
+
+    /// 反过来：正在编辑的这一条自己缺值时，仍然要拦住——否则改名会把缺口固化。
+    func test这一条自己缺值时仍然拦住() throws {
+        var meta = try metaStore.load()
+        meta.credentials["百度千帆"]?.fields["missing"] = CredentialField(secret: true)
+        try metaStore.save(meta)
+
+        XCTAssertThrowsError(try editor().apply(MetadataEdit(newGroupId: "baidu-qianfan"), groupId: "百度千帆"))
+        XCTAssertNotNil(try metaStore.load().credentials["百度千帆"], "没改成，原样留着")
+    }
+
     func test只改标题备注不碰钥匙串() throws {
         let writes = io.writeCount
         _ = try editor().apply(MetadataEdit(title: "百度千帆 · 学术", fieldDisplayNames: ["cc": "API Key"]), groupId: "百度千帆")

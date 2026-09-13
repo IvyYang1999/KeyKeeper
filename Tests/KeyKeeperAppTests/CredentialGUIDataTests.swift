@@ -165,7 +165,8 @@ final class CredentialGUIDataTests: XCTestCase {
             "removed": CredentialField(secret: true)
         ])
         try store.save(MetaFile(credentials: ["service": existing]))
-        let session = FakeCredentialSession()
+        // 两个字段的值都真的存着：缺值的凭据在补录之前不允许做别的改动。
+        let session = FakeCredentialSession(values: ["service.kept": "a", "service.removed": "b"])
         session.onOperation = { [store] operation in
             guard case .delete = operation else { return }
             XCTAssertNotNil(try store?.load().credentials["service"]?.fields["removed"])
@@ -310,6 +311,42 @@ final class CredentialGUIDataTests: XCTestCase {
         XCTAssertEqual(try grants.grants(credentialId: "svc").map(\.fields), [["deploy-token"]])
     }
 
+    /// 【曾经的 bug】库里只要有一条凭据缺值（yyt 有 49 条），编辑页对**任何**凭据都拒绝保存，
+    /// 连补录都做不了。完整性检查应该只管这次编辑真正要动的值。
+    func test曾经的Bug别的凭据缺值不该挡住这一条的编辑() throws {
+        let session = FakeCredentialSession(values: ["svc.token": "opaque"])
+        session.storageIncomplete = true       // 别的凭据缺值，全局检查会抛错
+        let credential = makeCredential(fields: ["token": CredentialField(secret: true)])
+        try store.save(.init(credentials: [
+            "svc": credential,
+            "broken": makeCredential(fields: ["lost": CredentialField(secret: true)]),   // 钥匙串里没有它的值
+        ]))
+        let vm = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store)
+        vm.isEditing = true
+        vm.credential.notes = "改个备注"
+
+        XCTAssertTrue(vm.saveChanges(), vm.errorMessage ?? "")
+        XCTAssertEqual(try store.load().credentials["svc"]?.notes, "改个备注")
+    }
+
+    /// 自己这条的值缺了，就不能靠「改名」把值搬走——搬无可搬。补录新值仍然允许。
+    func test缺值的字段不能改名但可以补录() throws {
+        let session = FakeCredentialSession()
+        let credential = makeCredential(fields: ["token": CredentialField(secret: true)])
+        try store.save(.init(credentials: ["svc": credential]))
+
+        let rename = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store)
+        rename.isEditing = true
+        rename.fields[0].name = "renamed"
+        XCTAssertFalse(rename.saveChanges(), "值不在，改名会把缺口固化")
+
+        let refill = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store)
+        refill.isEditing = true
+        refill.fields[0].value = "re-entered"
+        XCTAssertTrue(refill.saveChanges(), refill.errorMessage ?? "")
+        XCTAssertEqual(session.values["svc.token"], "re-entered")
+    }
+
     private func makeCredential(fields: [String: CredentialField]) -> Credential {
         Credential(
             label: "Service",
@@ -422,6 +459,17 @@ private final class FakeCredentialSession: CredentialSessionManaging {
         for (name, value) in values.sorted(by: { $0.key < $1.key }) {
             try save(credentialId: credentialId, fieldName: name, value: value, security: security)
         }
+    }
+
+    /// 模拟真实存储的全局完整性检查：库里有别的凭据缺值时它会抛错。
+    var storageIncomplete = false
+
+    func validateStorage() throws {
+        if storageIncomplete { throw CredentialStorageError.incompleteStore }
+    }
+
+    func storedFieldNames(credentialId: String) throws -> Set<String> {
+        Set(values.keys.filter { $0.hasPrefix("\(credentialId).") }.map { String($0.dropFirst(credentialId.count + 1)) })
     }
 
     func copyValues(fromCredentialId: String, toCredentialId: String, fieldMap: [String: String]) throws {

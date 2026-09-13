@@ -137,7 +137,7 @@ final class CredentialDetailViewModel: ObservableObject {
     @discardableResult
     func saveChanges() -> Bool {
         do {
-            try CredentialOperationMessages.requireWritableStorage(session)
+            try CredentialOperationMessages.requireUnlocked(session)
             var meta = try store.load()
             let existingFields = meta.credentials[credentialId]?.fields ?? [:]
             for (name, field) in existingFields where field.fileFormat != nil {
@@ -171,6 +171,27 @@ final class CredentialDetailViewModel: ObservableObject {
                     plan.metadata.fields[entry.name]?.displayName = value
                     displayNamesChanged = true
                 }
+            }
+
+            // Completeness is judged for this credential only: a store where *other* credentials
+            // lost their values must not block editing a healthy one. Within this credential the
+            // old protection stands — metadata is the last record of what went missing — except
+            // for the edit that fixes it: typing the value back in.
+            do {
+                // Fail closed: if the store can't even be read (the whole Keychain item is gone),
+                // nothing may be written — that is the recovery case this protection exists for.
+                let stored = try session.storedFieldNames(credentialId: credentialId)
+                let missing = Set(existingFields.filter { $0.value.secret }.keys).subtracting(stored)
+                let supplied = Set(plan.valueWrites.map(\.fieldName))
+                let unresolved = missing.filter { !supplied.contains($0) && !supplied.contains(plan.fieldRenames[$0] ?? $0) }
+                if !unresolved.isEmpty {
+                    errorMessage = L("\u{201C}\(unresolved.sorted().joined(separator: ", "))\u{201D} has no stored value. Type the value back in to save this credential; other changes stay blocked until then, so the record of what went missing is kept.")
+                    return false
+                }
+            } catch let error as ClipboardSaveError where error == .storageUnavailable {
+                // A session that cannot enumerate its store (test doubles, legacy providers):
+                // fall back to the whole-store check rather than skipping verification.
+                try CredentialOperationMessages.requireWritableStorage(session)
             }
 
             // Renames first: the old value must be copied before deletions remove it.

@@ -226,6 +226,7 @@ class AddCredentialViewModel: ObservableObject {
             formatter.dateFormat = "yyyy-MM-dd"
             let now = formatter.string(from: Date())
 
+            if !values.isEmpty { meta.storeInitialized = true }
             meta.credentials[credentialId] = Credential(
                 label: label, notes: notes,
                 links: [],

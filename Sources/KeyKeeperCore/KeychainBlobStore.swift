@@ -264,7 +264,7 @@ public final class KeychainBlobStore: @unchecked Sendable {
     private func loadBlob() throws -> Blob {
         guard let data = try io.readBlob() else {
             let meta = try loadMetadata()
-            let expectsValues = meta.credentials.values.contains { credential in
+            let expectsValues = meta.storeInitialized == true || meta.credentials.values.contains { credential in
                 credential.fields.values.contains { $0.secret }
             }
             guard !hasObservedStore && !expectsValues else { throw CredentialStorageError.missingStore }
@@ -361,6 +361,10 @@ public final class KeychainCredentialService: @unchecked Sendable {
         try store.delete(credentialId: credentialId, fieldName: fieldName)
     }
 
+    public func storedFieldNames(credentialId: String) throws -> Set<String> {
+        try store.fieldNamesByCredential()[credentialId] ?? []
+    }
+
     public func copyValues(fromCredentialId: String, toCredentialId: String, fieldMap: [String: String]) throws {
         try store.copyValues(fromCredentialId: fromCredentialId, toCredentialId: toCredentialId, fieldMap: fieldMap)
     }
@@ -371,3 +375,16 @@ public final class KeychainCredentialService: @unchecked Sendable {
 }
 
 extension KeychainCredentialService: CredentialSessionManaging {}
+
+/// Remembers that this machine has had a Keychain store, so the "never recreate an empty
+/// store" guard keeps working even when every field happens to be plain at the moment.
+/// Write-once: the mark is never removed, because "I saw values here" stays true.
+public enum StoreInitializationMarker {
+    /// The metadata to save, or nil when nothing needs writing.
+    public static func updated(_ meta: MetaFile, hasStoredValues: Bool) -> MetaFile? {
+        guard hasStoredValues, meta.storeInitialized != true else { return nil }
+        var updated = meta
+        updated.storeInitialized = true
+        return updated
+    }
+}

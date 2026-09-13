@@ -53,10 +53,18 @@ public struct Credential: Codable, Sendable {
 
 public struct MetaFile: Codable, Sendable {
     public var version: Int
+    /// Set the first time a Keychain store is written on this machine, and never cleared.
+    ///
+    /// The "never recreate an empty store" guard used to ask "does metadata still name a
+    /// secret?". Once fields can move between secret and plain, a vault can hold no secrets at
+    /// all for a while — and the guard would switch itself off exactly when a missing Keychain
+    /// item should have stopped everything (2026-09: 49 credentials lost their values that way).
+    public var storeInitialized: Bool?
     public var credentials: [String: Credential]
 
-    public init(version: Int = 1, credentials: [String: Credential] = [:]) {
+    public init(version: Int = 1, storeInitialized: Bool? = nil, credentials: [String: Credential] = [:]) {
         self.version = version
+        self.storeInitialized = storeInitialized
         self.credentials = credentials
     }
 }

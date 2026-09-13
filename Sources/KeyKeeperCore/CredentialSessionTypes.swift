@@ -35,6 +35,10 @@ public protocol CredentialSessionManaging: AnyObject {
         security: SecurityLevel
     ) throws
     func delete(credentialId: String, fieldName: String) throws
+    /// Which of one credential's fields actually have a stored value. Lets a single-credential
+    /// operation check its own completeness instead of the whole store — 49 credentials that
+    /// lost their values in a Keychain rebuild must not block editing the healthy ones.
+    func storedFieldNames(credentialId: String) throws -> Set<String>
     /// Rename support: copy values to new names keeping the originals, then drop the originals.
     func copyValues(fromCredentialId: String, toCredentialId: String, fieldMap: [String: String]) throws
     func dropValues(credentialId: String, fieldNames: [String]) throws
@@ -46,6 +50,10 @@ extension CredentialSessionManaging {
     public func validateStorage() throws {}
     // Older providers must opt into atomic create; never emulate it with overwrite-capable saves.
     public func createCredential(credentialId: String, values: [String: String], security: SecurityLevel) throws {
+        throw ClipboardSaveError.storageUnavailable
+    }
+    // Providers that cannot enumerate their store refuse the scoped check rather than pretend.
+    public func storedFieldNames(credentialId: String) throws -> Set<String> {
         throw ClipboardSaveError.storageUnavailable
     }
     // Renames need the two-step copy/drop; providers without it refuse rather than emulate.

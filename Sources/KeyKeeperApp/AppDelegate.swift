@@ -29,6 +29,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.setActivationPolicy(.accessory)
         }
 
+        // Record once that this machine has a Keychain store, so the "never recreate an empty
+        // store" guard survives a vault whose fields are all plain at the moment.
+        markStoreInitializedIfNeeded()
+
         // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
         ipcServer = IPCServer(session: credentialService,
             clipboardSaveController: ClipboardSaveController(service: credentialService),
@@ -315,6 +319,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             activatePopover()
         }
+    }
+
+    private func markStoreInitializedIfNeeded() {
+        let store = MetaStore.default
+        guard let meta = try? store.load(),
+              let inventory = try? credentialService.fieldNamesByCredential(),
+              let updated = StoreInitializationMarker.updated(meta, hasStoredValues: inventory.values.contains { !$0.isEmpty })
+        else { return }
+        try? store.save(updated)
     }
 
     // MARK: - Status bar menu (right-click)

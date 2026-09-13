@@ -141,6 +141,7 @@ extension AppL10n {
         "\u{201C}{0}\u{201D} is a secret field. Change it in KeyKeeper, where the value stays in the Keychain.": "「{0}」是机密字段。请在 KeyKeeper 里改，值始终留在钥匙串。",
         "Plain field {0} = {1}": "明文字段 {0} = {1}",
         "Plain field {0} removed": "删掉了明文字段 {0}",
+        "\u{201C}{0}\u{201D} has no stored value. Type the value back in to save this credential; other changes stay blocked until then, so the record of what went missing is kept.": "「{0}」现在没有存着的值。把值填回去才能保存这条凭据；在那之前其它改动都挡着，好让「丢了什么」这条线索留着。",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",

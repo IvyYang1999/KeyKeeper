@@ -34,7 +34,9 @@ public struct MetadataEditor {
         let movesValues = !secretFields.isEmpty && (oldId != newId || secretFields.contains { result.fieldMap[$0] != nil })
 
         if movesValues {
-            try session.validateStorage()
+            // Only this credential has to be complete; the rest of the store is not our business.
+            let stored = try session.storedFieldNames(credentialId: oldId)
+            guard Set(secretFields).isSubset(of: stored) else { throw CredentialStorageError.incompleteStore }
             try session.copyValues(fromCredentialId: oldId, toCredentialId: newId, fieldMap: result.fieldMap)
         }
         try metaStore.save(result.meta)

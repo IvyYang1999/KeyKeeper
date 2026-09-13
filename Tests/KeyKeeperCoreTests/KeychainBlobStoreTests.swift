@@ -222,4 +222,43 @@ final class KeychainCredentialServiceTests: XCTestCase {
         try service.delete(credentialId: "c", fieldName: "f")
         XCTAssertThrowsError(try service.retrieve(credentialId: "c", fieldName: "f"))
     }
+
+    /// 【曾经的风险】「绝不自动重建空库」原本只看「meta 里还有没有机密字段」。非机密字段能
+    /// 互转之后，一条库可能一个机密字段都不剩，防线随之关闭：此时钥匙串条目读不到（误删、
+    /// 换机器只同步了 meta），就会静默新建一个空条目——正是 2026-09 丢掉 49 个值的那条路。
+    /// 只要这份 meta 记着「这台机器上曾经建过库」，就得一直守着。
+    func test曾经的风险全是明文字段时也不自动重建空库() throws {
+        let meta = MetaFile(storeInitialized: true, credentials: [
+            "notary": Credential(label: "Notary", notes: "", links: [],
+                                 fields: ["apple-id": CredentialField(value: "a@b.invalid", secret: false)],
+                                 security: .standard, created: "2026-09-13", updated: "2026-09-13"),
+        ])
+        let io = FakeBlobIO()          // 钥匙串里什么都读不到
+        let store = KeychainBlobStore(io: io, loadMetadata: { meta })
+
+        XCTAssertThrowsError(try store.save(credentialId: "notary", fieldName: "token", value: "v")) { error in
+            guard case CredentialStorageError.missingStore = error else {
+                return XCTFail("应该拒绝并提示恢复钥匙串，实际 \(error)")
+            }
+        }
+        XCTAssertNil(io.blob, "绝不能新建一个空条目")
+    }
+
+    /// 全新的机器、从没建过库：正常建得起来。
+    func test全新的库仍然可以建起来() throws {
+        let io = FakeBlobIO()
+        let store = KeychainBlobStore(io: io, loadMetadata: { MetaFile() })
+        XCTAssertNoThrow(try store.createCredential(credentialId: "new", values: ["token": "v"]))
+        XCTAssertNotNil(io.blob)
+    }
+
+    func test曾经有过库这个标记只加不减() {
+        // 库里有值 → 打上标记
+        XCTAssertEqual(StoreInitializationMarker.updated(MetaFile(), hasStoredValues: true)?.storeInitialized, true)
+        // 已经有标记 → 不用重写
+        XCTAssertNil(StoreInitializationMarker.updated(MetaFile(storeInitialized: true), hasStoredValues: true))
+        // 读不到值时绝不打标记，也绝不清掉已有的标记
+        XCTAssertNil(StoreInitializationMarker.updated(MetaFile(), hasStoredValues: false))
+        XCTAssertNil(StoreInitializationMarker.updated(MetaFile(storeInitialized: true), hasStoredValues: false))
+    }
 }
