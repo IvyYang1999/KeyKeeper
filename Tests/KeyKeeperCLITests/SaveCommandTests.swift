@@ -58,7 +58,8 @@ final class SaveCommandTests: XCTestCase {
         let data = try JSONEncoder().encode(IPCRequest.clipboardSave(request))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let payload = try XCTUnwrap(json["data"] as? [String: Any])
-        XCTAssertEqual(Set(payload.keys), ["credentialId", "fieldName", "create"])
+        // 请求里只有「存到哪儿」和「怎么收」——没有值、没有剪贴板文本、没有自称身份。
+        XCTAssertEqual(Set(payload.keys), ["credentialId", "fieldName", "create", "useCurrentClipboard"])
         guard case .clipboardSave(let decoded) = try JSONDecoder().decode(IPCRequest.self, from: data) else { return XCTFail() }
         XCTAssertEqual(decoded, request)
         XCTAssertTrue(IPCLaunchPolicy.shouldLaunchApp(for: .clipboardSave(request)))

@@ -67,11 +67,16 @@ struct TrustPromptModel: Equatable {
             source = Row(label: L("Source"), value: L("Browser paste page on this Mac"))
             assurance = L("\(caller) never sees the value, and nothing is overwritten.")
             details = [L("Save the value just pasted into the local browser receiver. No value is shown to the caller. Nothing is overwritten and no read permission is granted. Website identity is not verified. This request expires in 90 seconds.")]
-        } else {
+        } else if request.useCurrentClipboard {
             title = L("Save what you just copied?")
             source = Row(label: L("Source"), value: L("Clipboard"))
             assurance = L("\(caller) never sees the value. Nothing is overwritten, and the clipboard is cleared after saving.")
             details = [L("The App will read your current clipboard. No value is shown to the caller. Nothing is overwritten and no read permission is granted. The clipboard is cleared after saving. This request expires in 90 seconds.")]
+        } else {
+            title = L("Copy the value now, then save it?")
+            source = Row(label: L("Source"), value: L("Clipboard · copied after this request"))
+            assurance = L("\(caller) never sees the value. Nothing is overwritten, and the clipboard is cleared after saving.")
+            details = [L("Copy the value first, then approve. Whatever was on the clipboard before this request is refused — it may have been replaced since you copied it. The App reads the clipboard only after you approve. This request expires in 90 seconds.")]
         }
         if info.filePath != nil {
             details.append(L("Nothing is overwritten and no read permission is granted. If the file changes, this save is refused. This request expires in 90 seconds."))

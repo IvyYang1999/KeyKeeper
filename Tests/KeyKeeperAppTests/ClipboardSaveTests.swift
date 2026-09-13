@@ -19,7 +19,10 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
     var text: String? = "synthetic-import"
     var reads = 0
     var clears = 0
-    func readText() -> String? { reads += 1; return text }
+    var requiresFreshCopy = true
+    /// Simulates the clipboard being replaced during the read itself.
+    var mutateOnRead: (() -> Void)?
+    func readText() -> String? { reads += 1; mutateOnRead?(); return text }
     func clearIfUnchanged(since count: Int) {
         if count == changeCount { text = nil; changeCount += 1; clears += 1 }
     }
@@ -52,10 +55,16 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         controller = nil
         try FileManager.default.removeItem(at: directory)
     }
-    private func request(create: Bool = true, expect: String? = nil) {
-        controller.receive(.init(credentialId: "fixture", fieldName: "key", create: create, expect: expect),
+    private func request(create: Bool = true, expect: String? = nil, useCurrentClipboard: Bool = true) {
+        controller.receive(.init(credentialId: "fixture", fieldName: "key", create: create, expect: expect,
+                                 useCurrentClipboard: useCurrentClipboard),
             callerName: "Test caller",
             isConnected: { self.connected }, completion: { self.results.append($0) })
+    }
+    /// 复制一次：内容变了，changeCount 也跟着涨。
+    private func copyToClipboard(_ text: String) {
+        clipboard.text = text
+        clipboard.changeCount += 1
     }
     private func credential() -> Credential {
         .init(label: "Existing", notes: "keep", links: [], fields: ["key": .init(secret: true)],
@@ -156,6 +165,7 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
                 XCTAssertTrue(info.fromBrowser); presentations += 1
             }, dismiss: {})
         let browserSource = SaveTestClipboard()
+        browserSource.requiresFreshCopy = false   // 浏览器粘贴页自己持有内容，不是共享的系统剪贴板
         browserSource.text = "synthetic-browser"
         controller.receive(.init(credentialId: "fixture", fieldName: "key", create: true), callerName: "Test",
             isConnected: { self.connected }, source: browserSource, deferPresentation: true,
@@ -317,6 +327,49 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         XCTAssertEqual(results.first?.errorCode, .invalidExpectation)
         XCTAssertFalse(controller.isPending, "连弹窗都不该弹")
         XCTAssertEqual(clipboard.reads, 0)
+    }
+
+
+    // MARK: 新鲜度的零点在「请求之后你有没有复制过」
+
+    /// 【真实事故的根因】原来的检查要求剪贴板从请求到批准**一直不变**，也就是说被认可的
+    /// 永远是「请求到达时躺在那儿的东西」。那次误复制发生在请求之前，所以每一道检查都如实
+    /// 通过了。现在默认要求「请求之后至少复制过一次」——请求之前躺着什么都不算数。
+    func test默认要求请求之后再复制一次() throws {
+        request(useCurrentClipboard: false)
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.first?.errorCode, .clipboardNotCopiedYet)
+        XCTAssertEqual(io.writes, 0)
+        XCTAssertEqual(clipboard.reads, 0, "没复制就别读人家剪贴板")
+    }
+
+    func test请求之后复制了就正常存() throws {
+        request(useCurrentClipboard: false)
+        copyToClipboard("copied-after-the-request")
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.first?.success, true)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "copied-after-the-request")
+    }
+
+    /// 剪贴板管理器、密码管理器的定时清空都会自己顶 changeCount，所以判据是「至少变过一次」，
+    /// 不是「恰好变过一次」——否则误报会很密。
+    func test中间被别的程序顶过也算数() throws {
+        request(useCurrentClipboard: false)
+        copyToClipboard("something-else")
+        copyToClipboard("the-real-value")
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.first?.success, true)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "the-real-value")
+    }
+
+    /// 读取的那一瞬间仍然要稳定：读之前和读之后必须是同一份内容。
+    func test读取窗口内被改掉仍然拒绝() throws {
+        request(useCurrentClipboard: false)
+        copyToClipboard("first")
+        clipboard.mutateOnRead = { self.clipboard.changeCount += 1 }
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.first?.errorCode, .clipboardChanged)
+        XCTAssertEqual(io.writes, 0)
     }
 
 }

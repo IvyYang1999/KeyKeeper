@@ -13,12 +13,21 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
     /// key and reported success. Declaring the shape costs the caller nothing and can only ever
     /// cause a refusal, never a wider permission — so it is safe to accept from any process.
     public var expect: String?
+    /// Accept whatever is already on the clipboard instead of waiting for a fresh copy.
+    ///
+    /// The default is to require a copy AFTER the request, because "whatever was lying on the
+    /// clipboard when the command ran" is exactly what went wrong on 2026-09-13: a copy the user
+    /// had made minutes earlier had already been replaced by something else. Ordinal freshness is
+    /// all macOS offers — NSPasteboard exposes changeCount and no timestamp at all.
+    public var useCurrentClipboard: Bool
 
-    public init(credentialId: String, fieldName: String, create: Bool = false, expect: String? = nil) {
+    public init(credentialId: String, fieldName: String, create: Bool = false,
+                expect: String? = nil, useCurrentClipboard: Bool = false) {
         self.credentialId = credentialId
         self.fieldName = fieldName
         self.create = create
         self.expect = expect
+        self.useCurrentClipboard = useCurrentClipboard
     }
 
     public func validate() throws {
@@ -39,7 +48,7 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
     case invalidSource, unsupportedSource, sourceParserUnavailable
     case invalidFile, fileChanged, wrongFieldType
     case invalidTarget, valueExists, targetNotFound, metadataChanged, clipboardChanged
-    case invalidExpectation, shapeMismatch
+    case invalidExpectation, shapeMismatch, clipboardNotCopiedYet
     case emptyClipboard, busy, denied, expired, disconnected, storageUnavailable, metadataCommitFailed, staleGrants
     public var errorDescription: String? {
         switch self {
@@ -56,6 +65,7 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
         case .clipboardChanged: return "Clipboard changed while awaiting approval. Copy the intended key and try again."
         case .invalidExpectation: return "Use --expect base64[:BYTES], hex[:BYTES], bytes:N or chars:N. Nothing was read or saved."
         case .shapeMismatch: return "The value does not look like what you said to expect, so nothing was saved. Check what is actually on the clipboard."
+        case .clipboardNotCopiedYet: return "Nothing was copied after this request started, so nothing was saved. Copy the value now and run the command again — what was already on the clipboard is not accepted, because it may have been replaced since you copied it."
         case .emptyClipboard: return "Clipboard must contain nonempty text no larger than 64 KiB."
         case .busy: return "Another confirmation is pending. Finish it before requesting a save."
         case .denied: return "Save cancelled. Nothing was saved."

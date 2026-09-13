@@ -3,6 +3,9 @@ import KeyKeeperCore
 
 @MainActor protocol ClipboardSaveSource: AnyObject {
     var changeCount: Int { get }
+    /// True for the shared system clipboard, where "what is there now" is not evidence that the
+    /// user put it there for this request. The browser and file sources own their own content.
+    var requiresFreshCopy: Bool { get }
     var fileFormat: CredentialFileFormat? { get }
     var displayFilePath: String? { get }
     var pythonSymbol: String? { get }
@@ -11,6 +14,7 @@ import KeyKeeperCore
 }
 
 extension ClipboardSaveSource {
+    var requiresFreshCopy: Bool { false }
     var fileFormat: CredentialFileFormat? { nil }
     var displayFilePath: String? { nil }
     var pythonSymbol: String? { nil }
@@ -18,6 +22,7 @@ extension ClipboardSaveSource {
 
 @MainActor final class SystemClipboardSaveSource: ClipboardSaveSource {
     var changeCount: Int { NSPasteboard.general.changeCount }
+    var requiresFreshCopy: Bool { true }
     func readText() -> String? { NSPasteboard.general.string(forType: .string) }
     func clearIfUnchanged(since count: Int) { SecretPasteboard.clearIfUnchanged(since: count) }
 }
@@ -125,13 +130,27 @@ extension ClipboardSaveSource {
             guard try canonical(metadata) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
             try validateTarget(request, metadata: metadata, fileFormat: clipboard.fileFormat)
             let changed: ClipboardSaveError = clipboard.displayFilePath == nil ? .clipboardChanged : .fileChanged
-            guard clipboard.changeCount == pending.changeCount else { throw changed }
+            // Two different questions, and the old code asked only the second one.
+            //   1. Did the user copy something FOR this request? Ordinal freshness: the count must
+            //      have moved at least once since the request started. "At least once" and not
+            //      "exactly once" — clipboard managers and password managers bump it too.
+            //   2. Did the content hold still while we read it? That is the equality check, taken
+            //      around the read itself rather than against the request's own baseline.
+            let requiresFreshCopy = clipboard.requiresFreshCopy && !request.useCurrentClipboard
+            if requiresFreshCopy {
+                guard clipboard.changeCount != pending.changeCount else {
+                    throw ClipboardSaveError.clipboardNotCopiedYet
+                }
+            } else {
+                guard clipboard.changeCount == pending.changeCount else { throw changed }
+            }
+            let countAtRead = clipboard.changeCount
             // No pasteboard string is fetched until the target and one-time approval are validated.
             guard let value = try clipboard.readText(), value.utf8.count <= 65_536,
                   !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw ClipboardSaveError.emptyClipboard
             }
-            guard clipboard.changeCount == pending.changeCount else { throw changed }
+            guard clipboard.changeCount == countAtRead else { throw changed }
             // What the caller said to expect, checked before a single byte is written. The
             // clipboard is a shared, racy channel: what the user copied is not always what is
             // there when the save runs, and "saved" must not mean "stored whatever was there".
@@ -160,7 +179,7 @@ extension ClipboardSaveSource {
             guard try service.retrieve(credentialId: request.credentialId, fieldName: request.fieldName) == value else {
                 throw ClipboardSaveError.storageUnavailable
             }
-            clipboard.clearIfUnchanged(since: pending.changeCount)
+            clipboard.clearIfUnchanged(since: countAtRead)
             finish(.init(success: true, shape: shape))
             NotificationCenter.default.post(name: .clipboardCredentialSaved, object: nil)
         } catch {

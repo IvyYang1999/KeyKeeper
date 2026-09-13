@@ -22,6 +22,8 @@ struct SaveCommand: ParsableCommand {
     var create = false
     @Option(help: "What the value should look like: base64[:BYTES], hex[:BYTES], bytes:N or chars:N. Refuses the save if it does not match, before anything is written.")
     var expect: String?
+    @Flag(help: "Accept whatever is already on the clipboard. By default KeyKeeper waits for a copy made after this command starts, because what is already there may have been replaced since you copied it.")
+    var useCurrentClipboard = false
 
     mutating func validate() throws {
         guard [fromClipboard, fromBrowser, fromFile != nil, fromSource != nil].filter({ $0 }).count == 1 else {
@@ -37,7 +39,8 @@ struct SaveCommand: ParsableCommand {
         }
     }
     var request: ClipboardSaveRequest {
-        .init(credentialId: credential, fieldName: field, create: create, expect: expect)
+        .init(credentialId: credential, fieldName: field, create: create, expect: expect,
+              useCurrentClipboard: useCurrentClipboard)
     }
 
     /// What went in, without saying what it is. The clipboard is a shared channel and a save
@@ -63,6 +66,10 @@ struct SaveCommand: ParsableCommand {
             guard result.success else { throw CommandFailure(result.errorCode?.localizedDescription ?? "Save failed.") }
             print("Saved credential file. Original file retained. No read permission was granted.")
             return
+        }
+        if fromClipboard && !useCurrentClipboard {
+            print("Copy the value NOW, then confirm in KeyKeeper. Anything already on the clipboard is not accepted — it may have been replaced since you copied it.")
+            fflush(stdout)
         }
         let result = try IPCClient.requestClipboardSave(request, fromBrowser: fromBrowser) { url in
             print("Open this single-use URL, paste through the SAME clipboard transport used to copy, then confirm in KeyKeeper. Ordinary Chrome: native Copy + native Paste; do not mix browser-tool and system clipboards:")
