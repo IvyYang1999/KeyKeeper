@@ -315,7 +315,9 @@ struct BrowserExtensionSetupCard: View {
             Text(L("Then let KeyKeeper register the connection. Its extension ID is fixed, so there is nothing to copy."))
                 .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                Button(L("Register the connection")) { connect(replacing: false) }
+                Button(setup.connection == .tamperedWith ? L("Register again") : L("Register the connection")) {
+                    connect(replacing: BrowserExtensionSetup.registrationReplacesExisting(setup.connection))
+                }
                     .disabled(setup.expectedExtensionID == nil)
                 if let id = setup.expectedExtensionID {
                     Text(id).font(.caption.monospaced()).foregroundColor(.secondary).textSelection(.enabled)

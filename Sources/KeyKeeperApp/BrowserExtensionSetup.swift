@@ -61,6 +61,13 @@ struct BrowserExtensionSetup: Equatable {
         return .notRegistered
     }
 
+    /// Registering over a tampered file has to replace it. Install is create-only, so the plain
+    /// "Register" button could never repair a tampered registration — it failed because the file
+    /// exists. 【独立审计 2026-09-13】
+    static func registrationReplacesExisting(_ connection: Connection) -> Bool {
+        connection == .tamperedWith
+    }
+
     /// Registers this Mac's Chrome to talk to exactly one extension. Create-only by default: an
     /// existing registration for a different extension is reported, never replaced silently.
     /// `replacingExisting` is the way back out, and only ever runs from an explicit click.

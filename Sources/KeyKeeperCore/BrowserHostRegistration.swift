@@ -91,13 +91,25 @@ public enum BrowserHostRegistration {
     /// keeps saying "registered". The extension ID was never the interesting field.
     public static func registration(at target: URL = manifestURL(),
                                     expectedLauncher: String?) -> (id: String, intact: Bool)? {
-        guard let id = registeredExtensionID(at: target) else { return nil }
-        guard let expectedLauncher else { return (id, true) }
-        guard let data = try? Data(contentsOf: target),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let path = object["path"] as? String
+        guard let data = try? Data(contentsOf: target) else { return nil }
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let ids = (object?["allowed_origins"] as? [String] ?? []).compactMap(extensionID(fromOrigin:))
+        // 【独立审计 2026-09-13】only `path` used to be compared: a changed type or name still read
+        // "registered", and an extra origin made the file look merely "not registered". The file
+        // exists; if it is not exactly what KeyKeeper writes, somebody else wrote it.
+        guard let object, let id = ids.first else { return ("", false) }
+        guard let expectedLauncher else { return (id, ids.count == 1) }
+        guard let canonicalData = try? manifest(extensionID: id, launcher: expectedLauncher),
+              let canonical = (try? JSONSerialization.jsonObject(with: canonicalData)) as? [String: Any]
         else { return (id, false) }
-        return (id, path == expectedLauncher)
+        return (id, NSDictionary(dictionary: object).isEqual(to: canonical))
+    }
+
+    static func extensionID(fromOrigin origin: String) -> String? {
+        let id = origin
+            .replacingOccurrences(of: "chrome-extension://", with: "")
+            .replacingOccurrences(of: "/", with: "")
+        return id.range(of: #"^[a-p]{32}$"#, options: .regularExpression) != nil ? id : nil
     }
 
     public static func registeredExtensionID(at target: URL = manifestURL()) -> String? {
