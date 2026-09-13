@@ -30,9 +30,9 @@ import KeyKeeperCore
                 var setup = BrowserExtensionSetup(extensionFolder: folder, launcher: launcher, manifestURL: manifest)
                 if name == "connected" { try setup.connect(extensionID: String(repeating: "d", count: 32)) }
                 let view = NSHostingView(rootView:
-                    BrowserExtensionSetupCard(setup: .constant(setup), showsNextStep: true)
+                    BrowserSessionStartCard(setup: .constant(setup), onLogIn: {})
                         .padding(20)
-                        .frame(width: 640))
+                        .frame(width: 680))
                 view.frame = NSRect(origin: .zero, size: view.fittingSize)
                 view.layoutSubtreeIfNeeded()
                 let image = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))

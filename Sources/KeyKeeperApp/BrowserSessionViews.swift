@@ -56,17 +56,15 @@ struct BrowserSessionManagerView: View {
                 HStack(alignment: .firstTextBaseline) {
                     MainPageHeader(
                         title: L("Website sessions"),
-                        subtitle: L("Import only a website you select in the Chrome extension. Each open needs your confirmation and ends after 15 minutes. Account actions are NOT read-only.")
+                        subtitle: L("Let an agent use a website you are already logged in to, without handing over your password. Every window needs your confirmation and closes after 15 minutes — and inside it, an agent can do anything you could, not just read.")
                     )
                     Spacer()
-                    Button(L("Log in here instead")) { showingLogin = true }
                     if !controller.sessions.isEmpty {
                         Button(L("Stop all windows")) { controller.stopAll() }
                     }
                 }
-                BrowserExtensionSetupCard(setup: $setup, showsNextStep: controller.sessions.isEmpty)
                 if controller.sessions.isEmpty {
-                    EmptyView()
+                    BrowserSessionStartCard(setup: $setup, onLogIn: { showingLogin = true })
                 } else {
                     VStack(spacing: 10) {
                         ForEach(controller.sessions) { item in
@@ -92,6 +90,12 @@ struct BrowserSessionManagerView: View {
                             .padding(14)
                             .glassCard()
                         }
+                    }
+                }
+                if !controller.sessions.isEmpty {
+                    HStack(spacing: 10) {
+                        Button(L("Log in to another site here")) { showingLogin = true }
+                        BrowserExtensionStatusLine(setup: $setup)
                     }
                 }
                 if let error = controller.errorCode {
@@ -176,12 +180,90 @@ struct BrowserSessionManagerView: View {
     func dismiss() { presenter.dismiss() }
 }
 
-/// What to do when there is nothing here yet.
+/// The first thing anyone sees on this page, and for a long time the only thing: it used to open
+/// with a three-step Chrome developer-mode procedure and never said what the feature was for.
 ///
-/// The page used to say "use the KeyKeeper extension to request an import" and stop — naming a
-/// thing the person had no way to get. The extension is not on the Chrome Web Store; it ships
-/// inside KeyKeeper.app and has to be loaded by hand. So say that, hand over the folder, and do
-/// the one step that is ours to do: wiring Chrome up to this Mac's KeyKeeper.
+/// Lead with the two ways in, shortest first. The Chrome route's setup stays folded away until
+/// someone picks it — it is a real procedure, but it is not the point of the page.
+struct BrowserSessionStartCard: View {
+    @Binding var setup: BrowserExtensionSetup
+    var onLogIn: () -> Void
+    @State private var showingChromeSteps = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            row(symbol: "person.badge.key",
+                title: L("Log in here"),
+                detail: L("KeyKeeper opens an empty window. You sign in there once, and it keeps that session. Nothing to install."),
+                button: L("Start"),
+                action: onLogIn)
+            GlassSeparator()
+            chromeRow
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    @ViewBuilder
+    private var chromeRow: some View {
+        switch setup.connection {
+        case .missingFromApp:
+            row(symbol: "puzzlepiece.extension",
+                title: L("Bring one over from Chrome"),
+                detail: L("This copy of KeyKeeper does not contain the Chrome extension. Reinstall it from keykeeper.dev."),
+                button: nil, action: {})
+        case .registered:
+            row(symbol: "puzzlepiece.extension",
+                title: L("Bring one over from Chrome"),
+                detail: L("Open the site in Chrome, click the KeyKeeper extension, pick that site and confirm here."),
+                button: nil, action: {})
+        case .notRegistered:
+            VStack(alignment: .leading, spacing: 10) {
+                row(symbol: "puzzlepiece.extension",
+                    title: L("Bring one over from Chrome"),
+                    detail: L("Reuse a site you are already signed in to in Chrome. Needs a one-time setup."),
+                    button: showingChromeSteps ? L("Hide") : L("Set up"),
+                    action: { showingChromeSteps.toggle() })
+                if showingChromeSteps {
+                    BrowserExtensionSetupCard(setup: $setup, showsNextStep: false)
+                }
+            }
+        }
+    }
+
+    private func row(symbol: String, title: String, detail: String,
+                     button: String?, action: @escaping () -> Void) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol).font(.title3).foregroundColor(.secondary).frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.callout.weight(.semibold))
+                Text(detail).font(.callout).foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            if let button { Button(button, action: action) }
+        }
+        .padding(.vertical, 8)
+    }
+}
+
+/// One line under the list, for when the page is no longer empty.
+struct BrowserExtensionStatusLine: View {
+    @Binding var setup: BrowserExtensionSetup
+
+    var body: some View {
+        switch setup.connection {
+        case .registered:
+            Text(L("Chrome is registered. Use the extension there to bring another site over."))
+                .font(.caption).foregroundColor(.secondary)
+        case .notRegistered, .missingFromApp:
+            EmptyView()
+        }
+    }
+}
+
+/// The Chrome side of the setup: where the extension is, and wiring it to this Mac.
 struct BrowserExtensionSetupCard: View {
     @Binding var setup: BrowserExtensionSetup
     var showsNextStep: Bool
