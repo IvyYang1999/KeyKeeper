@@ -76,7 +76,21 @@ final class UpdatePackagingContractTests: XCTestCase {
         let appcastPosition = try XCTUnwrap(prepare.range(of: "generate_appcast"))
         XCTAssertLessThan(notarizePosition.lowerBound, appcastPosition.lowerBound)
         XCTAssertTrue(prepare.contains("sparkle:edSignature="))
-        XCTAssertTrue(prepare.contains("sparkle:signature="))
+        // Sparkle 2 signs the feed as a trailing `<!-- sparkle-signatures: ... -->` comment and
+        // never writes a `sparkle:signature=` attribute, so checking for that attribute is a
+        // guard that can only fire on a correctly signed feed — after the build and notarisation
+        // have already been paid for.
+        XCTAssertTrue(prepare.contains("sparkle-signatures:"))
+        XCTAssertFalse(
+            prepare.contains("sparkle:signature="),
+            "Sparkle 2 never emits sparkle:signature=; checking for it rejects every valid feed"
+        )
+        // generate_appcast resolves a relative -o against the working directory, which is not the
+        // directory the guards below read. Write it where it is checked, and where it is copied from.
+        XCTAssertTrue(
+            prepare.contains("-o \"$UPDATE_DIRECTORY/appcast.xml\""),
+            "the generated appcast must land in the directory the guards verify"
+        )
 
         let publish = try String(
             contentsOf: repositoryRoot.appendingPathComponent("scripts/publish-update.sh"),

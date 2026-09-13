@@ -49,7 +49,7 @@ fi
     --embed-release-notes \
     --maximum-deltas 0 \
     --link "https://github.com/IvyYang1999/KeyKeeper" \
-    -o appcast.xml \
+    -o "$UPDATE_DIRECTORY/appcast.xml" \
     "$UPDATE_DIRECTORY"
 
 EXPECTED_URL="https://github.com/IvyYang1999/KeyKeeper/releases/download/$TAG/KeyKeeper-$VERSION.dmg"
@@ -61,8 +61,13 @@ if ! grep -Fq 'sparkle:edSignature=' "$UPDATE_DIRECTORY/appcast.xml"; then
     echo "ERROR: generated appcast does not sign the update archive" >&2
     exit 1
 fi
-if ! grep -Fq 'sparkle:signature=' "$UPDATE_DIRECTORY/appcast.xml"; then
+# Sparkle 2 signs the feed itself as a trailing comment, not as an attribute.
+if ! grep -Fq 'sparkle-signatures:' "$UPDATE_DIRECTORY/appcast.xml"; then
     echo "ERROR: generated appcast itself is not signed" >&2
+    exit 1
+fi
+if ! grep -Fq 'edSignature:' "$UPDATE_DIRECTORY/appcast.xml"; then
+    echo "ERROR: generated appcast carries no feed signature" >&2
     exit 1
 fi
 
