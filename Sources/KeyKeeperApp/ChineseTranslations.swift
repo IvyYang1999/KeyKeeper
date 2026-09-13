@@ -18,6 +18,16 @@ extension AppL10n {
         "Stop all windows": "停止所有窗口",
         "Import only a website you select in the Chrome extension. Each open needs your confirmation and ends after 15 minutes. Account actions are NOT read-only.": "只导入你在 Chrome 扩展中选择的网站。每次打开都需你确认，15 分钟后结束。账号操作不是只读。",
         "No website sessions yet": "还没有网站登录态",
+        // 在 KeyKeeper 里登录（0.3.4）
+        "Log in here instead": "在 KeyKeeper 里登录",
+        "Log in inside KeyKeeper": "在 KeyKeeper 里登录",
+        "A window opens with nothing in it — none of your browser's logins. Sign in there, press Save, and KeyKeeper keeps that site's session. This does not touch the login you already have in your browser.": "会打开一个空窗口——里面没有你浏览器里的任何登录。在那里登录，点保存，KeyKeeper 就留下这个网站的登录态。这不会动你浏览器里已经有的登录。",
+        "A name you will recognise": "起个你认得出的名字",
+        "Open the login window": "打开登录窗口",
+        "Use the site's address with no path, like https://example.com.": "填网站地址，不要带路径，例如 https://example.com。",
+        "Nothing was saved: no usable login was found for that site. Sign in first, then press Save.": "没有保存：没在这个网站上找到可用的登录态。请先登录，再点保存。",
+        "Log in to {0}": "登录 {0}",
+        "Save this login": "保存这个登录态",
         // 连接 Chrome 扩展（0.3.3）
         "Connect Chrome first": "先连上 Chrome",
         "This needs a Chrome extension. It is not in the Chrome Web Store — it ships inside KeyKeeper.app, so you load it yourself: open chrome://extensions, turn on Developer mode, choose \"Load unpacked\" and pick this folder.": "这个功能需要一个 Chrome 扩展。它没有上架 Chrome 应用商店，而是装在 KeyKeeper.app 里，需要你自己载入：打开 chrome://extensions，打开「开发者模式」，点「加载已解压的扩展程序」，选中下面这个文件夹。",

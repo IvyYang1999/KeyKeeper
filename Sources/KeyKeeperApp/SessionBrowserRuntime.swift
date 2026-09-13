@@ -8,6 +8,18 @@ enum SessionBrowserPolicy {
         return target.scheme == selected.scheme && target.host == selected.host
             && (target.port ?? 443) == (selected.port ?? 443) && target.user == nil && target.password == nil
     }
+    /// Navigation while the person is logging in here.
+    ///
+    /// Playback locks the window to one origin; a login cannot, because almost every login
+    /// leaves it — SSO, a verification page, a third-party identity provider. What stays fixed
+    /// is that the window starts empty, keeps nothing, and only speaks https, so widening the
+    /// range costs nothing that was not already the person's own browsing.
+    static func allowsDuringLogin(_ url: URL) -> Bool {
+        guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
+        return parts.scheme == "https" && parts.user == nil && parts.password == nil
+            && !(parts.host ?? "").isEmpty
+    }
+
     static func cookie(_ input: BrowserSessionCookie, origin: String) throws -> HTTPCookie {
         // Foundation on supported systems cannot reliably round-trip explicit None.
         // Refuse before saving instead of silently changing the site's authentication policy.

@@ -30,4 +30,22 @@ final class SessionBrowserPolicyTests: XCTestCase {
             XCTAssertFalse(SessionBrowserPolicy.allows(URL(string: url)!, origin: "https://app.example.com"))
         }
     }
+
+    /// 在 KeyKeeper 里登录时的导航范围必须比回放宽——几乎所有登录都会跳去身份提供方
+    /// （SSO、验证码、第三方登录）。但也不能什么都放：只走 https，且不接受把用户名密码
+    /// 写在 URL 里的地址。窗口是空的、用完即弃，所以放宽的代价被框住了。
+    func test登录期间只放行https() {
+        for allowed in ["https://example.com/login",
+                        "https://accounts.google.com/o/oauth2/auth",
+                        "https://login.microsoftonline.com/common"] {
+            XCTAssertTrue(SessionBrowserPolicy.allowsDuringLogin(URL(string: allowed)!), allowed)
+        }
+        for blocked in ["http://example.com/login",
+                        "file:///etc/passwd",
+                        "about:blank",
+                        "javascript:alert(1)",
+                        "https://user:pass@example.com/"] {
+            XCTAssertFalse(SessionBrowserPolicy.allowsDuringLogin(URL(string: blocked)!), blocked)
+        }
+    }
 }

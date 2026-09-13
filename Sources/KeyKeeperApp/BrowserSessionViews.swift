@@ -44,6 +44,11 @@ enum BrowserSessionCopy {
 struct BrowserSessionManagerView: View {
     @ObservedObject var controller: BrowserSessionController
     @State private var setup = BrowserExtensionSetup.production()
+    @State private var showingLogin = false
+    @State private var loginSite = ""
+    @State private var loginLabel = ""
+    @State private var loginError: String?
+    @State private var loginWindow: SessionLoginWindow?
 
     var body: some View {
         ScrollView {
@@ -54,6 +59,7 @@ struct BrowserSessionManagerView: View {
                         subtitle: L("Import only a website you select in the Chrome extension. Each open needs your confirmation and ends after 15 minutes. Account actions are NOT read-only.")
                     )
                     Spacer()
+                    Button(L("Log in here instead")) { showingLogin = true }
                     if !controller.sessions.isEmpty {
                         Button(L("Stop all windows")) { controller.stopAll() }
                     }
@@ -96,6 +102,7 @@ struct BrowserSessionManagerView: View {
                     .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 28)
+            .sheet(isPresented: $showingLogin) { loginSheet }
             .padding(.bottom, 24)
             .frame(maxWidth: 720, alignment: .leading)
         }
@@ -104,6 +111,55 @@ struct BrowserSessionManagerView: View {
 
     private func send(_ action: BrowserSessionRequest.Action, id: String) {
         controller.receive(.init(action: action, id: id), caller: "KeyKeeper") { _ in }
+    }
+
+    /// Signing in here instead of importing from Chrome. No extension is involved, and the
+    /// session it makes is independent: signing out in Chrome will not invalidate it.
+    private var loginSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L("Log in inside KeyKeeper")).font(.headline)
+            Text(L("A window opens with nothing in it — none of your browser's logins. Sign in there, press Save, and KeyKeeper keeps that site's session. This does not touch the login you already have in your browser."))
+                .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            TextField("https://example.com", text: $loginSite)
+                .textFieldStyle(.roundedBorder).font(.callout.monospaced())
+            TextField(L("A name you will recognise"), text: $loginLabel)
+                .textFieldStyle(.roundedBorder)
+            if let loginError {
+                Text(loginError).font(.callout).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Spacer()
+                Button(L("Cancel")) { showingLogin = false; loginError = nil }
+                Button(L("Open the login window")) { startLogin() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(loginSite.isEmpty || loginLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+    }
+
+    private func startLogin() {
+        let site = loginSite.trimmingCharacters(in: .whitespacesAndNewlines)
+        let label = loginLabel
+        guard let origin = try? BrowserSessionImport.canonicalOrigin(site) else {
+            loginError = L("Use the site's address with no path, like https://example.com.")
+            return
+        }
+        loginError = nil
+        showingLogin = false
+        let window = SessionLoginWindow(origin: origin, label: label, onSave: { cookies in
+            do {
+                let snapshot = try BrowserSessionCapture.snapshot(origin: origin, label: label, cookies: cookies)
+                try controller.saveLocalLogin(snapshot)
+                loginSite = ""; loginLabel = ""
+            } catch {
+                loginError = L("Nothing was saved: no usable login was found for that site. Sign in first, then press Save.")
+                showingLogin = true
+            }
+        }, onClose: { loginWindow = nil })
+        loginWindow = window
+        window.show()
     }
 }
 

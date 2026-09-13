@@ -93,6 +93,14 @@ struct BrowserSessionPresentation {
         }
     }
 
+    /// A login the person just did in KeyKeeper's own window. The click that ends it is the
+    /// approval: there is no caller to vouch for, and a prompt asking them to confirm what they
+    /// themselves just did would be noise.
+    func saveLocalLogin(_ snapshot: BrowserSessionImport) throws {
+        _ = try store.save(snapshot, now: now())
+        refresh()
+    }
+
     func expireIfNeeded() {
         guard let pending else { return }
         if !pending.connected() { finish(.init(success: false, errorCode: .disconnected)) }
