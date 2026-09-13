@@ -108,6 +108,9 @@ struct AuthorizationView: View {
     @State private var isAuthenticating = false
     @State private var errorMessage: String?
     @State private var showCallerDetails = false
+    /// A click already travelling toward the screen must not land on a window that just appeared.
+    @State private var canApprove = false
+    private let shownAt = Date()
     private let authenticationMethod: AuthenticationMethod
 
     /// What to do after a LocalAuthentication round.
@@ -289,6 +292,13 @@ struct AuthorizationView: View {
         .authorizationPanel(width: 420, maxHeight: Self.availableHeight)
     }
 
+    private func startSettleTimer() {
+        guard !canApprove else { return }
+        let remaining = ApprovalReadiness.settleDelay - Date().timeIntervalSince(shownAt)
+        guard remaining > 0 else { canApprove = true; return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { canApprove = true }
+    }
+
     /// What the screen can actually show, leaving room for the menu bar and a margin.
     static var availableHeight: CGFloat {
         let visible = NSScreen.main?.visibleFrame.height ?? 900
@@ -448,10 +458,10 @@ struct AuthorizationView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(isAuthenticating)
-            .keyboardShortcut(.return)
+            .disabled(isAuthenticating || !canApprove)
         }
         .controlSize(.large)
+        .onAppear { startSettleTimer() }
     }
 
     // MARK: - Service Mode
@@ -599,14 +609,14 @@ struct AuthorizationView: View {
                             try onAuthorizeService?(.once)
                         }
                     }
-                    .disabled(isAuthenticating)
+                    .disabled(isAuthenticating || !canApprove)
 
                     Button(L("1 Hour")) {
                         authenticate {
                             try onAuthorizeService?(.timed(Date().addingTimeInterval(3600)))
                         }
                     }
-                    .disabled(isAuthenticating)
+                    .disabled(isAuthenticating || !canApprove)
 
                     Button {
                         authenticate {
@@ -624,11 +634,11 @@ struct AuthorizationView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(isAuthenticating)
-                    .keyboardShortcut(.return)
+                    .disabled(isAuthenticating || !canApprove)
                 }
             }
         }
+        .onAppear { startSettleTimer() }
     }
 
     /// Runs the grant callback and keeps the window open with the reason when it fails.
