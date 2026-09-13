@@ -6,6 +6,7 @@ if [ -z "$DMG" ] || [ ! -f "$DMG" ]; then
     echo "Usage: $0 <KeyKeeper.dmg>" >&2
     exit 64
 fi
+# All three arrive from `keykeeper run -c apple-notary`: two plain fields and one secret.
 for variable_name in APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
     if [ -z "${!variable_name:-}" ]; then
         echo "ERROR: missing notarization environment variable: $variable_name" >&2

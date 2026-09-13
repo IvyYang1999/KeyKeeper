@@ -9,14 +9,20 @@ public struct MetadataEdit: Codable, Sendable, Equatable {
     public var fieldRenames: [String: String]
     /// Field name → display name; blank clears it.
     public var fieldDisplayNames: [String: String]
+    /// Plain (non-secret) field name → value; nil removes the field. Secret fields are never
+    /// reachable from here: writing one would move a Keychain value into the clear, on a path
+    /// that shows no prompt.
+    public var plainFields: [String: String?]
 
     public init(newGroupId: String? = nil, title: String? = nil, notes: String? = nil,
-                fieldRenames: [String: String] = [:], fieldDisplayNames: [String: String] = [:]) {
+                fieldRenames: [String: String] = [:], fieldDisplayNames: [String: String] = [:],
+                plainFields: [String: String?] = [:]) {
         self.newGroupId = newGroupId
         self.title = title
         self.notes = notes
         self.fieldRenames = fieldRenames
         self.fieldDisplayNames = fieldDisplayNames
+        self.plainFields = plainFields
     }
 
     public init(from decoder: Decoder) throws {
@@ -26,6 +32,7 @@ public struct MetadataEdit: Codable, Sendable, Equatable {
         notes = try c.decodeIfPresent(String.self, forKey: .notes)
         fieldRenames = try c.decodeIfPresent([String: String].self, forKey: .fieldRenames) ?? [:]
         fieldDisplayNames = try c.decodeIfPresent([String: String].self, forKey: .fieldDisplayNames) ?? [:]
+        plainFields = try c.decodeIfPresent([String: String?].self, forKey: .plainFields) ?? [:]
     }
 }
 
@@ -33,6 +40,8 @@ public struct MetadataEdit: Codable, Sendable, Equatable {
 public enum MetadataChange: Codable, Sendable, Equatable {
     case groupRenamed(from: String, to: String)
     case fieldRenamed(from: String, to: String)
+    case plainFieldSet(field: String, value: String)
+    case plainFieldRemoved(field: String)
     case titleChanged(from: String, to: String)
     case notesChanged
     case displayNameChanged(field: String, to: String?)
@@ -42,6 +51,8 @@ public enum MetadataChange: Codable, Sendable, Equatable {
         switch self {
         case .groupRenamed(let from, let to): return "group ID \(from) → \(to) (the old ID keeps working)"
         case .fieldRenamed(let from, let to): return "field \(from) → \(to) (the old name and its variable keep working)"
+        case .plainFieldSet(let field, let value): return "plain field \(field) = \(value)"
+        case .plainFieldRemoved(let field): return "plain field \(field) removed"
         case .titleChanged(let from, let to): return "title \"\(from)\" → \"\(to)\""
         case .notesChanged: return "notes updated"
         case .displayNameChanged(let field, let to): return to.map { "field \(field) is now shown as \"\($0)\"" } ?? "field \(field) display name cleared"
@@ -56,6 +67,7 @@ public enum MetadataEditError: Error, Equatable, LocalizedError {
     case fieldNotFound(String)
     case invalidFieldName(String)
     case fieldNameTaken(String)
+    case fieldIsSecret(String)
     case tooLong(String)
     case nothingToChange
 
@@ -67,6 +79,7 @@ public enum MetadataEditError: Error, Equatable, LocalizedError {
         case .fieldNotFound(let name): return "This credential has no field called '\(name)'."
         case .invalidFieldName(let name): return "'\(name)' is not a valid field name. Use letters, digits, '-', '_' or '.', starting with a letter or digit (at most 64)."
         case .fieldNameTaken(let name): return "'\(name)' is already a field name (or an old one) in this credential."
+        case .fieldIsSecret(let name): return "'\(name)' is a secret field. Change secrets in the KeyKeeper app, where the value stays in the Keychain."
         case .tooLong(let what): return "The \(what) is too long."
         case .nothingToChange: return "Nothing to change."
         }
@@ -87,6 +100,7 @@ public enum MetadataEditPlan {
     static let titleLimit = 200
     static let notesLimit = 4000
     static let displayNameLimit = 200
+    static let plainValueLimit = 4096
 
     public static func apply(_ edit: MetadataEdit, to meta: MetaFile, groupId name: String,
                              today: String = MetadataEditPlan.today()) throws -> MetadataEditResult {
@@ -137,6 +151,29 @@ public enum MetadataEditPlan {
             if let display = displayNames.removeValue(forKey: current) { displayNames[to] = display }
             fieldMap[current] = to
             changes.append(.fieldRenamed(from: current, to: to))
+        }
+
+        // Plain fields: metadata only, and never a way to touch something secret.
+        for (field, value) in edit.plainFields.sorted(by: { $0.key < $1.key }) {
+            let name = credential.resolveFieldName(field) ?? field
+            if credential.fields[name]?.secret == true { throw MetadataEditError.fieldIsSecret(field) }
+            guard let value else {
+                guard credential.fields[name] != nil else { continue }
+                credential.fields.removeValue(forKey: name)
+                changes.append(.plainFieldRemoved(field: name))
+                continue
+            }
+            guard CredentialNames.isValidFieldName(name) else { throw MetadataEditError.invalidFieldName(field) }
+            let cleaned = String(String.UnicodeScalarView(value.unicodeScalars.filter {
+                !CharacterSet.controlCharacters.contains($0)
+            })).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard cleaned.count <= plainValueLimit else { throw MetadataEditError.tooLong("value") }
+            guard credential.fields[name]?.value != cleaned else { continue }
+            var entry = credential.fields[name] ?? CredentialField(secret: false)
+            entry.secret = false
+            entry.value = cleaned
+            credential.fields[name] = entry
+            changes.append(.plainFieldSet(field: name, value: cleaned))
         }
 
         for (field, display) in displayNames.sorted(by: { $0.key < $1.key }) {

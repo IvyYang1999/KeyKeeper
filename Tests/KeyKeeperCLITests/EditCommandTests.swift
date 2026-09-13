@@ -20,6 +20,19 @@ final class EditCommandTests: XCTestCase {
         XCTAssertEqual(roundTrip, request)
     }
 
+    /// 明文字段可以用 --set/--unset 直接写，机密字段这条路碰不到。
+    func test可以写与删明文字段() throws {
+        let command = try EditCommand.parse(["apple-notary",
+                                             "--set", "apple-id=someone@example.invalid",
+                                             "--set", "apple-team-id=ZPTA4LP594",
+                                             "--unset", "region"])
+        let request = try command.request()
+        XCTAssertEqual(request.edit.plainFields["apple-id"], "someone@example.invalid")
+        XCTAssertEqual(request.edit.plainFields["apple-team-id"], "ZPTA4LP594")
+        XCTAssertEqual(request.edit.plainFields["region"], String?.none)
+        XCTAssertThrowsError(try EditCommand.parse(["x", "--set", "no-equals"]).request())
+    }
+
     func test输出告诉Agent改了什么并提醒它告诉用户() {
         let text = EditCommand.report(MetadataEditResponse(success: true, groupId: "baidu-qianfan",
             changes: [.groupRenamed(from: "百度千帆", to: "baidu-qianfan"), .fieldRenamed(from: "cc", to: "api-key")]))

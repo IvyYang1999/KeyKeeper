@@ -39,10 +39,20 @@ struct EditCommand: ParsableCommand {
     @Option(name: .customLong("field-label"), help: "field=Display name. Repeatable; an empty name clears it.")
     var fieldLabel: [String] = []
 
+    @Option(name: .customLong("set"), help: "field=value for a plain, non-secret field (an account id, a team id, a region). Repeatable. Never a password or key: plain values are stored in the clear.")
+    var setPlain: [String] = []
+
+    @Option(name: .customLong("unset"), help: "Remove a plain field. Repeatable. Secret fields are untouched by this command.")
+    var unsetPlain: [String] = []
+
     func request() throws -> MetadataEditRequest {
+        var plainFields: [String: String?] = [:]
+        for (field, value) in try Self.pairs(setPlain, option: "--set") { plainFields[field] = value }
+        for field in unsetPlain { plainFields[field] = String?.none }
         let edit = MetadataEdit(newGroupId: newGroupId, title: title, notes: notes,
                                 fieldRenames: try Self.pairs(renameField, option: "--rename-field"),
-                                fieldDisplayNames: try Self.pairs(fieldLabel, option: "--field-label"))
+                                fieldDisplayNames: try Self.pairs(fieldLabel, option: "--field-label"),
+                                plainFields: plainFields)
         guard edit != MetadataEdit() else {
             throw ValidationError("Nothing to change. Pass --group-id, --title, --notes, --rename-field or --field-label.")
         }

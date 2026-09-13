@@ -138,6 +138,9 @@ extension AppL10n {
         "Written by the process asking for the key. KeyKeeper doesn't check it, and it doesn't limit what allowing grants.": "这段话由来要 key 的那个程序自己写，KeyKeeper 没有核实；允许之后的范围也不受它限制。",
         "Cut off at {0} characters. Written by the process asking for the key; KeyKeeper doesn't check it and it doesn't limit what allowing grants.": "超过 {0} 字已截断。这段话由来要 key 的那个程序自己写，KeyKeeper 没有核实；允许之后的范围也不受它限制。",
         "Allowing lets this caller read every key in this credential. \u{201C}Always allow\u{201D} also covers future sessions.": "允许之后，这个调用方能读这一组里的全部密钥；选「始终允许」对以后的会话同样有效。",
+        "\u{201C}{0}\u{201D} is a secret field. Change it in KeyKeeper, where the value stays in the Keychain.": "「{0}」是机密字段。请在 KeyKeeper 里改，值始终留在钥匙串。",
+        "Plain field {0} = {1}": "明文字段 {0} = {1}",
+        "Plain field {0} removed": "删掉了明文字段 {0}",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",

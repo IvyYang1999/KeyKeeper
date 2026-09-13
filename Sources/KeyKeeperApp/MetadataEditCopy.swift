@@ -11,6 +11,7 @@ enum MetadataEditCopy {
         case .fieldNotFound(let name): return L("There is no field called \u{201C}\(name)\u{201D}.")
         case .invalidFieldName: return L("Field names can only use letters, digits, '-', '_' and '.', with no spaces. Put the wording you like in the display name.")
         case .fieldNameTaken(let name): return L("\u{201C}\(name)\u{201D} is already a field name here, now or in the past.")
+        case .fieldIsSecret(let name): return L("\u{201C}\(name)\u{201D} is a secret field. Change it in KeyKeeper, where the value stays in the Keychain.")
         case .tooLong: return L("That text is too long.")
         case .nothingToChange: return L("Nothing to change.")
         }
@@ -20,6 +21,8 @@ enum MetadataEditCopy {
         switch change {
         case .groupRenamed(let from, let to): return L("Group ID \(from) → \(to)")
         case .fieldRenamed(let from, let to): return L("Field \(from) → \(to)")
+        case .plainFieldSet(let field, let value): return L("Plain field \(field) = \(value)")
+        case .plainFieldRemoved(let field): return L("Plain field \(field) removed")
         case .titleChanged(_, let to): return L("Title → \u{201C}\(to)\u{201D}")
         case .notesChanged: return L("Notes updated")
         case .displayNameChanged(let field, let to):

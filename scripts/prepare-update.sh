@@ -25,7 +25,9 @@ fi
 
 "$PROJECT_DIR/scripts/build-app.sh"
 
-NOTARY_CREDENTIAL_ID="${KEYKEEPER_NOTARY_CREDENTIAL_ID:-app专用密码-swob}"
+# One credential carries all three: APPLE_ID and APPLE_TEAM_ID as plain fields, the
+# app-specific password as a secret. `keykeeper run` injects the plain ones without asking.
+NOTARY_CREDENTIAL_ID="${KEYKEEPER_NOTARY_CREDENTIAL_ID:-apple-notary}"
 keykeeper run -c "$NOTARY_CREDENTIAL_ID" -- \
     "$PROJECT_DIR/scripts/notarize-update.sh" "$DMG"
 

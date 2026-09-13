@@ -108,6 +108,18 @@ keykeeper run -c apple-notary -- ./scripts/notarize.sh
 An "ask every time" credential only prompts when a secret is actually read; a credential with
 nothing but plain fields never prompts. Never put a password, token or key in a plain field.
 
+### Recording plain facts
+
+Plain fields are ordinary metadata, so you can write them yourself — no prompt:
+
+```bash
+keykeeper edit apple-notary --set apple-team-id=ZPTA4LP594 --set apple-id=someone@example.com
+keykeeper edit apple-notary --unset region
+```
+
+This never touches a secret field: asking to `--set` one is refused, because that would move a
+Keychain value into the clear. Tell the user what you recorded.
+
 ## Saying why you need a key
 
 When a key is set to ask every time, KeyKeeper shows the user an approval window. You can put

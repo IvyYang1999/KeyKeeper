@@ -128,6 +128,55 @@ final class MetadataEditPlanTests: XCTestCase {
         XCTAssertEqual(credential.security, .strict, "安全级别也不归这条路管")
     }
 
+    /// 明文字段可以由人或 Agent 直接写（账号 ID、团队 ID 这类），走的还是不弹窗那条路。
+    func test可以新增与更新明文字段() throws {
+        let result = try MetadataEditPlan.apply(
+            MetadataEdit(plainFields: ["apple-team-id": "ZPTA4LP594", "region": "cn-north"]),
+            to: meta(), groupId: "openai")
+        let credential = try XCTUnwrap(result.meta.credentials["openai"])
+        XCTAssertEqual(credential.fields["apple-team-id"]?.value, "ZPTA4LP594")
+        XCTAssertEqual(credential.fields["apple-team-id"]?.secret, false)
+        XCTAssertEqual(credential.fields["region"]?.secret, false)
+        XCTAssertEqual(credential.fields["api-key"]?.secret, true, "原有机密字段不受影响")
+
+        let updated = try MetadataEditPlan.apply(
+            MetadataEdit(plainFields: ["region": "cn-east"]), to: result.meta, groupId: "openai")
+        XCTAssertEqual(updated.meta.credentials["openai"]?.fields["region"]?.value, "cn-east")
+
+        let removed = try MetadataEditPlan.apply(
+            MetadataEdit(plainFields: ["region": nil]), to: updated.meta, groupId: "openai")
+        XCTAssertNil(removed.meta.credentials["openai"]?.fields["region"])
+    }
+
+    /// 【安全红线】这条路不碰钥匙串。给一个机密字段写明文值 = 降密，必须直接拒绝；
+    /// 删除机密字段也不行（值会变成没人认领的孤儿）。
+    func test明文写入不能碰机密字段() throws {
+        XCTAssertThrowsError(try MetadataEditPlan.apply(
+            MetadataEdit(plainFields: ["api-key": "sk-not-a-real-key"]), to: meta(), groupId: "openai")) {
+            XCTAssertEqual($0 as? MetadataEditError, .fieldIsSecret("api-key"))
+        }
+        XCTAssertThrowsError(try MetadataEditPlan.apply(
+            MetadataEdit(plainFields: ["api-key": nil]), to: meta(), groupId: "openai")) {
+            XCTAssertEqual($0 as? MetadataEditError, .fieldIsSecret("api-key"))
+        }
+        // 旧名也认：别名指向的仍是那个机密字段。
+        let renamed = try MetadataEditPlan.apply(MetadataEdit(fieldRenames: ["api-key": "token"]), to: meta(), groupId: "openai").meta
+        XCTAssertThrowsError(try MetadataEditPlan.apply(
+            MetadataEdit(plainFields: ["api-key": "x"]), to: renamed, groupId: "openai"))
+    }
+
+    func test明文字段名要合规则且值不能带控制字符() throws {
+        XCTAssertThrowsError(try MetadataEditPlan.apply(
+            MetadataEdit(plainFields: ["bad name": "x"]), to: meta(), groupId: "openai")) {
+            XCTAssertEqual($0 as? MetadataEditError, .invalidFieldName("bad name"))
+        }
+        let result = try MetadataEditPlan.apply(
+            MetadataEdit(plainFields: ["note": "  a\u{0007}b  "]), to: meta(), groupId: "openai")
+        XCTAssertEqual(result.meta.credentials["openai"]?.fields["note"]?.value, "ab")
+        XCTAssertThrowsError(try MetadataEditPlan.apply(
+            MetadataEdit(plainFields: ["note": String(repeating: "x", count: 4097)]), to: meta(), groupId: "openai"))
+    }
+
     func test旧版meta没有新字段也能读写不变() throws {
         let old = #"{"credentials":{"a":{"created":"x","fields":{"k":{"secret":true}},"label":"A","links":[],"notes":"","security":"standard","updated":"x"}},"version":1}"#
         let decoded = try JSONDecoder().decode(MetaFile.self, from: Data(old.utf8))
