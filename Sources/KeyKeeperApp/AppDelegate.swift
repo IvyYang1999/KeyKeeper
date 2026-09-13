@@ -266,7 +266,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     subjectFingerprint: request.callerIdentity.flatMap {
                         GrantIssuancePolicy.mayRemember(subjectFingerprint: $0.subject.fingerprint) ? $0.subject.fingerprint : nil
                     },
-                    subjectDisplayName: request.callerIdentity?.displayName
+                    subjectDisplayName: request.callerIdentity?.displayName,
+                    onceFieldsRemaining: {
+                        if case .once = resolvedDuration { return request.fieldNames }
+                        return nil
+                    }()
                 )
                 try grantStore.addGrant(grant)
                 let response = AuthResponse(granted: true, grantId: grant.id)

@@ -7,6 +7,8 @@ public final class GrantStore: Sendable {
 
     /// Session grants expire after 24 hours as a safety net
     private static let sessionMaxAge: TimeInterval = 24 * 60 * 60
+    /// How long a "just this once" approval stays open for the rest of the run's fields.
+    static let onceWindow: TimeInterval = 120
 
     public init(directory: URL, integrity: GrantFileIntegrity? = nil) {
         self.fileURL = directory.appendingPathComponent("grants.json")
@@ -170,6 +172,21 @@ public final class GrantStore: Sendable {
         }
     }
 
+    /// A field of a `.once` approval was read. Spent once every field it was given for has been
+    /// read — or at once, for approvals from before fields were tracked.
+    public func consumeOnceField(id: String, fieldName: String) throws {
+        try withFileLock { file in
+            guard let index = file.grants.firstIndex(where: { $0.id == id }) else { return }
+            guard var remaining = file.grants[index].onceFieldsRemaining else {
+                file.grants[index].consumed = true
+                return
+            }
+            remaining.removeAll { $0 == fieldName }
+            file.grants[index].onceFieldsRemaining = remaining
+            if remaining.isEmpty { file.grants[index].consumed = true }
+        }
+    }
+
     /// Mark a .once grant as consumed.
     public func consumeGrant(id: String) throws {
         try withFileLock { file in
@@ -199,7 +216,12 @@ public final class GrantStore: Sendable {
                          ignoreSession: Bool = false) -> Bool {
         switch grant.duration {
         case .once:
-            return !grant.consumed
+            // 【独立审计第二轮】one approval covers the one run that asked, however many of its fields
+            // that run reads — it used to be spent on the first, so a credential with N secret fields
+            // prompted N times. Only for a couple of minutes, so an unread field does not stay open.
+            guard !grant.consumed else { return false }
+            guard grant.onceFieldsRemaining != nil else { return true }
+            return now.timeIntervalSince(grant.createdAt) < Self.onceWindow
 
         case .session(let grantSessionId):
             // Session grants also have a 24-hour hard cap

@@ -143,11 +143,15 @@ public struct Grant: Codable, Sendable, Identifiable {
     /// next rather than being torn up under people who were relying on it.
     public var subjectFingerprint: String?
     public var subjectDisplayName: String?
+    /// For a `.once` approval: the fields of the one run it was given for that have not been read
+    /// yet. Nil on approvals from before fields were tracked — those are spent on the first read.
+    public var onceFieldsRemaining: [String]?
 
     public init(id: String = UUID().uuidString, credentialId: String,
                 sessionId: String? = nil, duration: GrantDuration,
                 createdAt: Date = Date(), consumed: Bool = false,
-                subjectFingerprint: String? = nil, subjectDisplayName: String? = nil) {
+                subjectFingerprint: String? = nil, subjectDisplayName: String? = nil,
+                onceFieldsRemaining: [String]? = nil) {
         self.id = id
         self.credentialId = credentialId
         self.sessionId = sessionId
@@ -156,6 +160,7 @@ public struct Grant: Codable, Sendable, Identifiable {
         self.consumed = consumed
         self.subjectFingerprint = subjectFingerprint
         self.subjectDisplayName = subjectDisplayName
+        self.onceFieldsRemaining = onceFieldsRemaining
     }
 }
 

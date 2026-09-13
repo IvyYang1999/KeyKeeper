@@ -838,6 +838,7 @@ final class IPCServer: ObservableObject {
         if response.success {
             try? GrantAuthorizationPolicy.consumeOnceGrantAfterSuccessfulValueIfNeeded(
                 matchedStrictGrant,
+                fieldName: request.fieldName,
                 grantStore: grantStore
             )
 

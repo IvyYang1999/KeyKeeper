@@ -29,6 +29,17 @@ public enum GrantAuthorizationPolicy {
 
     public static func consumeOnceGrantAfterSuccessfulValueIfNeeded(
         _ grant: Grant?,
+        fieldName: String,
+        grantStore: GrantStore
+    ) throws {
+        guard let grant else { return }
+        if case .once = grant.duration {
+            try grantStore.consumeOnceField(id: grant.id, fieldName: fieldName)
+        }
+    }
+
+    public static func consumeOnceGrantAfterSuccessfulValueIfNeeded(
+        _ grant: Grant?,
         grantStore: GrantStore
     ) throws {
         guard let grant else { return }
