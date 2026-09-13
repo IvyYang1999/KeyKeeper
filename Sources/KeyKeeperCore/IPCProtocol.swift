@@ -445,11 +445,15 @@ public enum IPCMessage {
                 guard remaining > 0 else { return nil }
                 var poller = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
                 let ready = poll(&poller, 1, Int32(min(remaining * 1000, 3_600_000).rounded(.up)))
+                // A signal, or the one-hour cap on a single wait, is not the deadline: look at the
+                // clock again instead of dropping a message that is still on its way.
+                if ready == 0 || (ready < 0 && errno == EINTR) { continue }
                 guard ready > 0 else { return nil }
             }
             let n = buffer.withUnsafeMutableBytes { ptr in
                 read(fd, ptr.baseAddress!.advanced(by: offset), count - offset)
             }
+            if n < 0 && errno == EINTR { continue }
             if n <= 0 { return nil }
             offset += n
         }
@@ -478,12 +482,38 @@ public enum IPCMessage {
     }
 
     /// Write a length-prefixed JSON message to a file descriptor.
-    public static func writeMessage<T: Encodable>(fd: Int32, message: T) throws {
+    /// Write one framed message, all of it.
+    ///
+    /// 【独立审计 2026-09-13】this used to be a single write(): under a send timeout a large
+    /// response went out in pieces and was reported as failed after the first piece was already on
+    /// the wire; and with no bound at all, a peer that stopped reading held the server's serial
+    /// queue. `deadline` is for the server — the whole write has to finish inside it.
+    public static func writeMessage<T: Encodable>(fd: Int32, message: T, deadline: TimeInterval? = nil) throws {
         let data = try encode(message)
-        let written = data.withUnsafeBytes { ptr in
-            Darwin.write(fd, ptr.baseAddress!, data.count)
+        let limit = deadline.map { Date().addingTimeInterval($0) }
+        var restoreFlags: Int32?
+        if limit != nil {
+            // Non-blocking for the duration, so poll() is what waits and the deadline holds even
+            // when the peer frees buffer space a byte at a time.
+            let flags = fcntl(fd, F_GETFL)
+            if flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 { restoreFlags = flags }
         }
-        if written != data.count {
+        defer { if let restoreFlags { _ = fcntl(fd, F_SETFL, restoreFlags) } }
+        var offset = 0
+        while offset < data.count {
+            if let limit {
+                let remaining = limit.timeIntervalSinceNow
+                guard remaining > 0 else { throw IPCError.writeFailed }
+                var poller = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+                let ready = poll(&poller, 1, Int32(min(remaining * 1000, 3_600_000).rounded(.up)))
+                if ready == 0 || (ready < 0 && errno == EINTR) { continue }
+                guard ready > 0 else { throw IPCError.writeFailed }
+            }
+            let n = data.withUnsafeBytes { ptr in
+                Darwin.write(fd, ptr.baseAddress!.advanced(by: offset), data.count - offset)
+            }
+            if n > 0 { offset += n; continue }
+            if n < 0 && (errno == EINTR || errno == EAGAIN) { continue }
             throw IPCError.writeFailed
         }
     }

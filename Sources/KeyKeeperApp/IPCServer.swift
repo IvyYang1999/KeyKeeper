@@ -377,7 +377,7 @@ final class IPCServer: ObservableObject {
                     isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
                     ready: { url in
                         self.queue.async {
-                            do { try IPCMessage.writeMessage(fd: clientFd, message: IPCResponse.browserImportReady(url)) }
+                            do { try IPCMessage.writeMessage(fd: clientFd, message: IPCResponse.browserImportReady(url), deadline: IPCMessage.messageDeadline) }
                             catch { DispatchQueue.main.async { bridge.cancel() } }
                         }
                     }, completion: { response in
@@ -984,7 +984,7 @@ final class IPCServer: ObservableObject {
     }
 
     private nonisolated static func writeAndClose(_ response: IPCResponse, clientFd: Int32) {
-        try? IPCMessage.writeMessage(fd: clientFd, message: response)
+        try? IPCMessage.writeMessage(fd: clientFd, message: response, deadline: IPCMessage.messageDeadline)
         close(clientFd)
     }
 }
