@@ -167,6 +167,12 @@ extension AppL10n {
         "Allowing lets {0} read every key in this credential. KeyKeeper recognises it by the file it runs from, so anything started from that same file counts as it too. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it.": "允许之后，{0} 能读这一组里的全部密钥。KeyKeeper 靠它运行的那个文件认它，从同一个文件启动的程序也算它。选「始终允许」对它以后的会话同样有效，直到你撤销。",
         "Allowing lets {0} read this key. KeyKeeper recognises it by the file it runs from, so anything started from that same file counts as it too. \u{201C}Always\u{201D} lasts until you revoke it.": "允许之后，{0} 能读这把密钥。KeyKeeper 靠它运行的那个文件认它，从同一个文件启动的程序也算它。「始终」直到你撤销为止。",
         "KeyKeeper could not identify {0}, so this answer covers this request only and is not remembered.": "KeyKeeper 认不出 {0} 是谁，所以这次的答复只管这一次请求，不会记住。",
+        "Your credential list was changed outside KeyKeeper": "凭据清单被 KeyKeeper 以外的程序改过",
+        "Until you check it, KeyKeeper hands no keys to agents. Look through the list: titles, which fields are secret, plain values. If it is all as you left it, confirm and KeyKeeper will trust this version.": "检查之前，KeyKeeper 不会把任何 key 交给 Agent。看一遍清单：标题、哪些字段是机密、明文的值。如果都跟你离开时一样，确认后 KeyKeeper 会信任这个版本。",
+        "It's all as I left it": "都没问题，信任这个版本",
+        "confirm that the credential list is correct": "确认凭据清单无误",
+        "Could not confirm the list: {0}": "没能确认清单：{0}",
+        "Your credential list was changed outside KeyKeeper. Open the KeyKeeper window to check it.": "凭据清单被 KeyKeeper 以外的程序改过。打开 KeyKeeper 窗口检查一下。",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",

@@ -12,6 +12,15 @@ class CredentialListViewModel: ObservableObject {
     /// Set when meta.json exists but cannot be read. Distinct from "no credentials yet":
     /// a secrets manager must never tell the user their data is gone when a file is merely unreadable.
     @Published private(set) var loadFailure: LoadFailure?
+    /// meta.json no longer carries KeyKeeper's signature: something else wrote it, so which fields
+    /// are secret and what the plain values say are unproven.
+    ///
+    /// 【安全遗留 2026-09-13】the CLI already stopped trusting a tampered file; the app showed
+    /// nothing, so agents just failed and nobody could tell why or put it right. The way back is
+    /// for the person to look, prove they are at the Mac, and let KeyKeeper sign what they saw.
+    @Published private(set) var metadataTampered = false
+    /// Injected by tests; production asks for Touch ID or the device password.
+    var confirmOwner: (_ reason: String, _ reply: @escaping (Bool) -> Void) -> Void = DeviceOwnerCheck.confirm
 
     struct LoadFailure: Equatable {
         let fileURL: URL
@@ -61,10 +70,26 @@ class CredentialListViewModel: ObservableObject {
             let meta = try store.load()
             credentials = Self.sorted(meta.credentials.map { (id: $0.key, credential: $0.value) })
             loadFailure = nil
+            metadataTampered = (try? store.loadVerified().verdict) == .tampered
             checkValues()
         } catch {
             credentials = []
             loadFailure = LoadFailure(fileURL: store.fileURL, reason: error.localizedDescription)
+        }
+    }
+
+    /// The person has looked at the list and vouches for it: sign exactly what is on disk now.
+    func trustCurrentMetadata() {
+        confirmOwner(L("confirm that the credential list is correct")) { [weak self] approved in
+            MainActor.assumeIsolated {
+                guard let self, approved else { return }
+                do {
+                    try self.store.save(try self.store.load())
+                    self.load()
+                } catch {
+                    self.errorMessage = L("Could not confirm the list: \(error.localizedDescription)")
+                }
+            }
         }
     }
 

@@ -294,6 +294,9 @@ private struct KeysPage: View {
             }
             .padding(.top, 12)
 
+            if listVM.metadataTampered {
+                MetadataTamperNotice { listVM.trustCurrentMetadata() }
+            }
             if let failure = listVM.loadFailure {
                 Text(L("Couldn't read your credential list")).font(.callout.weight(.semibold)).foregroundColor(.red)
                 Text(failure.reason).font(.caption).foregroundColor(.secondary)

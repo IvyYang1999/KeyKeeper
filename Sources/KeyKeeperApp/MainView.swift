@@ -216,6 +216,10 @@ struct MainView: View {
     @ViewBuilder
     private var list: some View {
         let items = viewModel.filtered
+        if viewModel.metadataTampered {
+            Text(L("Your credential list was changed outside KeyKeeper. Open the KeyKeeper window to check it."))
+                .font(.caption).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
+        }
         if let failure = viewModel.loadFailure {
             VStack(alignment: .leading, spacing: 4) {
                 Text(L("Couldn't read your credential list")).font(.callout.weight(.semibold)).foregroundColor(.red)
