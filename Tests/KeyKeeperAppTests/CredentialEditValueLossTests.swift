@@ -57,10 +57,28 @@ final class CredentialEditValueLossTests: XCTestCase {
         XCTAssertFalse(fetched, "没有已存值的字段只切换显示")
         XCTAssertTrue(fields[0].visible)
     }
+
+    /// 转明文之后要删掉钥匙串里的旧值，这一步原来是 `try?`：删不掉就悄悄算了。
+    /// 而弹窗刚刚告诉用户「值已离开钥匙串」——结果值同时留在两处，没人知道。
+    func test转明文后删不掉钥匙串里的旧值要告诉用户() throws {
+        let (vm, session, store) = try makeVM(values: ["stripe.Secret key": "sk_live_synthetic"])
+        session.failingDeletes = ["Secret key"]
+        vm.isEditing = true
+        vm.fields[0].value = "sk_live_synthetic"
+        vm.fields[0].isSecret = false
+
+        XCTAssertTrue(vm.saveChanges(), "元数据已经写成，保存本身算成功")
+        XCTAssertEqual(try store.load().credentials["stripe"]?.fields["Secret key"]?.value, "sk_live_synthetic")
+        XCTAssertEqual(session.values["stripe.Secret key"], "sk_live_synthetic", "钥匙串里的那份还在")
+        let message = try XCTUnwrap(vm.errorMessage)
+        XCTAssertTrue(message.contains("Secret key"), "得说清是哪个字段：\(message)")
+    }
 }
 
 private final class EditLossSession: CredentialSessionManaging {
     var values: [String: String]
+    /// Field names whose Keychain deletion fails, to exercise the post-commit cleanup.
+    var failingDeletes: Set<String> = []
     init(values: [String: String]) { self.values = values }
     func status() -> SessionStatus { .unlocked(expiresAt: nil) }
     func createCredential(credentialId: String, values newValues: [String: String], security: SecurityLevel) throws {
@@ -74,6 +92,7 @@ private final class EditLossSession: CredentialSessionManaging {
         values["\(credentialId).\(fieldName)"] = value
     }
     func delete(credentialId: String, fieldName: String) throws {
+        if failingDeletes.contains(fieldName) { throw KeychainError.unexpectedData }
         values.removeValue(forKey: "\(credentialId).\(fieldName)")
     }
 }

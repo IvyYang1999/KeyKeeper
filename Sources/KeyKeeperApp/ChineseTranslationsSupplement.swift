@@ -4,6 +4,7 @@
 extension AppL10n {
     static let chineseSupplement: [String: String] = [
         // 明文字段（0.3.2）
+        "Saved, but the old Keychain copy of {0} could not be removed. That value is now stored in two places.": "已保存，但钥匙串里 {0} 的旧值没能删掉。这个值现在同时存在两处。",
         "Store this value as plain text?": "把这个值存成明文？",
         "Move it out of the Keychain": "移出钥匙串",
         "The value leaves the macOS Keychain and is written into KeyKeeper's metadata file in the clear, where anything running as you — your agents included — can read it. Good for an account id, an email or a region. Never for a password, token or key.": "值会离开 macOS 钥匙串，明文写进 KeyKeeper 的元数据文件；凡是以你的身份运行的程序——包括你的 Agent——都能读到。适合账号 ID、邮箱、区域这类信息，绝不要放密码、令牌或密钥。",

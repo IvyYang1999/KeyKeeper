@@ -238,8 +238,16 @@ final class CredentialDetailViewModel: ObservableObject {
             try store.save(meta)
 
             // Only now that metadata holds the plain value is it safe to drop the old secret.
+            // A failure here is not worth losing the save over — metadata is already written —
+            // but it must not be silent either: the confirmation just told the user the value
+            // left the Keychain, and it did not.
+            var strandedFields: [String] = []
             for fieldName in plan.keychainDropsAfterCommit {
-                try? session.delete(credentialId: credentialId, fieldName: fieldName)
+                do {
+                    try session.delete(credentialId: credentialId, fieldName: fieldName)
+                } catch {
+                    strandedFields.append(fieldName)
+                }
             }
 
             let directory = store.fileURL.deletingLastPathComponent()
@@ -255,7 +263,9 @@ final class CredentialDetailViewModel: ObservableObject {
                 renamedGroupId = result.groupId
             }
             isEditing = false
-            errorMessage = nil
+            errorMessage = strandedFields.isEmpty ? nil : L(
+                "Saved, but the old Keychain copy of \(strandedFields.sorted().joined(separator: ", ")) could not be removed. That value is now stored in two places."
+            )
             originalLabel = credential.label
             return true
         } catch {
