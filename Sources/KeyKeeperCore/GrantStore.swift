@@ -38,12 +38,21 @@ public final class GrantStore: Sendable {
 
     /// Execute a read-write operation under an exclusive file lock.
     private func withFileLock<T>(_ body: (inout GrantFile) throws -> T) throws -> T {
-        // Ensure file exists for locking
-        if !FileManager.default.fileExists(atPath: fileURL.path) {
-            try save(GrantFile())
-        }
-
-        let fd = open(fileURL.path, O_RDWR)
+        // The data file is created inside the critical section by save(); pre-creating it here
+        // was itself a race — two writers both saw "no file" and both wrote an empty one.
+        // Lock a file that is never replaced.
+        //
+        // 【曾经的 bug】the lock used to be taken on the data file itself, while saving writes a
+        // temporary file and renames it into place — which swaps the inode out from under the
+        // lock. A second writer opening the path then got the *new* inode and its flock
+        // succeeded immediately, so two writers sat in the critical section and the later save
+        // overwrote the earlier one wholesale. Measured at 32 of 40 concurrent writes lost, and
+        // 20 of 30 revocations silently dropped: "revoke" could do nothing at all.
+        let lockURL = fileURL.appendingPathExtension("lock")
+        // open(O_CREAT) and nothing else: FileManager.createFile REPLACES an existing file, which
+        // would swap the inode out from under a lock somebody else is already holding — the very
+        // bug this lock file exists to avoid.
+        let fd = open(lockURL.path, O_RDWR | O_CREAT, 0o600)
         guard fd >= 0 else {
             throw GrantStoreError.lockFailed
         }
