@@ -63,12 +63,37 @@ public final class GrantStore: Sendable {
     // MARK: - Public API
 
     /// Find a valid grant for the given credential and optional session.
-    public func findValidGrant(credentialId: String, sessionId: String?) throws -> Grant? {
+    /// The grant that covers this caller, if any.
+    ///
+    /// `fingerprint` nil means the caller could not be identified: then only a grant that was
+    /// never scoped can apply, never one that belongs to somebody else.
+    public func findValidGrant(credentialId: String, sessionId: String?,
+                               fingerprint: String? = nil) throws -> Grant? {
         let file = try load()
         let now = Date()
         return file.grants.first { grant in
             guard grant.credentialId == credentialId else { return false }
+            switch (grant.subjectFingerprint, fingerprint) {
+            case (nil, _): break                       // issued before grants had a caller
+            case (let owner?, let asking?) where owner == asking: break
+            default: return false
+            }
             return isValid(grant: grant, sessionId: sessionId, now: now)
+        }
+    }
+
+    /// Ties an old, unscoped grant to the program that just used it.
+    ///
+    /// The alternative was to invalidate all of them, which would start prompting for every agent
+    /// the person had already said "Always" to — the exact thing they clicked the button to stop.
+    /// Pinning keeps that promise for whoever is actually using it, and closes it to everything
+    /// else. It only ever narrows: a grant that is already scoped is left alone.
+    public func pinGrantIfUnscoped(id: String, to fingerprint: String, displayName: String) throws {
+        try withFileLock { file in
+            guard let index = file.grants.firstIndex(where: { $0.id == id }),
+                  file.grants[index].subjectFingerprint == nil else { return }
+            file.grants[index].subjectFingerprint = fingerprint
+            file.grants[index].subjectDisplayName = displayName
         }
     }
 

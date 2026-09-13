@@ -250,6 +250,7 @@ final class IPCServer: ObservableObject {
                 session: session,
                 matchedStrictGrant: nil,
                 matchedServiceGrant: serviceGrant,
+                caller: nil,
                 grantStore: grantStore,
                 serviceGrantStore: serviceGrantStore
             )
@@ -658,6 +659,7 @@ final class IPCServer: ObservableObject {
             guard let grant = try? GrantAuthorizationPolicy.validGrantForValueAccess(
                 credentialId: request.credentialId,
                 sessionId: request.sessionId,
+                fingerprint: callerIdentity.subject.fingerprint,
                 grantStore: grantStore
             ) else {
                 let resp = IPCResponse.value(ValueResponse(
@@ -688,6 +690,7 @@ final class IPCServer: ObservableObject {
                     session: session,
                     matchedStrictGrant: matchedStrictGrant,
                     matchedServiceGrant: serviceGrant,
+                    caller: callerIdentity,
                     grantStore: grantStore,
                     serviceGrantStore: serviceGrantStore
                 )
@@ -774,6 +777,7 @@ final class IPCServer: ObservableObject {
                                                         session: SessionControlling,
                                                         matchedStrictGrant: Grant?,
                                                         matchedServiceGrant: ServiceGrant?,
+                                                        caller: CallerIdentity?,
                                                         grantStore: GrantStore,
                                                         serviceGrantStore: ServiceGrantStore) {
         let response = retrieveSessionValue(
@@ -785,6 +789,12 @@ final class IPCServer: ObservableObject {
         if response.success {
             try? GrantAuthorizationPolicy.consumeOnceGrantAfterSuccessfulValueIfNeeded(
                 matchedStrictGrant,
+                grantStore: grantStore
+            )
+            // An "Always" from before grants had an owner now belongs to whoever just used it.
+            try? GrantAuthorizationPolicy.pinUnscopedGrantAfterUse(
+                matchedStrictGrant,
+                caller: caller,
                 grantStore: grantStore
             )
             if let matchedServiceGrant {

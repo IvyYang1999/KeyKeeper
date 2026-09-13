@@ -248,10 +248,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     requestedDuration: duration,
                     requestSessionId: request.sessionId
                 )
+                // Scoped to the program that asked. "Always" has always been shown as a
+                // per-caller promise; until now it was not one.
                 let grant = Grant(
                     credentialId: request.credentialId,
                     sessionId: request.sessionId,
-                    duration: resolvedDuration
+                    duration: resolvedDuration,
+                    subjectFingerprint: request.callerIdentity?.subject.fingerprint,
+                    subjectDisplayName: request.callerIdentity?.displayName
                 )
                 try grantStore.addGrant(grant)
                 let response = AuthResponse(granted: true, grantId: grant.id)

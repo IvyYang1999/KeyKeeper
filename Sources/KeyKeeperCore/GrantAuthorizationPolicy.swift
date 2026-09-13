@@ -6,9 +6,10 @@ public enum GrantAuthorizationPolicy {
     public static func validGrantForValueAccess(
         credentialId: String,
         sessionId: String?,
+        fingerprint: String? = nil,
         grantStore: GrantStore
     ) throws -> Grant? {
-        try grantStore.findValidGrant(credentialId: credentialId, sessionId: sessionId)
+        try grantStore.findValidGrant(credentialId: credentialId, sessionId: sessionId, fingerprint: fingerprint)
     }
 
     public static func resolveIssuedDuration(
@@ -34,6 +35,18 @@ public enum GrantAuthorizationPolicy {
         if case .once = grant.duration {
             try grantStore.consumeGrant(id: grant.id)
         }
+    }
+
+    /// After a grant issued before grants had an owner is actually used, it belongs to that
+    /// caller from then on. Narrowing only; a scoped grant is untouched.
+    public static func pinUnscopedGrantAfterUse(
+        _ grant: Grant?,
+        caller: CallerIdentity?,
+        grantStore: GrantStore
+    ) throws {
+        guard let grant, grant.subjectFingerprint == nil, let caller else { return }
+        try grantStore.pinGrantIfUnscoped(id: grant.id, to: caller.subject.fingerprint,
+                                          displayName: caller.displayName)
     }
 }
 

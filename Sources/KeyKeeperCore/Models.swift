@@ -122,16 +122,28 @@ public struct Grant: Codable, Sendable, Identifiable {
     public var createdAt: Date
     /// For .once grants: marked true after first use
     public var consumed: Bool
+    /// Which program this was granted to.
+    ///
+    /// 【曾经的 bug】yyt 2026-09-13：「我点击 always 的原因是我不想再给我的 Agents 们授权
+    /// 了，而不是本机任意一个进程都可以。」Grants used to carry no caller at all, so "Always"
+    /// really did mean every process on the Mac — while the button just said "Always". Nil means
+    /// a grant issued before this existed; it still works, and gets pinned to whoever uses it
+    /// next rather than being torn up under people who were relying on it.
+    public var subjectFingerprint: String?
+    public var subjectDisplayName: String?
 
     public init(id: String = UUID().uuidString, credentialId: String,
                 sessionId: String? = nil, duration: GrantDuration,
-                createdAt: Date = Date(), consumed: Bool = false) {
+                createdAt: Date = Date(), consumed: Bool = false,
+                subjectFingerprint: String? = nil, subjectDisplayName: String? = nil) {
         self.id = id
         self.credentialId = credentialId
         self.sessionId = sessionId
         self.duration = duration
         self.createdAt = createdAt
         self.consumed = consumed
+        self.subjectFingerprint = subjectFingerprint
+        self.subjectDisplayName = subjectDisplayName
     }
 }
 

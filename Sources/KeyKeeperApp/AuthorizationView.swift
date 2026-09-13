@@ -403,7 +403,7 @@ struct AuthorizationView: View {
 
             // What an approval actually covers, next to the choice — a caller's note may
             // promise "just one field, just once", but the grant is per credential.
-            Text(L("Allowing lets this caller read every key in this credential. \u{201C}Always allow\u{201D} also covers future sessions."))
+            Text(L("Allowing lets \(callerName) read every key in this credential — only \(callerName), not other programs on this Mac. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it."))
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
