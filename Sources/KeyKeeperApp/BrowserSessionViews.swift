@@ -129,7 +129,6 @@ struct BrowserSessionManagerView: View {
 struct BrowserExtensionSetupCard: View {
     @Binding var setup: BrowserExtensionSetup
     var showsNextStep: Bool
-    @State private var extensionID = ""
     @State private var failure: String?
 
     var body: some View {
@@ -140,9 +139,9 @@ struct BrowserExtensionSetupCard: View {
                 title: L("This build has no browser extension"),
                 text: L("Website sessions need the Chrome extension that ships inside KeyKeeper.app, and this copy does not contain it. Reinstall KeyKeeper from keykeeper.dev.")
             )
-        case .notConnected:
+        case .notRegistered:
             connectCard
-        case .connected(let id):
+        case .registered(let id):
             if showsNextStep { nextStepCard(id: id) }
         }
     }
@@ -158,13 +157,14 @@ struct BrowserExtensionSetupCard: View {
                 Button(L("Copy chrome://extensions")) { copy("chrome://extensions") }
             }
             GlassSeparator()
-            Text(L("Then paste the extension's ID — the 32 letters Chrome shows under its name — so KeyKeeper knows which extension to trust."))
+            Text(L("Then let KeyKeeper register the connection. Its extension ID is fixed, so there is nothing to copy."))
                 .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                TextField(L("32 letters from chrome://extensions"), text: $extensionID)
-                    .textFieldStyle(.roundedBorder).font(.callout.monospaced()).frame(maxWidth: 340)
-                Button(L("Connect")) { connect() }
-                    .disabled(extensionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button(L("Register the connection")) { connect(replacing: false) }
+                    .disabled(setup.expectedExtensionID == nil)
+                if let id = setup.expectedExtensionID {
+                    Text(id).font(.caption.monospaced()).foregroundColor(.secondary).textSelection(.enabled)
+                }
             }
             if let failure {
                 Text(failure).font(.callout).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
@@ -180,20 +180,29 @@ struct BrowserExtensionSetupCard: View {
             Label(L("No website sessions yet"), systemImage: "globe").font(.headline)
             Text(L("Open the intended website in Chrome and click the KeyKeeper extension. Pick that site, name it, and confirm here. Keep your original browser login."))
                 .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-            Text(L("Connected to extension \(id)"))
-                .font(.caption.monospaced()).foregroundColor(.secondary).textSelection(.enabled)
+            HStack(spacing: 8) {
+                // Registered, not "connected": KeyKeeper wrote this registration and Chrome never
+                // writes back, so it cannot tell whether the extension is still installed.
+                Text(L("Registered for extension \(id). KeyKeeper cannot see whether Chrome still has it installed."))
+                    .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button(L("Register again")) { connect(replacing: true) }
+                    .buttonStyle(.link).font(.caption)
+            }
+            if let failure {
+                Text(failure).font(.caption).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
     }
 
-    private func connect() {
+    private func connect(replacing: Bool) {
         do {
-            try setup.connect(extensionID: extensionID)
+            try setup.connect(replacingExisting: replacing)
             failure = nil
-            extensionID = ""
-            setup = setup   // re-read the registration so the card switches to "connected"
+            setup = setup   // re-read the registration so the card switches state
         } catch {
             failure = error.localizedDescription
         }

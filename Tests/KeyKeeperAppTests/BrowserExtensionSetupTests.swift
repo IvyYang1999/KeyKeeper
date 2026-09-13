@@ -21,7 +21,8 @@ final class BrowserExtensionSetupTests: XCTestCase {
             try Data("#!/bin/sh\n".utf8).write(to: launcher)
         }
         return BrowserExtensionSetup(extensionFolder: folder, launcher: launcher,
-                                     manifestURL: root.appendingPathComponent("host.json"))
+                                     manifestURL: root.appendingPathComponent("host.json"),
+                                     expectedExtensionID: String(repeating: "b", count: 32))
     }
 
     func test没带扩展的构建要如实说不是让人去装() throws {
@@ -30,14 +31,14 @@ final class BrowserExtensionSetupTests: XCTestCase {
     }
 
     func test带了扩展但还没连上Chrome() throws {
-        XCTAssertEqual(try setup().connection, .notConnected)
+        XCTAssertEqual(try setup().connection, .notRegistered)
     }
 
     func test连上之后能把扩展ID读回来() throws {
         let setup = try setup()
         let id = String(repeating: "b", count: 32)
         try setup.connect(extensionID: id)
-        XCTAssertEqual(setup.connection, .connected(id))
+        XCTAssertEqual(setup.connection, .registered(id))
         XCTAssertNoThrow(try setup.connect(extensionID: id), "重复连接同一个扩展不该报错")
     }
 
@@ -49,6 +50,23 @@ final class BrowserExtensionSetupTests: XCTestCase {
         XCTAssertThrowsError(try setup.connect(extensionID: String(repeating: "c", count: 32))) {
             XCTAssertEqual($0 as? BrowserHostRegistrationError, .differentHostRegistered)
         }
+    }
+
+    /// 装好的扩展 ID 是常量（manifest 里钉死了 key），所以连接不需要任何输入。
+    func test不用粘贴也能连上() throws {
+        let setup = try setup()
+        try setup.connect()
+        XCTAssertEqual(setup.connection, .registered(String(repeating: "b", count: 32)))
+    }
+
+    /// 【诚实】这个文件是 KeyKeeper 自己写的，Chrome 从不回写。所以状态叫「已登记」，
+    /// 不叫「已连接」，而且必须永远留一条改连别的扩展的出路——否则用户只能手删 JSON。
+    func test已登记之后仍然可以改连别的扩展() throws {
+        let setup = try setup()
+        try setup.connect(extensionID: String(repeating: "b", count: 32))
+        XCTAssertThrowsError(try setup.connect(extensionID: String(repeating: "c", count: 32)))
+        try setup.connect(extensionID: String(repeating: "c", count: 32), replacingExisting: true)
+        XCTAssertEqual(setup.connection, .registered(String(repeating: "c", count: 32)))
     }
 
     func test扩展ID必须是Chrome那种32位() throws {

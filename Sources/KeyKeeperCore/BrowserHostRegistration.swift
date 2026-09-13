@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 public enum BrowserHostRegistrationError: Error, Equatable, LocalizedError {
@@ -31,6 +32,24 @@ public enum BrowserHostRegistration {
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
         home.appendingPathComponent("Library/Application Support/Google/Chrome/NativeMessagingHosts/\(hostName).json")
+    }
+
+    /// Chrome's extension ID for a pinned manifest `key`: the first 16 bytes of the SHA-256 of
+    /// the DER public key, with each hex digit mapped 0→a … f→p.
+    ///
+    /// Without a pinned key Chrome derives the ID from the extension's *path* instead, so the ID
+    /// changes if KeyKeeper.app ever moves — and the native host's allowed_origins, which names
+    /// exactly one ID, silently stops matching. Pinning the key makes it a constant, which also
+    /// means the app can register the host itself instead of asking someone to copy 32 letters.
+    public static func extensionID(publicKeyBase64: String) -> String? {
+        guard let der = Data(base64Encoded: publicKeyBase64.trimmingCharacters(in: .whitespacesAndNewlines)),
+              !der.isEmpty else { return nil }
+        let digest = SHA256.hash(data: der)
+        let scalars = digest.prefix(16).flatMap { byte -> [Character] in
+            [Character(UnicodeScalar(UInt8(ascii: "a") + (byte >> 4))),
+             Character(UnicodeScalar(UInt8(ascii: "a") + (byte & 0x0F)))]
+        }
+        return String(scalars)
     }
 
     public static func manifest(extensionID: String, launcher: String) throws -> Data {

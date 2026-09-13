@@ -14,21 +14,37 @@ struct BrowserExtensionSetup: Equatable {
     enum Connection: Equatable {
         /// Built without the extension: telling this person to go load it would be a lie.
         case missingFromApp
-        case notConnected
-        case connected(String)
+        case notRegistered
+        /// KeyKeeper's side is wired up. Deliberately not called "connected": this file is one
+        /// KeyKeeper wrote, and Chrome never writes back to it. If the extension is later removed
+        /// in Chrome, nothing here changes — so the screen must not claim Chrome is ready.
+        case registered(String)
     }
 
     var extensionFolder: URL?
     var launcher: URL?
     var manifestURL: URL
+    /// The ID Chrome will give the bundled extension, derived from the `key` pinned in its
+    /// manifest. Constant, so nobody has to copy 32 letters out of chrome://extensions.
+    var expectedExtensionID: String?
 
     static func production(bundle: Bundle = .main) -> BrowserExtensionSetup {
         let resources = bundle.resourceURL
+        let folder = resources?.appendingPathComponent("browser-extension")
         return BrowserExtensionSetup(
-            extensionFolder: resources?.appendingPathComponent("browser-extension"),
+            extensionFolder: folder,
             launcher: resources?.appendingPathComponent("browser-native-host"),
-            manifestURL: BrowserHostRegistration.manifestURL()
+            manifestURL: BrowserHostRegistration.manifestURL(),
+            expectedExtensionID: folder.flatMap(extensionID(inManifestAt:))
         )
+    }
+
+    static func extensionID(inManifestAt folder: URL) -> String? {
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent("manifest.json")),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let key = object["key"] as? String
+        else { return nil }
+        return BrowserHostRegistration.extensionID(publicKeyBase64: key)
     }
 
     var connection: Connection {
@@ -37,17 +53,21 @@ struct BrowserExtensionSetup: Equatable {
               FileManager.default.fileExists(atPath: launcher.path)
         else { return .missingFromApp }
         if let id = BrowserHostRegistration.registeredExtensionID(at: manifestURL) {
-            return .connected(id)
+            return .registered(id)
         }
-        return .notConnected
+        return .notRegistered
     }
 
-    /// Registers this Mac's Chrome to talk to exactly one extension. Create-only: an existing
-    /// registration for a different extension is reported, never replaced.
-    func connect(extensionID: String) throws {
+    /// Registers this Mac's Chrome to talk to exactly one extension. Create-only by default: an
+    /// existing registration for a different extension is reported, never replaced silently.
+    /// `replacingExisting` is the way back out, and only ever runs from an explicit click.
+    func connect(extensionID: String? = nil, replacingExisting: Bool = false) throws {
         guard let launcher else { throw BrowserHostRegistrationError.invalidLauncherPath }
-        let id = extensionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let manifest = try BrowserHostRegistration.manifest(extensionID: id, launcher: launcher.path)
+        guard let wanted = (extensionID ?? expectedExtensionID)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !wanted.isEmpty
+        else { throw BrowserHostRegistrationError.invalidExtensionID }
+        let manifest = try BrowserHostRegistration.manifest(extensionID: wanted, launcher: launcher.path)
+        if replacingExisting { try? FileManager.default.removeItem(at: manifestURL) }
         try BrowserHostRegistration.install(manifest, at: manifestURL)
     }
 

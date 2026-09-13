@@ -33,4 +33,24 @@ final class BrowserHostRegistrationTests: XCTestCase {
         XCTAssertEqual(url.path,
             "/Users/someone/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.keykeeper.browser_sessions.json")
     }
+
+    /// 扩展 ID 原来是 Chrome 按**安装路径**哈希出来的（GenerateIdForPath），所以它会随
+    /// KeyKeeper.app 的位置变化——挪一次 app，原生主机里写死的 allowed_origins 立刻失配，
+    /// 而且没有任何报错，只是再也连不上。manifest 里钉死 key 之后 ID 成了常量。
+    func test扩展ID由manifest里的key算出来() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let manifest = root.appendingPathComponent("browser-extension/manifest.json")
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: manifest)) as? [String: Any])
+        let key = try XCTUnwrap(object["key"] as? String, "manifest 里必须钉死 key，否则 ID 跟着路径走")
+
+        let id = try XCTUnwrap(BrowserHostRegistration.extensionID(publicKeyBase64: key))
+        XCTAssertEqual(id, "gmgmpachhmkfnngppibnmaekmdojkhch")
+        XCTAssertNotNil(id.range(of: #"^[a-p]{32}$"#, options: .regularExpression))
+        XCTAssertNoThrow(try BrowserHostRegistration.manifest(extensionID: id, launcher: "/tmp/host"))
+
+        // Chrome 的算法：公钥 DER 的 SHA-256 前 16 字节，每个十六进制位 0→a … f→p
+        XCTAssertNil(BrowserHostRegistration.extensionID(publicKeyBase64: "not base64!!"))
+    }
 }
