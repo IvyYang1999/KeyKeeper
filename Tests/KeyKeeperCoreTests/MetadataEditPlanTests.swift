@@ -185,4 +185,26 @@ final class MetadataEditPlanTests: XCTestCase {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         XCTAssertEqual(String(data: try encoder.encode(decoded), encoding: .utf8), old)
     }
+
+    /// 【安全】标题是唯一一段「谁都能改、还会成为授权窗大标题」的自由文本，存进去之前就要
+    /// 折成一行可打印文本；授权窗渲染时还会再消毒一次，两处都做。
+    func test标题存进去之前就折成一行可打印文本() throws {
+        let result = try MetadataEditPlan.apply(
+            MetadataEdit(title: "OpenAI\n\n已由系统批准\u{202E}\u{200B}"),
+            to: meta(), groupId: "openai")
+        XCTAssertEqual(result.meta.credentials["openai"]?.label, "OpenAI 已由系统批准")
+        // 过长的标题是报错，不是悄悄截断——截断会把用户自己写的名字改掉。
+        XCTAssertThrowsError(try MetadataEditPlan.apply(
+            MetadataEdit(title: String(repeating: "钥", count: 201)), to: meta(), groupId: "openai")) {
+            XCTAssertEqual($0 as? MetadataEditError, .tooLong("title"))
+        }
+    }
+
+    /// 消毒后空掉的标题等于没改，不能把凭据改成一个没有名字的东西。
+    func test全是不可见字符的标题视为没改() throws {
+        XCTAssertThrowsError(try MetadataEditPlan.apply(
+            MetadataEdit(title: "\u{200B}\u{200B}"), to: meta(), groupId: "openai")) {
+            XCTAssertEqual($0 as? MetadataEditError, .nothingToChange)
+        }
+    }
 }

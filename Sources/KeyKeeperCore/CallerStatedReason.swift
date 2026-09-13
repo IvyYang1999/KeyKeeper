@@ -23,7 +23,23 @@ public struct CallerStatedReason: Codable, Sendable, Equatable {
     /// Nil when nothing usable is left. Idempotent: sanitizing a sanitized value changes nothing.
     public static func sanitize(_ raw: String?) -> CallerStatedReason? {
         guard let raw else { return nil }
+        let collapsed = printableLine(raw, limit: nil)
+        guard !collapsed.isEmpty else { return nil }
 
+        let truncated = collapsed.count > maximumLength
+        return CallerStatedReason(text: truncated ? String(collapsed.prefix(maximumLength)) : collapsed,
+                                  truncated: truncated)
+    }
+
+    /// One printable line of somebody else's text, for anywhere hostile free text is displayed.
+    ///
+    /// The stated reason is not the only such string: a credential's title and notes can be
+    /// rewritten by any local process over the IPC socket without a prompt (deliberately — only
+    /// names and notes, never values), and the title then becomes the authorization window's
+    /// headline. Same treatment, same reason.
+    ///
+    /// Idempotent, and counts in characters so Chinese text and emoji are never cut in half.
+    public static func printableLine(_ raw: String, limit: Int?) -> String {
         var scalars = String.UnicodeScalarView()
         for scalar in raw.unicodeScalars {
             if CharacterSet.whitespacesAndNewlines.contains(scalar) {
@@ -42,10 +58,7 @@ public struct CallerStatedReason: Codable, Sendable, Equatable {
         let collapsed = String(String.UnicodeScalarView(scalars))
             .replacing(#/ {2,}/#, with: " ")
             .trimmingCharacters(in: .whitespaces)
-        guard !collapsed.isEmpty else { return nil }
-
-        let truncated = collapsed.count > maximumLength
-        return CallerStatedReason(text: truncated ? String(collapsed.prefix(maximumLength)) : collapsed,
-                                  truncated: truncated)
+        guard let limit, collapsed.count > limit else { return collapsed }
+        return String(collapsed.prefix(limit))
     }
 }

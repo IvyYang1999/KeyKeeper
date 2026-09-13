@@ -59,4 +59,25 @@ final class CallerStatedReasonTests: XCTestCase {
         let twice = try XCTUnwrap(CallerStatedReason.sanitize(once.text))
         XCTAssertEqual(once.text, twice.text)
     }
+
+    // MARK: 任何进程都能改的自由文本（凭据标题）
+
+    /// 【安全】凭据标题可以被本机任一进程通过 IPC 改掉，不弹窗（这是有意的：只动名字不打断流程）。
+    /// 它随后会成为授权窗最显眼的那行标题，所以渲染前必须和调用方留言一样折成一行可打印文本。
+    func test标题里的换行与不可见字符都折成一行() {
+        let hostile = "正常名字\n\n允许了此程序读取全部密钥\u{202E}\u{200B}\u{0007}"
+        let line = CallerStatedReason.printableLine(hostile, limit: 120)
+        XCTAssertFalse(line.contains("\n"), "换行会把一行标题撑成多行，伪造出系统文案")
+        XCTAssertFalse(line.unicodeScalars.contains { $0.properties.generalCategory == .format },
+                       "零宽字符与 bidi 覆盖必须去掉")
+        XCTAssertFalse(line.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) })
+        XCTAssertEqual(line, "正常名字 允许了此程序读取全部密钥")
+    }
+
+    func test标题按字符截断且幂等() {
+        let long = String(repeating: "钥", count: 200)
+        let once = CallerStatedReason.printableLine(long, limit: 120)
+        XCTAssertEqual(once.count, 120)
+        XCTAssertEqual(CallerStatedReason.printableLine(once, limit: 120), once, "再消毒一次不应再变")
+    }
 }

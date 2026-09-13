@@ -185,7 +185,12 @@ public enum MetadataEditPlan {
             changes.append(.displayNameChanged(field: field, to: value))
         }
 
-        if let title = edit.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, title != credential.label {
+        // The title becomes the authorization window's headline, and any local process can set it
+        // without a prompt, so it is folded to one printable line here as well as at render time.
+        if let title = edit.title.map({ CallerStatedReason.printableLine($0, limit: nil) }),
+           !title.isEmpty, title != credential.label {
+            // Too long is an error, not a silent trim: a title the user typed should come back
+            // rejected rather than quietly cut. The window caps what it draws separately.
             guard title.count <= titleLimit else { throw MetadataEditError.tooLong("title") }
             changes.append(.titleChanged(from: credential.label, to: title))
             credential.label = title

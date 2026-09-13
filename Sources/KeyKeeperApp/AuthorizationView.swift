@@ -15,7 +15,27 @@ enum AuthorizationPrompt {
         }
     }
 
+    /// The prompt's headline. KeyKeeper looks this up locally rather than taking the caller's
+    /// word for it, but the label itself is free text that any local process can rewrite over
+    /// the socket without a prompt — renaming is deliberately unobtrusive. So it gets the same
+    /// treatment as the caller's stated reason: one printable line, capped, before it is drawn
+    /// in bold at the top of an authorization window. Falls back to the credential's ID when
+    /// nothing printable is left.
     var credentialLabel: String {
+        let line = CallerStatedReason.printableLine(rawCredentialLabel, limit: 120)
+        return line.isEmpty ? credentialId : line
+    }
+
+    var credentialId: String {
+        switch self {
+        case .strict(let request):
+            return request.credentialId
+        case .service(let request):
+            return request.credentialId
+        }
+    }
+
+    private var rawCredentialLabel: String {
         switch self {
         case .strict(let request):
             return request.credentialLabel
@@ -247,6 +267,7 @@ struct AuthorizationView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(L("\(callerName) wants to use \(prompt.credentialLabel)"))
                     .font(.system(size: 17, weight: .bold))
+                    .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(prompt.title)
                     .font(.callout)
@@ -265,7 +286,7 @@ struct AuthorizationView: View {
             }
 
             if let caller = prompt.callerIdentity {
-                infoRow(L("Caller"), value: caller.displayName)
+                infoRow(L("Caller"), value: TrustPromptModel.sanitizedCaller(caller.displayName))
             }
             // Subject fingerprint, PID and the process chain are diagnostics; they live
             // in the collapsible "Caller Details" section below.
@@ -410,6 +431,7 @@ struct AuthorizationView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(L("\(callerName) wants to use \(prompt.credentialLabel)"))
                     .font(.system(size: 17, weight: .bold))
+                    .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(prompt.title)
                     .font(.callout)
