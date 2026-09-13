@@ -130,6 +130,8 @@ extension AppL10n {
         "{0} changed \u{201C}{1}\u{201D}": "{0} 改了「{1}」",
         "Names and notes changed by agents": "Agent 改过的名字和备注",
         "Dismiss": "知道了",
+        // Authorization fallback
+        "This Mac can't verify it is you right now. Unlock it with your Mac password or set up Touch ID, then try again.": "现在这台 Mac 无法验证是你本人。请先用 Mac 密码解锁，或设置好 Touch ID，再重试。",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",

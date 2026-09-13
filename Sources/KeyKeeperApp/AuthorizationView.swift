@@ -79,6 +79,37 @@ struct AuthorizationView: View {
     @State private var showCallerDetails = false
     private let authenticationMethod: AuthenticationMethod
 
+    /// What to do after a LocalAuthentication round.
+    ///
+    /// 【曾经的 bug】yyt 2026-09-13：在 Touch ID 面板点「使用密码」后窗口直接消失。旧实现把
+    /// `LAError.userFallback` 当成验证通过就放行了——等于谁都能点两下绕开 Touch ID 拿到值。
+    /// 现在「改用密码」只会换成密码策略再验一次，验过才放行；验不了就报错，绝不放行。
+    enum AuthenticationOutcome: Equatable {
+        case authorize
+        case askForDevicePassword
+        case cancelled
+        case failed(String)
+
+        static func decide(success: Bool,
+                           code: LAError.Code?,
+                           devicePasswordAvailable: Bool,
+                           isPasswordRound: Bool = false,
+                           message: String? = nil) -> AuthenticationOutcome {
+            if success { return .authorize }
+            switch code {
+            case .userCancel, .appCancel, .systemCancel:
+                return .cancelled
+            case .userFallback, .biometryNotAvailable, .biometryNotEnrolled, .biometryLockout:
+                guard devicePasswordAvailable, !isPasswordRound else {
+                    return .failed(L("This Mac can't verify it is you right now. Unlock it with your Mac password or set up Touch ID, then try again."))
+                }
+                return .askForDevicePassword
+            default:
+                return .failed(message ?? L("Authentication failed"))
+            }
+        }
+    }
+
     /// How the "Authorize" click is confirmed. The button icon must match what will
     /// actually happen; a Touch ID glyph on a machine without Touch ID promised a
     /// check that never ran.
@@ -495,7 +526,16 @@ struct AuthorizationView: View {
             finishAuthorization(completion)
             return
         }
+        runAuthentication(policy: policy,
+                          isPasswordRound: policy == .deviceOwnerAuthentication,
+                          completion: completion)
+    }
 
+    /// One LocalAuthentication round. Choosing "Use Password…" runs a second round with the
+    /// device-password policy; nothing is released until a round actually succeeds.
+    private func runAuthentication(policy: LAPolicy,
+                                   isPasswordRound: Bool,
+                                   completion: @escaping () throws -> Void) {
         isAuthenticating = true
         errorMessage = nil
 
@@ -503,17 +543,28 @@ struct AuthorizationView: View {
         context.evaluatePolicy(policy,
                                localizedReason: L("Authorize access to \"\(prompt.credentialLabel)\"")) { success, authError in
             DispatchQueue.main.async {
-                isAuthenticating = false
-                if success {
+                let outcome = AuthenticationOutcome.decide(
+                    success: success,
+                    code: (authError as? LAError)?.code,
+                    devicePasswordAvailable: LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil),
+                    isPasswordRound: isPasswordRound,
+                    message: authError?.localizedDescription
+                )
+                switch outcome {
+                case .authorize:
+                    isAuthenticating = false
                     finishAuthorization(completion)
-                } else if (authError as? LAError)?.code == .userFallback ||
-                          (authError as? LAError)?.code == .biometryNotAvailable {
-                    // User chose password or biometry unavailable — authorize from UI
-                    finishAuthorization(completion)
-                } else if (authError as? LAError)?.code == .userCancel {
+                case .askForDevicePassword:
+                    // The system password sheet is the next step; keep the window busy.
+                    runAuthentication(policy: .deviceOwnerAuthentication,
+                                      isPasswordRound: true,
+                                      completion: completion)
+                case .cancelled:
+                    isAuthenticating = false
                     errorMessage = L("Cancelled")
-                } else {
-                    errorMessage = authError?.localizedDescription ?? L("Authentication failed")
+                case .failed(let message):
+                    isAuthenticating = false
+                    errorMessage = message
                 }
             }
         }
