@@ -101,6 +101,8 @@ enum SessionBrowserPolicy {
     private var frozenAt: Date?
     private var veil: SessionExpiryVeil?
     private var asking = false
+    /// Added when the window freezes: a rule list that blocks every load, of every type.
+    private var freezeRules: WKContentRuleList?
     init(origin: String, label: String, policy: SessionWindowPolicy = .default,
          trustEvaluator: ((URLProtectionSpace) -> Bool)?,
          onReauthorize: @escaping (@escaping (Bool) -> Void) -> Void = { $0(false) },
@@ -184,6 +186,7 @@ enum SessionBrowserPolicy {
     private func freeze() {
         guard veil == nil, let contentView = window.contentView else { return }
         frozenAt = Date()
+        stopNetwork()
         window.title = "KeyKeeper · \(origin) · \(L("Authorization expired"))"
         let veil = SessionExpiryVeil(
             onRenew: { [weak self] in self?.renew() },
@@ -202,6 +205,7 @@ enum SessionBrowserPolicy {
                 guard let self, !self.closed else { return }
                 self.asking = false
                 guard granted else { self.shutdown(); return }
+                self.resumeNetwork()
                 self.frozenAt = nil
                 self.startedAt = Date()
                 self.veil?.removeFromSuperview()
@@ -211,8 +215,40 @@ enum SessionBrowserPolicy {
         }
     }
 
+    /// Freezing has to mean it, not just look like it.
+    ///
+    /// Swallowing clicks stops the person and anything driving the window by clicking — it does
+    /// nothing about the JavaScript already running in the page, which can keep using the
+    /// session's cookies for fetch and XHR. A content rule list blocks every load of every type,
+    /// so the page can still compute but cannot reach the network, and the cookies stay where
+    /// they are instead of being torn out (which the site would see as an immediate logout).
+    private func stopNetwork() {
+        guard let web = webView, freezeRules == nil else { return }
+        web.stopLoading()
+        let rules: [[String: Any]] = [["trigger": ["url-filter": ".*"], "action": ["type": "block"]]]
+        guard let encoded = try? JSONSerialization.data(withJSONObject: rules) else { return }
+        let identifier = "keykeeper-frozen-" + UUID().uuidString
+        WKContentRuleListStore.default().compileContentRuleList(
+            forIdentifier: identifier, encodedContentRuleList: String(decoding: encoded, as: UTF8.self)
+        ) { [weak self] list, _ in
+            WKContentRuleListStore.default().removeContentRuleList(forIdentifier: identifier) { _ in }
+            Task { @MainActor in
+                guard let self, !self.closed, self.frozenAt != nil, let list else { return }
+                self.freezeRules = list
+                self.webView?.configuration.userContentController.add(list)
+            }
+        }
+    }
+
+    private func resumeNetwork() {
+        guard let list = freezeRules else { return }
+        webView?.configuration.userContentController.remove(list)
+        freezeRules = nil
+    }
+
     func shutdown() {
         guard !closed else { return }; closed = true; timer?.invalidate(); timer = nil
+        freezeRules = nil
         veil?.removeFromSuperview(); veil = nil
         if let web = webView {
             web.stopLoading(); web.navigationDelegate = nil; web.uiDelegate = nil
@@ -270,7 +306,7 @@ enum SessionBrowserPolicy {
 
         let title = NSTextField(labelWithString: L("This authorization has expired"))
         title.font = .systemFont(ofSize: 17, weight: .semibold)
-        let detail = NSTextField(labelWithString: L("The window and your login are still here. Nothing can happen in it until you authorize again."))
+        let detail = NSTextField(labelWithString: L("The window and your login are still here, but the page cannot reach the network until you authorize again."))
         detail.font = .systemFont(ofSize: 13)
         detail.textColor = .secondaryLabelColor
         detail.alignment = .center

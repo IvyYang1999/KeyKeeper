@@ -22,7 +22,7 @@ extension AppL10n {
         "Authorization expired": "授权已到期",
         "Authorize again": "重新授权",
         "Close the window": "关闭窗口",
-        "The window and your login are still here. Nothing can happen in it until you authorize again.": "窗口和你的登录都还在。重新授权之前，这里面什么都做不了。",
+        "The window and your login are still here, but the page cannot reach the network until you authorize again.": "窗口和你的登录都还在，但重新授权之前，页面连不上网络。",
         "This authorization has expired": "这次授权已经到期",
         "Session window": "登录态窗口",
         // 命令行工具的提示（0.3.4）
