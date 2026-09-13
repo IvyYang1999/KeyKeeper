@@ -4,12 +4,17 @@ import KeyKeeperCore
 @MainActor protocol BrowserSessionRuntime: AnyObject {
     var activeIDs: [String] { get }
     func validate(_ snapshot: BrowserSessionImport) throws
+    /// Called by the runtime when an open window's time runs out.
+    func setReauthorizationHandler(_ handler: @escaping (String, @escaping (Bool) -> Void) -> Void)
     func open(_ snapshot: BrowserSessionImport, completion: @escaping (Bool) -> Void)
     func stop(id: String)
     func stopAll()
 }
 
-extension BrowserSessionRuntime { func validate(_ snapshot: BrowserSessionImport) throws {} }
+extension BrowserSessionRuntime {
+    func validate(_ snapshot: BrowserSessionImport) throws {}
+    func setReauthorizationHandler(_ handler: @escaping (String, @escaping (Bool) -> Void) -> Void) {}
+}
 
 struct BrowserSessionPresentation {
     let action: BrowserSessionRequest.Action
@@ -43,6 +48,27 @@ struct BrowserSessionPresentation {
          present: @escaping (BrowserSessionPresentation, @escaping (Bool) -> Void) -> Void,
          dismiss: @escaping () -> Void) {
         self.store = store; self.runtime = runtime; self.now = now; self.present = present; self.dismiss = dismiss
+        // The protocol is @MainActor, so this already runs there: answering synchronously keeps
+        // "Background OK" invisible — the veil goes up and comes down without a frame in between.
+        runtime.setReauthorizationHandler { [weak self] id, decided in
+            MainActor.assumeIsolated { self?.authorizeAgain(id: id, decided: decided) }
+        }
+    }
+
+    /// An open window has reached its limit and frozen. Whether that costs anyone a click is the
+    /// session's own setting — the same one a credential has.
+    func authorizeAgain(id: String, decided: @escaping (Bool) -> Void) {
+        guard let summary = sessions.first(where: { $0.id == id })
+            ?? (try? store.list())?.first(where: { $0.id == id }) else { decided(false); return }
+        guard summary.security == .strict else {
+            // Background OK: the limit is a safety net, not a question.
+            decided(true); return
+        }
+        guard pending == nil else { decided(false); return }
+        present(.init(action: .open, session: summary, caller: L("Session window"))) { [weak self] granted in
+            self?.dismiss()
+            decided(granted)
+        }
     }
 
     func refresh() {

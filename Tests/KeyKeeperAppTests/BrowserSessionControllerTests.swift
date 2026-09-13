@@ -64,6 +64,51 @@ import KeyKeeperCore
         approve?(true)
         XCTAssertTrue(try store.list().isEmpty); XCTAssertTrue(runtime.activeIDs.isEmpty)
     }
+
+    /// yyt 2026-09-13：「到期不是砍掉窗口，是重新要一次授权」，做法是冻结 + 覆盖层。
+    /// 到期时窗口会回头问控制器：这一次要不要打扰人。答案取决于这条登录态自己的安全级别，
+    /// 和 key 是同一个规矩。
+    func test到期重新授权按登录态自己的级别决定要不要问() throws {
+        let io = SessionControllerIO(), runtime = TestSessionRuntime()
+        let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
+        var prompts = 0; var decide: ((Bool) -> Void)?
+        let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
+            present: { _, reply in prompts += 1; decide = reply }, dismiss: {})
+        let input = BrowserSessionImport(id: UUID().uuidString, origin: "https://example.com", label: "Synthetic", cookies: [
+            .init(name: "fixture", value: "synthetic", domain: "example.com", hostOnly: true,
+                  path: "/", secure: true, httpOnly: true, sameSite: "lax", expirationDate: nil)
+        ])
+        _ = try store.save(input)
+        controller.refresh()
+
+        // 默认「每次询问」：到期要问，答应了才继续
+        var granted: Bool?
+        runtime.reauthorize?(input.id, { granted = $0 })
+        XCTAssertEqual(prompts, 1)
+        XCTAssertNil(granted, "没点之前不能替人答应")
+        decide?(true)
+        XCTAssertEqual(granted, true)
+
+        // 拒绝就是拒绝——窗口那边会据此关掉
+        granted = nil
+        runtime.reauthorize?(input.id, { granted = $0 })
+        decide?(false)
+        XCTAssertEqual(granted, false)
+
+        // 改成「后台放行」之后，到期不该再打扰人
+        try store.setSecurity(id: input.id, to: .standard)
+        controller.refresh()
+        let before = prompts
+        granted = nil
+        runtime.reauthorize?(input.id, { granted = $0 })
+        XCTAssertEqual(prompts, before, "后台放行的登录态到期不该弹窗")
+        XCTAssertEqual(granted, true)
+
+        // 不认识的 id 一律拒绝
+        granted = nil
+        runtime.reauthorize?("not-a-session", { granted = $0 })
+        XCTAssertEqual(granted, false)
+    }
 }
 
 private final class SessionControllerIO: KeychainBlobIO, @unchecked Sendable {
@@ -77,6 +122,10 @@ private final class SessionControllerMarker: BrowserSessionMarker {
     func markCreated() throws { exists = true }
 }
 @MainActor private final class TestSessionRuntime: BrowserSessionRuntime {
+    var reauthorize: ((String, @escaping (Bool) -> Void) -> Void)?
+    func setReauthorizationHandler(_ handler: @escaping (String, @escaping (Bool) -> Void) -> Void) {
+        reauthorize = handler
+    }
     var activeIDs: [String] = []; var openCount = 0
     func open(_ snapshot: BrowserSessionImport, completion: @escaping (Bool) -> Void) {
         openCount += 1; activeIDs.append(snapshot.id); completion(true)

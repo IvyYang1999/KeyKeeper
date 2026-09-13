@@ -18,6 +18,13 @@ extension AppL10n {
         "Stop all windows": "停止所有窗口",
         "Import only a website you select in the Chrome extension. Each open needs your confirmation and ends after 15 minutes. Account actions are NOT read-only.": "只导入你在 Chrome 扩展中选择的网站。每次打开都需你确认，15 分钟后结束。账号操作不是只读。",
         "No website sessions yet": "还没有网站登录态",
+        // 登录态窗口到期冻结（0.3.4）
+        "Authorization expired": "授权已到期",
+        "Authorize again": "重新授权",
+        "Close the window": "关闭窗口",
+        "The window and your login are still here. Nothing can happen in it until you authorize again.": "窗口和你的登录都还在。重新授权之前，这里面什么都做不了。",
+        "This authorization has expired": "这次授权已经到期",
+        "Session window": "登录态窗口",
         // 命令行工具的提示（0.3.4）
         "The keykeeper command is from an older version": "keykeeper 命令行工具是旧版本",
         "The keykeeper command is not installed": "还没装 keykeeper 命令行工具",

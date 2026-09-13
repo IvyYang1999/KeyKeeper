@@ -49,6 +49,13 @@ enum SessionBrowserPolicy {
 
 @MainActor final class SessionBrowserRuntime: BrowserSessionRuntime {
     private var windows: [String: IsolatedSessionWindow] = [:]
+    /// Asked when a window's time runs out. The window is already frozen by then; answering yes
+    /// restarts its clock, answering no closes it.
+    private var requestReauthorization: ((String, @escaping (Bool) -> Void) -> Void)?
+    func setReauthorizationHandler(_ handler: @escaping (String, @escaping (Bool) -> Void) -> Void) {
+        requestReauthorization = handler
+    }
+    var policy: SessionWindowPolicy = .default
     // Dependency injection for an isolated, pinned-certificate integration fixture.
     // Production has no evaluator and always uses normal system TLS verification.
     private let trustEvaluator: ((URLProtectionSpace) -> Bool)?
@@ -61,9 +68,14 @@ enum SessionBrowserPolicy {
     func open(_ snapshot: BrowserSessionImport, completion: @escaping (Bool) -> Void) {
         do { try validate(snapshot) } catch { completion(false); return }
         guard windows.count < 2, windows[snapshot.id] == nil else { completion(false); return }
-        let window = IsolatedSessionWindow(origin: snapshot.origin, label: snapshot.label, trustEvaluator: trustEvaluator) { [weak self] in
-            self?.windows.removeValue(forKey: snapshot.id)
-        }
+        let window = IsolatedSessionWindow(
+            origin: snapshot.origin, label: snapshot.label, policy: policy,
+            trustEvaluator: trustEvaluator,
+            onReauthorize: { [weak self] decided in
+                guard let self, let ask = self.requestReauthorization else { decided(false); return }
+                ask(snapshot.id, decided)
+            },
+            onClose: { [weak self] in self?.windows.removeValue(forKey: snapshot.id) })
         windows[snapshot.id] = window
         window.prepare(snapshot.cookies) { [weak self, weak window] ok in
             guard let self, let window, self.windows[snapshot.id] === window else { return }
@@ -83,8 +95,19 @@ enum SessionBrowserPolicy {
     private var timer: Timer?
     private var closed = false
     private let trustEvaluator: ((URLProtectionSpace) -> Bool)?
-    init(origin: String, label: String, trustEvaluator: ((URLProtectionSpace) -> Bool)?, onClose: @escaping () -> Void) {
+    private let policy: SessionWindowPolicy
+    private let onReauthorize: (@escaping (Bool) -> Void) -> Void
+    private var startedAt = Date()
+    private var frozenAt: Date?
+    private var veil: SessionExpiryVeil?
+    private var asking = false
+    init(origin: String, label: String, policy: SessionWindowPolicy = .default,
+         trustEvaluator: ((URLProtectionSpace) -> Bool)?,
+         onReauthorize: @escaping (@escaping (Bool) -> Void) -> Void = { $0(false) },
+         onClose: @escaping () -> Void) {
         self.origin = origin; self.onClose = onClose
+        self.policy = policy
+        self.onReauthorize = onReauthorize
         self.trustEvaluator = trustEvaluator
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 720),
             styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
@@ -128,16 +151,69 @@ enum SessionBrowserPolicy {
                     guard !self.closed else { return }
                     web.load(URLRequest(url: URL(string: self.origin + "/")!))
                     self.window.center(); self.window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
-                    self.timer = Timer.scheduledTimer(withTimeInterval: 900, repeats: false) { [weak self] _ in
-                        Task { @MainActor in self?.shutdown() }
+                    self.startedAt = Date()
+                    // Checked on a tick rather than scheduled once: the deadline moves whenever
+                    // someone authorizes again, and a frozen window has its own grace period.
+                    self.timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+                        Task { @MainActor in self?.evaluateLifetime() }
                     }
                     completion(true)
                 }
             }
         } catch { completion(false) }
     }
+    /// The clock only ends permission. The window and everything in it stay put until either
+    /// someone authorizes again or the grace period runs out.
+    private func evaluateLifetime() {
+        guard !closed else { return }
+        switch policy.state(startedAt: startedAt, frozenAt: frozenAt, now: Date()) {
+        case .active:
+            break
+        case .frozen:
+            if frozenAt == nil {
+                freeze()
+                // Ask straight away. A session set to "Background OK" is answered without a
+                // prompt, so the veil goes up and comes down in the same turn and nobody sees it.
+                renew()
+            }
+        case .closed:
+            shutdown()
+        }
+    }
+
+    private func freeze() {
+        guard veil == nil, let contentView = window.contentView else { return }
+        frozenAt = Date()
+        window.title = "KeyKeeper · \(origin) · \(L("Authorization expired"))"
+        let veil = SessionExpiryVeil(
+            onRenew: { [weak self] in self?.renew() },
+            onClose: { [weak self] in self?.shutdown() })
+        veil.frame = contentView.bounds
+        veil.autoresizingMask = [.width, .height]
+        contentView.addSubview(veil)
+        self.veil = veil
+    }
+
+    private func renew() {
+        guard !asking else { return }
+        asking = true
+        onReauthorize { [weak self] granted in
+            Task { @MainActor in
+                guard let self, !self.closed else { return }
+                self.asking = false
+                guard granted else { self.shutdown(); return }
+                self.frozenAt = nil
+                self.startedAt = Date()
+                self.veil?.removeFromSuperview()
+                self.veil = nil
+                self.window.title = "KeyKeeper · \(self.origin) · \(L("Ends in 15 minutes"))"
+            }
+        }
+    }
+
     func shutdown() {
         guard !closed else { return }; closed = true; timer?.invalidate(); timer = nil
+        veil?.removeFromSuperview(); veil = nil
         if let web = webView {
             web.stopLoading(); web.navigationDelegate = nil; web.uiDelegate = nil
             web.configuration.userContentController.removeAllContentRuleLists()
@@ -171,4 +247,66 @@ enum SessionBrowserPolicy {
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                  initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
                  decisionHandler: @escaping (WKPermissionDecision) -> Void) { decisionHandler(.deny) }
+}
+
+/// The overlay a frozen session window wears: it covers the page, swallows every click, and
+/// offers the only two things that can happen next.
+@MainActor private final class SessionExpiryVeil: NSView {
+    private let onRenew: () -> Void
+    private let onClose: () -> Void
+
+    init(onRenew: @escaping () -> Void, onClose: @escaping () -> Void) {
+        self.onRenew = onRenew
+        self.onClose = onClose
+        super.init(frame: .zero)
+        wantsLayer = true
+        let effect = NSVisualEffectView()
+        effect.material = .hudWindow
+        effect.blendingMode = .withinWindow
+        effect.state = .active
+        effect.frame = bounds
+        effect.autoresizingMask = [.width, .height]
+        addSubview(effect)
+
+        let title = NSTextField(labelWithString: L("This authorization has expired"))
+        title.font = .systemFont(ofSize: 17, weight: .semibold)
+        let detail = NSTextField(labelWithString: L("The window and your login are still here. Nothing can happen in it until you authorize again."))
+        detail.font = .systemFont(ofSize: 13)
+        detail.textColor = .secondaryLabelColor
+        detail.alignment = .center
+        detail.lineBreakMode = .byWordWrapping
+        detail.preferredMaxLayoutWidth = 380
+        let renew = NSButton(title: L("Authorize again"), target: self, action: #selector(renewTapped))
+        renew.keyEquivalent = "\r"
+        renew.bezelStyle = .rounded
+        let close = NSButton(title: L("Close the window"), target: self, action: #selector(closeTapped))
+        close.bezelStyle = .rounded
+
+        let buttons = NSStackView(views: [close, renew])
+        buttons.orientation = .horizontal
+        buttons.spacing = 10
+        let stack = NSStackView(views: [title, detail, buttons])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stack.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
+        ])
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    /// Nothing behind this reaches the page.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit ?? self
+    }
+    override func mouseDown(with event: NSEvent) {}
+
+    @objc private func renewTapped() { onRenew() }
+    @objc private func closeTapped() { onClose() }
 }
