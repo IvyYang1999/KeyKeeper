@@ -26,6 +26,11 @@ installed manually. Every later release can update it in place.
 1. Ask the user to approve the exact next version. Update `VERSION` and
    `CHANGELOG.md`, add `release-notes/<version>.md`, then commit and let the normal
    tests finish.
+1b. Prove the Sparkle signing key is the one this app trusts: `./scripts/verify-sparkle-key.sh`.
+   It derives the ed25519 public key from the stored private key and compares it with
+   SUPublicEDKey, printing only whether they match — the key is never displayed. Note that
+   `sign_update --verify` is NOT this check: it only proves a key is self-consistent, never
+   that it is this app's key.
 2. Ensure KeyKeeper contains the Apple notarization credential named `apple-notary`
    (or set `KEYKEEPER_NOTARY_CREDENTIAL_ID` to another credential ID), with fields
    `apple-id`, `apple-team-id` and `apple-app-specific-password`. The first two are plain

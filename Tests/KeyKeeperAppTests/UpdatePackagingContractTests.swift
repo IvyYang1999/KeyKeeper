@@ -113,4 +113,26 @@ final class UpdatePackagingContractTests: XCTestCase {
             "the uploaded DMG must be the one the appcast signed"
         )
     }
+
+    /// 签名私钥可以本地自证身份：由私钥推导公钥，和 App 里内置的 SUPublicEDKey 比对。
+    /// 这条链路必须自己先自检——一个推导不出来的机器如果直接报「不匹配」，人会以为钥匙错了。
+    func test公钥比对脚本可以自检且从不打印私钥() throws {
+        let script = repositoryRoot.appendingPathComponent("scripts/verify-sparkle-key.sh")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [script.path, "--self-test"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0, output)
+        XCTAssertTrue(output.contains("derivation works"), output)
+
+        let source = try String(contentsOf: script, encoding: .utf8)
+        XCTAssertFalse(source.contains("set -x"), "跟踪模式会把私钥打进日志")
+        XCTAssertFalse(source.contains("echo \"$secret"), "私钥永远不打印")
+        XCTAssertTrue(source.contains("sign_update --verify"), "要写明 sign_update --verify 不是这个检查")
+    }
 }
