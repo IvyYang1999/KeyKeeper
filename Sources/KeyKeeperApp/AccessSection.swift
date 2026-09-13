@@ -32,7 +32,7 @@ enum AccessEntryBuilder {
             AccessEntry(
                 id: "grant:\(grant.id)",
                 kind: .terminalSession,
-                who: sessionLabel(grant),
+                who: who(grant),
                 scope: scopeLabel(grant.duration, now: now),
                 activity: L("Approved \(relative(grant.createdAt, now: now))"),
                 isActive: isActive(grant, now: now),
@@ -43,7 +43,7 @@ enum AccessEntryBuilder {
             AccessEntry(
                 id: "service:\(grant.id)",
                 kind: .backgroundCaller,
-                who: grant.subjectDisplayName,
+                who: displayName(grant.subjectDisplayName) ?? L("Unknown Caller"),
                 scope: scopeLabel(grant.duration, fields: grant.fields, now: now),
                 activity: grant.lastUsedAt.map { L("Used \(relative($0, now: now))") }
                     ?? L("Approved \(relative(grant.createdAt, now: now))"),
@@ -52,6 +52,21 @@ enum AccessEntryBuilder {
             )
         }
         return (sessionEntries + callerEntries).sorted { $0.sortDate > $1.sortDate }
+    }
+
+    /// Who holds this approval. Display names are the caller's own words — sanitised like every
+    /// other caller-supplied string, which this list used to draw straight through.
+    static func who(_ grant: Grant) -> String {
+        let place = sessionLabel(grant)
+        guard let name = displayName(grant.subjectDisplayName) else { return place }
+        if grant.sessionId == nil, case .always = grant.duration { return name }
+        return name + " · " + place
+    }
+
+    static func displayName(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let line = CallerStatedReason.printableLine(raw, limit: 80)
+        return line.isEmpty ? nil : line
     }
 
     static func sessionLabel(_ grant: Grant) -> String {
@@ -84,6 +99,9 @@ enum AccessEntryBuilder {
     }
 
     static func isActive(_ grant: Grant, now: Date) -> Bool {
+        // An approval with no owner, or an unidentified one, matches nobody any more. Drawing it
+        // as an active "Always" would be the list lying about who can read what.
+        guard GrantIssuancePolicy.mayRemember(subjectFingerprint: grant.subjectFingerprint) else { return false }
         switch grant.duration {
         case .once: return !grant.consumed
         case .session: return true
@@ -93,6 +111,7 @@ enum AccessEntryBuilder {
     }
 
     static func isActive(_ grant: ServiceGrant, now: Date) -> Bool {
+        guard GrantIssuancePolicy.mayRemember(subjectFingerprint: grant.subjectFingerprint) else { return false }
         if case .timed(let date) = grant.duration { return now < date }
         return true
     }
