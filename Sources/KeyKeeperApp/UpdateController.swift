@@ -114,10 +114,13 @@ private final class SparkleUpdateDriver: UpdateDriving {
         set { controller.updater.automaticallyDownloadsUpdates = newValue }
     }
 
+    /// Kept alive for as long as the driver: Sparkle holds the delegate weakly.
+    private let feedPin = PinnedFeedDelegate()
+
     init() {
         controller = SPUStandardUpdaterController(
             startingUpdater: true,
-            updaterDelegate: nil,
+            updaterDelegate: feedPin,
             userDriverDelegate: nil
         )
 
@@ -140,5 +143,13 @@ private final class SparkleUpdateDriver: UpdateDriving {
             canCheckForUpdates: canCheckForUpdates,
             automaticallyDownloadsUpdates: automaticallyDownloadsUpdates
         ))
+    }
+}
+
+/// Answers Sparkle's "where is the feed?" with the address compiled into this bundle, so a
+/// `defaults write` cannot move it. See UpdateFeedPolicy.
+private final class PinnedFeedDelegate: NSObject, SPUUpdaterDelegate {
+    func feedURLString(for updater: SPUUpdater) -> String? {
+        UpdateFeedPolicy.pinnedFeedURL()
     }
 }
