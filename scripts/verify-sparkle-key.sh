@@ -46,7 +46,7 @@ if [ "${1:-}" = "--self-test" ]; then
     exit 0
 fi
 
-CREDENTIAL="${1:-keykeeper-sparkle-signing}"
+CREDENTIAL="${1:-${KEYKEEPER_SPARKLE_CREDENTIAL_ID:-keykeeper-sparkle-signing-v2}}"
 FIELD="${2:-private-key}"
 ENV_NAME="$(printf '%s' "$FIELD" | tr '[:lower:]-' '[:upper:]_')"
 EXPECTED="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$PROJECT_DIR/Resources/Info.plist")"
@@ -73,8 +73,9 @@ case "$bytes" in
             | xxd -r -p | openssl pkey -inform DER -pubout -outform DER 2>/dev/null | tail -c 32 | base64)"
         ;;
     96)
-        # Legacy format: 64-byte private key followed by its 32-byte public key.
-        public="$(printf "%s" "${raw_hex: -64}" | xxd -r -p | base64)"
+        # An embedded public-key suffix is not proof of the corresponding private key.
+        echo "DOES NOT MATCH: legacy format is unsupported by this seed verifier." >&2
+        exit 2
         ;;
     *)
         echo "DOES NOT MATCH: stored value decodes to $bytes bytes; a Sparkle signing key is 32 (or 96 for the legacy format)." >&2

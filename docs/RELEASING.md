@@ -1,9 +1,10 @@
 # Releasing KeyKeeper updates
 
 KeyKeeper uses Sparkle 2. The app checks the signed `appcast.xml` once a day. Automatic
-installation is off by default; users can turn it on in Settings. The Sparkle private
-key stays in the macOS login Keychain under account `com.keykeeper.app`. Never export it
-into the repository or pass it on a command line.
+installation is off by default; users can turn it on in Settings. Signing reads the
+`private-key` secret field from `keykeeper-sparkle-signing-v2` (override with
+`KEYKEEPER_SPARKLE_CREDENTIAL_ID`). The original login Keychain entry under account
+`com.keykeeper.app` is retained for recovery. Never export private keys into files or argv.
 
 The 0.3.0 candidate's update-signing identity was explicitly re-established on
 2026-09-12 after the previous private key could not be found. Its public key is in
@@ -14,9 +15,18 @@ to check that the existing public key matches the plist; this command does not
 export the private key or create a new one. A missing or mismatched key is a stop
 condition requiring recovery or an explicitly approved signing-identity change.
 
-On the first run of `prepare-update.sh`, macOS may ask whether `generate_appcast` may
-access that key. Choose **Always Allow** once; never paste the private key into a terminal
-or chat.
+`prepare-update.sh` uses KeyKeeper authorization, verifies the 32-byte Base64 seed against
+the built App's public key, then passes that same value to `generate_appcast --ed-key-file -`
+over stdin. It never falls back to the login Keychain. A mismatch stops signing. This removes
+Sparkle's direct Keychain access, not KeyKeeper's own authorization or OS lock requirements.
+Verification requires Apple Python 3 and an OpenSSL build supporting Ed25519; the RFC 8032
+self-test fails closed if the runtime is unavailable. Legacy 96-byte keys are unsupported.
+
+For initial setup, use an installed 0.3.3 App and CLI. Start
+`keykeeper save -c keykeeper-sparkle-signing-v2 --field private-key --from-clipboard --create --expect base64:32`,
+wait for the native save prompt, copy from the exact source once, then confirm. Verify public
+key identity before signing. Do not overwrite/delete a mis-stored credential to reuse its ID;
+use a new ID and mark the earlier entry unusable. Freshness and shape are not source attestation.
 
 ## First updater-enabled release
 

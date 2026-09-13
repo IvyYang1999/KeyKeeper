@@ -132,8 +132,8 @@ extension ClipboardSaveSource {
             let changed: ClipboardSaveError = clipboard.displayFilePath == nil ? .clipboardChanged : .fileChanged
             // Two different questions, and the old code asked only the second one.
             //   1. Did the user copy something FOR this request? Ordinal freshness: the count must
-            //      have moved at least once since the request started. "At least once" and not
-            //      "exactly once" — clipboard managers and password managers bump it too.
+            //      have moved exactly once since the request started. Extra revisions, including
+            //      those from clipboard managers, are ambiguous and therefore refused.
             //   2. Did the content hold still while we read it? That is the equality check, taken
             //      around the read itself rather than against the request's own baseline.
             let requiresFreshCopy = clipboard.requiresFreshCopy && !request.useCurrentClipboard

@@ -177,11 +177,21 @@ keykeeper edit baidu-qianfan --title "百度千帆 · 学术搜索"
 7. For missing or unusable credentials, follow the assistance workflow above, retaining all authorization and higher-priority gates.
 ## Save without exposing a key to the model
 
-After the user authorizes saving a key, use the provider's Copy button. Do not reveal the key, read the clipboard, paste it into a tool call, pass it as an argument, or write it to a file.
+For system clipboard saves in 0.3.3+, start the save request BEFORE copying. Check both
+the installed App version and `keykeeper save --help` for `--expect`; an old App may not
+enforce new request fields. Wait for the native confirmation window, then use the exact
+source's Copy action once, then confirm. Do not reveal or read the value through tools.
 
 Run `keykeeper save -c <credential-id> --field <field-name> --from-clipboard` to restore an existing missing secret field. Add `--create` only for a new credential ID. KeyKeeper asks for one-time confirmation and reads the system clipboard inside the App; the CLI receives only success or a constant error. It never overwrites an existing value or grants read access. New credentials use strict protection. The user confirms real-key saves; do not auto-click approval without their explicit authorization for that save.
 
-The clipboard must stay unchanged until confirmation. On timeout/connection failure, check the credential metadata and App state before retrying; never blindly repeat a write with an uncertain outcome. Website login/2FA may still require the user. A wholly missing store remains blocked; this command does not reset or recreate it.
+Declare a known shape using `--expect base64:32`, `hex:32`, `bytes:N` or `chars:N`; do not
+guess a provider's key length. Zero or more than one clipboard revision since the request
+is refused. After the source copy, keep the clipboard unchanged until confirmation. A
+revision is not proof of source identity: use a local public-key comparison or an authorized
+read-only provider check before consumption. Same-length wrong keys remain possible.
+Do not use `--use-current-clipboard` to bypass a failed freshness check. Cancel and establish
+a fresh request/copy instead. On timeout/connection failure, inspect metadata and App state
+before retrying; never blindly repeat an uncertain write. A wholly missing store stays blocked.
 
 This command reads the macOS system clipboard. A tool's browser-session clipboard may be isolated; do not assume `tab.clipboard` reaches KeyKeeper.
 

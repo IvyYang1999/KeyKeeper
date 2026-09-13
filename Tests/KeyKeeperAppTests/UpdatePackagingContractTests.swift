@@ -2,6 +2,19 @@ import Foundation
 import XCTest
 
 final class UpdatePackagingContractTests: XCTestCase {
+    func test签名接线拒绝误复制及伪造旧格式() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = ["-B", repositoryRoot.appendingPathComponent("scripts/test-sparkle-key.py").path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0, output)
+    }
+
     private let repositoryRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
         .deletingLastPathComponent()
