@@ -95,7 +95,7 @@ sequenceDiagram
     CLI-->>AI: output with any secret replaced by [REDACTED]
 ```
 
-- **Store** — add a key in the app, or open a prefilled form with a `keykeeper://add?label=…&fields=…` link. Values go into a single Keychain item, encrypted by macOS and synced to nothing. Names, notes and field names stay in a plain `meta.json`.
+- **Store** — add a key in the app, or open a prefilled form with a `keykeeper://add?label=…&fields=…` link. Secret values go into a single Keychain item, encrypted by macOS and synced to nothing. Names, notes, field names — and any field you mark plain — stay in a plain `meta.json`.
 - **Use** — `keykeeper run -c <id> -- <command>` injects the secret fields as environment variables. Anything the command prints that contains a secret comes out as `[REDACTED]`. The app starts on demand.
 - **Approve** — the first time a new terminal session, script or agent asks for a key, KeyKeeper shows *who* is asking and lets you say yes once. Approvals are listed on the credential's page and can be revoked.
 - **Reboot** — log in once and everything, cron jobs included, works again. No prompts in day-to-day use.
@@ -187,9 +187,9 @@ Both SDKs shell out to the `keykeeper` CLI; no native dependencies.
 
 | Layer | What happens |
 |---|---|
-| Values at rest | One generic-password item in the macOS Keychain, encrypted by the OS with your login credentials. Nothing readable sits in a file. |
+| Values at rest | Secret fields live in one generic-password item in the macOS Keychain, encrypted by the OS with your login credentials. Fields you mark *plain* are not secrets and are stored in `meta.json` as ordinary text. |
 | Unlocking | Your macOS login. The keychain stays available while the screen is locked and re-locks at logout/reboot — the same model as Safari passwords, `gh`, `aws-vault` and `envchain`. |
-| Metadata | `meta.json` holds labels, notes and field *names* in plain text. No values. |
+| Metadata | `meta.json` holds labels, notes and field *names* in plain text — plus the values of fields you explicitly marked plain (an account id, a team id, a region). Never put a password, token or key in a plain field. |
 | Using a key | `keykeeper run` injects values into the child process's environment and replaces them with `[REDACTED]` in its stdout/stderr. `keykeeper get` refuses to print to a terminal. |
 | Who may ask | Per-credential mode (Background OK / Ask every time) plus per-caller approvals, shown and revocable in the app. Concurrent requests queue up instead of failing. |
 | Other apps | The Keychain item's ACL trusts only KeyKeeper's signing identity; any other program that tries to read it triggers the macOS confirmation prompt. |

@@ -95,7 +95,7 @@ sequenceDiagram
     CLI-->>AI: 输出中的秘密替换为 [REDACTED]
 ```
 
-- **存** — 在应用里添加 key，或用 `keykeeper://add?label=…&fields=…` 链接打开预填好的表单。值进入一条钥匙串项，由 macOS 加密，不同步到任何地方。名字、备注、字段名放在明文的 `meta.json` 里。
+- **存** — 在应用里添加 key，或用 `keykeeper://add?label=…&fields=…` 链接打开预填好的表单。机密值进入一条钥匙串项，由 macOS 加密，不同步到任何地方。名字、备注、字段名，以及你标为明文的字段，都放在明文的 `meta.json` 里。
 - **用** — `keykeeper run -c <id> -- <命令>` 把秘密字段注入为环境变量。命令输出里只要含有秘密，就会被替换成 `[REDACTED]`。应用按需自动启动。
 - **批准** — 新的终端会话、脚本或 agent 第一次请求某把 key 时，KeyKeeper 会显示*谁*在请求，你点一次允许即可。批准记录列在凭据页面上，可以撤销。
 - **重启后** — 登录一次，一切（包括 cron）就恢复工作。日常不会弹任何窗。
@@ -187,9 +187,9 @@ runWithSecrets("openai", ["node", "server.js"]);
 
 | 层 | 发生什么 |
 |---|---|
-| 静态存储 | macOS 钥匙串里的一条 generic-password 项，由系统用你的登录凭据加密。没有任何可读的东西放在文件里。 |
+| 静态存储 | 机密字段放在 macOS 钥匙串的一条 generic-password 项里，由系统用你的登录凭据加密。你主动标为*明文*的字段不是机密，以普通文本存在 `meta.json` 里。 |
 | 解锁 | 你的 macOS 登录。锁屏期间钥匙串仍可用，注销/重启后重新锁定——和 Safari 密码、`gh`、`aws-vault`、`envchain` 是同一个模型。 |
-| 元数据 | `meta.json` 明文存放名字、备注和字段*名*。不含值。 |
+| 元数据 | `meta.json` 明文存放名字、备注、字段*名*，以及你主动标为明文的那些字段的值（账号 ID、团队 ID、区域这类）。明文字段里绝不要放密码、令牌或密钥。 |
 | 使用 key | `keykeeper run` 把值注入子进程环境，并把 stdout/stderr 里出现的值替换为 `[REDACTED]`。`keykeeper get` 拒绝打印到终端。 |
 | 谁能请求 | 每条凭据的模式（Background OK / Ask every time）加上每个调用方的批准，都在应用里可见、可撤销。并发请求排队而不是失败。 |
 | 其它应用 | 钥匙串项的 ACL 只信任 KeyKeeper 的签名身份；其它程序试图读取会触发 macOS 的确认弹窗。 |
