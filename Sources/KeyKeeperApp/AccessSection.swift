@@ -136,6 +136,11 @@ struct AccessSection: View {
                         if entry.isActive {
                             Circle().fill(.green).frame(width: 6, height: 6)
                                 .padding(.top, 6)
+                        } else {
+                            // In words: a missing dot was the only difference, and it read as "fine".
+                            Text(L("No longer applies"))
+                                .font(.caption2)
+                                .foregroundColor(.orange)
                         }
                         Button(L("Revoke")) { revoke(entry) }
                             .font(.caption)

@@ -199,6 +199,7 @@ extension AppL10n {
         "The request came through the keykeeper command. KeyKeeper recognises where it was started from — the app or file it runs inside — not a signature, so an approval covers everything started from there.": "这个请求是经 keykeeper 命令转来的。KeyKeeper 认的是它从哪里启动——它所在的 app 或文件——而不是签名，所以一次批准覆盖从那里启动的所有程序。",
         "Allowing lets {0} — and anything started inside it, like its terminals and the agents they run — read every key in this credential. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it.": "允许之后，{0}——以及在它里面启动的一切，比如它的终端和终端里跑的 Agent——都能读这一组里的全部密钥。选「始终允许」对它以后的会话同样有效，直到你撤销。",
         "Allowing lets {0} — and anything started inside it — read this key. \u{201C}Always\u{201D} lasts until you revoke it.": "允许之后，{0}——以及在它里面启动的一切——都能读这把密钥。「始终」直到你撤销为止。",
+        "No longer applies": "已失效",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",
