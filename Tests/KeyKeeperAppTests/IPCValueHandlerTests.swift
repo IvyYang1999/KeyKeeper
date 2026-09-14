@@ -194,7 +194,7 @@ final class IPCValueHandlerTests: XCTestCase {
         IPCServer(session: session, metaStore: metaStore, approvals: approvals)
     }
 
-    private func saveMetadata(security: SecurityLevel) throws {
+    private func saveMetadata(security: SecurityLevel, injectOnly: Bool? = nil) throws {
         try metaStore.save(MetaFile(credentials: [
             "service-a": Credential(
                 label: "Service A",
@@ -203,14 +203,16 @@ final class IPCValueHandlerTests: XCTestCase {
                 fields: ["access": CredentialField(secret: true)],
                 security: security,
                 created: "2026-07-20",
-                updated: "2026-07-20"
+                updated: "2026-07-20",
+                injectOnly: injectOnly
             ),
         ]))
     }
 
     private func requestValue(
         server: IPCServer,
-        caller: CallerIdentity? = nil
+        caller: CallerIdentity? = nil,
+        purpose: ValuePurpose? = nil
     ) throws -> ValueResponse {
         var descriptors = [Int32](repeating: -1, count: 2)
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
@@ -223,7 +225,8 @@ final class IPCValueHandlerTests: XCTestCase {
                 credentialId: "service-a",
                 fieldName: "access",
                 sessionId: nil,
-                requestedFieldNames: ["access"]
+                requestedFieldNames: ["access"],
+                purpose: purpose
             ),
             clientFd: descriptors[0],
             callerIdentity: caller ?? makeCaller()
@@ -296,3 +299,23 @@ private enum StorageTestError: Error {
     case timedOut
 }
 
+
+extension IPCValueHandlerTests {
+    /// 【yyt 2026-09-14】只注入的凭据：App 端也拦——不是只靠 CLI 客气。
+    func test只注入的凭据_App端拒绝非run或非CLI来的读取() throws {
+        try saveMetadata(security: .standard, injectOnly: true)
+        let session = FakeValueSession(status: .unlocked(expiresAt: nil), result: .success("opaque"))
+        let server = makeServer(session: session)
+        let direct = CallerIdentity(peerPID: 5, subject: CallerSubject(kind: .executable, fingerprint: "unsigned:path=py", displayName: "python3", detail: ""))
+        let viaCLI = CallerIdentity(peerPID: 5, subject: CallerSubject(kind: .executable, fingerprint: CallerSubject.relayedPrefix + "unsigned:path=py", displayName: "python3", detail: ""))
+        let refusedDirect = try requestValue(server: server, caller: direct, purpose: .inject)
+        XCTAssertEqual(refusedDirect.errorCode, .injectOnly)
+        XCTAssertNil(refusedDirect.value)
+        let refusedRead = try requestValue(server: server, caller: viaCLI, purpose: .read)
+        XCTAssertEqual(refusedRead.errorCode, .injectOnly)
+        XCTAssertEqual(session.retrieveCount, 0, "拒绝之前一个字节都不读")
+        let served = try requestValue(server: server, caller: viaCLI, purpose: .inject)
+        XCTAssertEqual(served.success, true)
+        XCTAssertEqual(served.value, "opaque")
+    }
+}

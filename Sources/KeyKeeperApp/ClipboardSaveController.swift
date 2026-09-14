@@ -227,7 +227,9 @@ extension ClipboardSaveSource {
                         declared.declaredBy = pending.presentation.callerName
                         declared.declaredAt = now()
                         return declared
-                    })
+                    },
+                    // Created over the socket, i.e. by an agent: never handed back to one.
+                    injectOnly: true)
                 do { try metaStore.save(metadata) }
                 catch { throw ClipboardSaveError.metadataCommitFailed }
             }

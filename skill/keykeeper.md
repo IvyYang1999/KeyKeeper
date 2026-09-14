@@ -59,6 +59,15 @@ const apiKey = process.env.API_KEY;
 `--tty` is for programs that need a real terminal (TUI editors, agents with a UI). In that
 mode output redaction is off, so keep it for interactive use only.
 
+### Inject-only credentials
+
+Credentials created over the command line (by you) are **inject-only**: `keykeeper get`, the
+SDKs and anything else that would hand the value back are refused — only `keykeeper run` can
+use them, and only into the command's environment. This is deliberate: a value printed to your
+shell tool lands in your context. `keykeeper list` marks them `inject-only`. If a task truly
+needs the value read out (an SDK the user runs themselves), ask the user to turn on "Can be read
+out" on that credential in KeyKeeper; do not look for another way to obtain the value.
+
 ### Option B: SDK runtime access
 
 ```python

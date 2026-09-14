@@ -665,7 +665,10 @@ final class IPCServer: ObservableObject {
             let requested = request.requestedFieldNames.map { meta.credentials[id]?.resolveFieldName($0) ?? $0 }
             request = ValueRequest(credentialId: id, fieldName: field, sessionId: request.sessionId,
                                    requestedFieldNames: requested,
-                                   statedReason: request.statedReason)
+                                   statedReason: request.statedReason,
+                                   requestedDuration: request.requestedDuration,
+                                   commandSummary: request.commandSummary,
+                                   purpose: request.purpose)
         }
         request.statedReason = CallerStatedReason.sanitize(request.statedReason?.text)
         // The file that says which fields are secret and how strictly they are guarded must be
@@ -689,6 +692,13 @@ final class IPCServer: ObservableObject {
                 errorCode: .notFound
             ))
             Self.writeAndClose(resp, clientFd: clientFd)
+            return
+        }
+
+        // Inject-only: only KeyKeeper's own CLI, only for `run`. Decided before approvals are
+        // consulted, so a refusal spends nothing and prompts nobody.
+        if let refusal = InjectOnlyPolicy.refusal(credential: cred, purpose: request.purpose, caller: callerIdentity) {
+            Self.writeAndClose(IPCResponse.value(ValueResponse(success: false, error: refusal, errorCode: .injectOnly)), clientFd: clientFd)
             return
         }
 

@@ -37,3 +37,15 @@ final class SaveSuggestionCommandTests: XCTestCase {
         XCTAssertNil(RunCommand.commandSummary([]))
     }
 }
+
+extension SaveSuggestionCommandTests {
+    /// `get` 在问 App 之前就拒绝只注入的凭据，告诉 Agent 用 `run`、告诉人在 App 里能改。
+    func testGet对只注入的凭据直接拒绝() {
+        let cred = Credential(label: "Stripe", notes: "", links: [], fields: ["k": .init(secret: true)], security: .strict,
+                              created: "", updated: "", injectOnly: true)
+        let message = GetCommand.injectOnlyRefusal(credentialId: "stripe", credential: cred)!
+        XCTAssertTrue(message.contains("keykeeper run -c stripe") && message.contains("KeyKeeper"), message)
+        var open = cred; open.injectOnly = false
+        XCTAssertNil(GetCommand.injectOnlyRefusal(credentialId: "stripe", credential: open))
+    }
+}

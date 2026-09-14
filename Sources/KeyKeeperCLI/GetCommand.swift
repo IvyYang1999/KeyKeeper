@@ -44,6 +44,12 @@ struct GetCommand: ParsableCommand {
         CallerStatedReason.sanitize(reason)
     }
 
+    /// Said before anyone is asked: an inject-only credential never comes back through `get`.
+    static func injectOnlyRefusal(credentialId: String, credential: Credential) -> String? {
+        guard credential.isInjectOnly else { return nil }
+        return "'\(credentialId)' is inject-only: use `keykeeper run -c \(credentialId) -- <command>` so the value goes into that command's environment without being printed. The person can allow reading it out in KeyKeeper (credential page → Can be read out)."
+    }
+
     func run() throws {
         let store = MetaStore.default
         let meta = try store.load()
@@ -60,6 +66,9 @@ struct GetCommand: ParsableCommand {
         }
 
         if field.secret {
+            if let refusal = Self.injectOnlyRefusal(credentialId: credentialId, credential: cred) {
+                throw CommandFailure(refusal)
+            }
             if Self.refusesToPrint(stdoutIsTerminal: isatty(STDOUT_FILENO) == 1, reveal: reveal) {
                 throw CommandFailure(Self.terminalRefusalMessage)
             }
@@ -69,7 +78,8 @@ struct GetCommand: ParsableCommand {
             let value = try RunCommand.readSecret(
                 credentialId: credentialId, credential: cred, fieldName: fieldName,
                 requestedFieldNames: [fieldName], session: session, statedReason: statedReason(),
-                requestedDuration: duration, commandSummary: "keykeeper get \(credentialId) \(fieldName)")
+                requestedDuration: duration, commandSummary: "keykeeper get \(credentialId) \(fieldName)",
+                purpose: .read)
             print(value, terminator: "")
         } else {
             // This value comes straight out of meta.json, so it is only as trustworthy as that file.

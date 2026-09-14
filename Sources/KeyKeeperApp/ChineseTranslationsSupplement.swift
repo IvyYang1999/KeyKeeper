@@ -218,6 +218,11 @@ extension AppL10n {
         "{0} s ago": "{0} 秒前",
         "{0} min ago": "{0} 分钟前",
         "{0} h ago": "{0} 小时前",
+        // 只能注入、不能读出（2026-09-14 深夜）
+        "Can be read out (keykeeper get, SDKs)": "允许读出（keykeeper get、SDK）",
+        "Off: values only go into a command's environment through keykeeper run and are never printed or returned. An agent cannot get the value into its context.": "关：值只通过 keykeeper run 进入命令的环境变量，不打印、不返回。Agent 没法把值弄进自己的上下文。",
+        "On: keykeeper get and the SDKs return the value to whatever asked — including an AI agent's shell, where it lands in the model's context.": "开：keykeeper get 和 SDK 会把值交给任何来问的程序——包括 AI Agent 的 shell，那样值就进了模型的上下文。",
+        "Could not change: {0}": "无法更改：{0}",
         // 待确认的明文字段（2026-09-14 晚）
         "Confirm": "确认",
         "Written by {0} over the command line. Not injected by `run` until you confirm it.": "由 {0} 通过命令行写入。你确认之前 `run` 不会注入它。",

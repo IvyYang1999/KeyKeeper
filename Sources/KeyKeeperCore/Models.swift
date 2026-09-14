@@ -48,6 +48,13 @@ public struct Credential: Codable, Sendable {
     public var expires: String?
     /// What the creator said it is for (see UsageIntent). Nil when nobody declared one.
     public var intent: UsageIntent?
+    /// True: values only ever go into a child process's environment through `keykeeper run`;
+    /// `get`, the SDKs and anything speaking the socket directly are refused. yyt 2026-09-14:
+    /// `get` to a pipe puts the value straight into an agent's context. Credentials an agent
+    /// creates start this way; the person can open one up in the app. Nil (older data) = false.
+    public var injectOnly: Bool?
+
+    public var isInjectOnly: Bool { injectOnly ?? false }
 
     /// Plain fields a caller wrote that nobody has confirmed: field name → who wrote it.
     public var unconfirmedPlainFields: [String: String] {
@@ -59,7 +66,7 @@ public struct Credential: Codable, Sendable {
     public init(label: String, notes: String, links: [String],
                 fields: [String: CredentialField], security: SecurityLevel,
                 created: String, updated: String, aliases: [String]? = nil, expires: String? = nil,
-                intent: UsageIntent? = nil) {
+                intent: UsageIntent? = nil, injectOnly: Bool? = nil) {
         self.label = label
         self.notes = notes
         self.links = links
@@ -70,6 +77,7 @@ public struct Credential: Codable, Sendable {
         self.aliases = aliases
         self.expires = expires
         self.intent = intent
+        self.injectOnly = injectOnly
     }
 }
 

@@ -213,7 +213,7 @@ struct AddCredentialView: View {
             VStack(alignment: .leading, spacing: DS.Spacing.lg) {
                 DescriptionEditor(text: $vm.notes)
                 ExpiryEditor(expires: $vm.expires)
-                AdvancedSecuritySection(security: $vm.security)
+                AdvancedSecuritySection(security: $vm.security, injectOnly: $vm.injectOnly)
                 if onImportFile != nil, vm.sourceFile == nil {
                     Button(L("Import a service-account JSON file instead…")) {
                         Self.pickServiceAccountFile { vm.useFile($0); afterFilePicker() }
@@ -421,10 +421,27 @@ extension KeyFieldsEditor {
 
 struct AdvancedSecuritySection: View {
     @Binding var security: SecurityLevel
+    /// Nil hides the toggle (screens that have no credential yet to apply it to).
+    var injectOnly: Binding<Bool>? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             SectionLabel(text: SecurityLevelPresentation.sectionTitle)
+
+            // yyt 2026-09-14: `get` to a pipe is a value in an agent's context. Off by default
+            // for anything new; a person who runs the SDKs turns it on per credential.
+            if let injectOnly {
+                Toggle(isOn: Binding(get: { !injectOnly.wrappedValue }, set: { injectOnly.wrappedValue = !$0 })) {
+                    Text(L("Can be read out (keykeeper get, SDKs)"))
+                        .font(.subheadline)
+                }
+                Text(injectOnly.wrappedValue
+                     ? L("Off: values only go into a command's environment through keykeeper run and are never printed or returned. An agent cannot get the value into its context.")
+                     : L("On: keykeeper get and the SDKs return the value to whatever asked — including an AI agent's shell, where it lands in the model's context."))
+                    .font(.caption2)
+                    .foregroundColor(injectOnly.wrappedValue ? .secondary : .orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Toggle(isOn: Binding(
                 get: { security == .strict },

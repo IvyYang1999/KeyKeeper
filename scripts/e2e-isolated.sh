@@ -87,6 +87,12 @@ OUT="$("$KK" save -c svc --field token --from-source "$TMP/config.py" --python-s
 expect_contains "save from source" "Saved" "$OUT"
 OUT="$("$KK" list)"; expect_contains "list shows credential" "svc |" "$OUT"; expect_contains "list shows expiry" "expires: 2027-01-31" "$OUT"
 
+echo "==> agent-created credentials are inject-only: get refuses, run works"
+OUT="$("$KK" get svc token 2>&1 || true)"
+expect_contains "get is refused for an inject-only credential" "inject-only" "$OUT"
+expect_not_contains "and prints nothing" "synthetic-token-e2e" "$OUT"
+OUT="$("$KK" list --detail 2>&1)"; expect_contains "list says so" "inject-only" "$OUT"
+
 echo "==> run a Background OK credential (no prompt)"
 OUT="$("$KK" run -c svc -- sh -c 'test "$TOKEN" = synthetic-token-e2e && echo MATCH' 2>&1)"
 expect_contains "value injected" "MATCH" "$OUT"

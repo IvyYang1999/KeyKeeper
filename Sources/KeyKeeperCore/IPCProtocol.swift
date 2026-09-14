@@ -279,9 +279,12 @@ public struct ValueRequest: Codable, Sendable {
     public var statedReason: CallerStatedReason?
     public var requestedDuration: RequestedDuration?
     public var commandSummary: String?
+    /// What the value is for. Honoured only when the request arrived through KeyKeeper's own
+    /// CLI, which sets it truthfully; anything else claiming `inject` is not believed.
+    public var purpose: ValuePurpose?
 
     private enum CodingKeys: String, CodingKey {
-        case credentialId, fieldName, sessionId, requestedFieldNames, statedReason, requestedDuration, commandSummary
+        case credentialId, fieldName, sessionId, requestedFieldNames, statedReason, requestedDuration, commandSummary, purpose
     }
 
     public init(credentialId: String,
@@ -290,7 +293,8 @@ public struct ValueRequest: Codable, Sendable {
                 requestedFieldNames: [String]? = nil,
                 statedReason: CallerStatedReason? = nil,
                 requestedDuration: RequestedDuration? = nil,
-                commandSummary: String? = nil) {
+                commandSummary: String? = nil,
+                purpose: ValuePurpose? = nil) {
         self.credentialId = credentialId
         self.fieldName = fieldName
         self.sessionId = sessionId
@@ -298,6 +302,7 @@ public struct ValueRequest: Codable, Sendable {
         self.statedReason = statedReason
         self.requestedDuration = requestedDuration
         self.commandSummary = commandSummary
+        self.purpose = purpose
     }
 
     public init(from decoder: Decoder) throws {
@@ -310,6 +315,7 @@ public struct ValueRequest: Codable, Sendable {
         statedReason = try container.decodeIfPresent(CallerStatedReason.self, forKey: .statedReason)
         requestedDuration = try container.decodeIfPresent(RequestedDuration.self, forKey: .requestedDuration)
         commandSummary = try container.decodeIfPresent(String.self, forKey: .commandSummary)
+        purpose = try container.decodeIfPresent(ValuePurpose.self, forKey: .purpose)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -321,6 +327,29 @@ public struct ValueRequest: Codable, Sendable {
         try container.encodeIfPresent(statedReason, forKey: .statedReason)
         try container.encodeIfPresent(requestedDuration, forKey: .requestedDuration)
         try container.encodeIfPresent(commandSummary, forKey: .commandSummary)
+        try container.encodeIfPresent(purpose, forKey: .purpose)
+    }
+}
+
+/// Why a value is being asked for.
+public enum ValuePurpose: String, Codable, Sendable, Equatable {
+    /// `keykeeper run`: into a child process's environment, never printed.
+    case inject
+    /// `keykeeper get` and the SDKs: handed back to the caller.
+    case read
+}
+
+/// yyt 2026-09-14: "`keykeeper get` isn't a terminal for an agent's Bash tool, it's a pipe — the
+/// value lands in its context." A credential marked inject-only is served only to KeyKeeper's own
+/// CLI (recognised from the connection, `relayed:` subjects) and only for `run`.
+public enum InjectOnlyPolicy {
+    public static func refusal(credential: Credential, purpose: ValuePurpose?, caller: CallerIdentity) -> String? {
+        guard credential.isInjectOnly else { return nil }
+        let viaOwnCLI = caller.subject.fingerprint.hasPrefix(CallerSubject.relayedPrefix)
+        guard viaOwnCLI, purpose == .inject else {
+            return "This credential is inject-only: its values go into a command's environment through `keykeeper run -c <id> -- <command>` and are never handed back. The person can allow reading it out in KeyKeeper (credential page → Can be read out)."
+        }
+        return nil
     }
 }
 
@@ -328,6 +357,8 @@ public enum ValueErrorCode: String, Codable, Sendable, Equatable {
     case invalidRequest
     case notFound
     case noAuthorization
+    /// The credential only goes into a `keykeeper run` environment; reading it out is refused.
+    case injectOnly
     case authorizationDenied
     case pendingExpired
     case keychainBlocked

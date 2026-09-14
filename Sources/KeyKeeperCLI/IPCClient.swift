@@ -118,7 +118,8 @@ enum IPCClient {
                              requestedFieldNames: [String]? = nil,
                              statedReason: CallerStatedReason? = nil,
                              requestedDuration: RequestedDuration? = nil,
-                             commandSummary: String? = nil) throws -> String {
+                             commandSummary: String? = nil,
+                             purpose: ValuePurpose = .inject) throws -> String {
         let request = ValueRequest(
             credentialId: credentialId,
             fieldName: fieldName,
@@ -126,7 +127,8 @@ enum IPCClient {
             requestedFieldNames: requestedFieldNames,
             statedReason: statedReason,
             requestedDuration: requestedDuration,
-            commandSummary: commandSummary
+            commandSummary: commandSummary,
+            purpose: purpose
         )
         let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: .value(request)))
         defer { close(fd) }
@@ -159,7 +161,7 @@ enum IPCClient {
                 throw IPCError.noAuthorization(valueResponse.error)
             case .keychainBlocked, .keychainError:
                 throw IPCError.keychainBlocked(valueResponse.error)
-            case .invalidRequest, .notFound, .none:
+            case .invalidRequest, .notFound, .injectOnly, .none:
                 throw IPCError.denied(valueResponse.error)
             }
         }

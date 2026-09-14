@@ -182,7 +182,8 @@ struct CredentialDetailView: View {
 
                 // Advanced (edit mode only)
                 if vm.isEditing {
-                    AdvancedSecuritySection(security: $vm.security)
+                    AdvancedSecuritySection(security: $vm.security,
+                                            injectOnly: Binding(get: { vm.injectOnly }, set: { vm.setInjectOnly($0) }))
                 }
 
                 // Error

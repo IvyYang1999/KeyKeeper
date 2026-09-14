@@ -28,6 +28,8 @@ class AddCredentialViewModel: ObservableObject {
     @Published var expires: String?
     @Published var fields: [FieldEntry] = [FieldEntry(name: AddCredentialViewModel.defaultFieldName)]
     @Published var security: SecurityLevel = SecurityLevelPresentation.defaultLevel
+    /// Values only reach commands through `keykeeper run`; `get` and the SDKs are refused.
+    @Published var injectOnly = true
     @Published var errorMessage: String?
     /// A service-account JSON chosen instead of typed values. Saved through the confirmed
     /// file import (the App reads it only after approval), never read by this form.
@@ -239,7 +241,7 @@ class AddCredentialViewModel: ObservableObject {
                 label: label, notes: notes,
                 links: [],
                 fields: plan.metadata.fields, security: plan.metadata.security,
-                created: now, updated: now, expires: expires
+                created: now, updated: now, expires: expires, injectOnly: injectOnly
             )
             do { try store.save(meta) }
             catch { throw ClipboardSaveError.metadataCommitFailed }

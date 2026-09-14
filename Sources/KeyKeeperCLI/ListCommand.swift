@@ -25,6 +25,9 @@ struct ListCommand: ParsableCommand {
             if let expiry = CredentialExpiry.summary(cred.expires) {
                 print("  expires: \(expiry)")
             }
+            if cred.isInjectOnly {
+                print("  inject-only: use keykeeper run; get is refused")
+            }
             if detail {
                 if let aliases = cred.aliases, !aliases.isEmpty {
                     print("  also answers to: \(aliases.joined(separator: ", "))")

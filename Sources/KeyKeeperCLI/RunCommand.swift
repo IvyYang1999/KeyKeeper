@@ -363,12 +363,13 @@ struct RunCommand: ParsableCommand {
     static func readSecret(credentialId: String, credential: Credential, fieldName: String,
                            requestedFieldNames: [String],
                            session: SessionInfo, statedReason: CallerStatedReason?,
-                           requestedDuration: RequestedDuration? = nil, commandSummary: String? = nil) throws -> String {
+                           requestedDuration: RequestedDuration? = nil, commandSummary: String? = nil,
+                           purpose: ValuePurpose = .inject) throws -> String {
         func read() throws -> String {
             try IPCClient.requestValue(credentialId: credentialId, fieldName: fieldName,
                                        sessionId: session.id, requestedFieldNames: requestedFieldNames,
                                        statedReason: statedReason, requestedDuration: requestedDuration,
-                                       commandSummary: commandSummary)
+                                       commandSummary: commandSummary, purpose: purpose)
         }
         do {
             return try read()

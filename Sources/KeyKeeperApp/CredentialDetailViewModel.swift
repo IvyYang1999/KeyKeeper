@@ -7,6 +7,7 @@ final class CredentialDetailViewModel: ObservableObject {
     @Published var credential: Credential
     @Published var fields: [FieldEntry]
     @Published var security: SecurityLevel
+    @Published var injectOnly: Bool
     @Published var isEditing = false
     @Published var errorMessage: String?
     /// The group ID being edited. Saving a different one renames the credential; the old
@@ -33,6 +34,7 @@ final class CredentialDetailViewModel: ObservableObject {
         self.store = store
         self.approvals = approvals
         security = credential.security
+        injectOnly = credential.isInjectOnly
         originalLabel = credential.label
         fields = Self.fieldEntries(for: credential)
         groupIdDraft = credentialId
@@ -129,11 +131,26 @@ final class CredentialDetailViewModel: ObservableObject {
             guard let storedCredential = meta.credentials[credentialId] else { return }
             credential = storedCredential
             security = storedCredential.security
+            injectOnly = storedCredential.isInjectOnly
             fields = Self.fieldEntries(for: storedCredential)
             groupIdDraft = credentialId
             errorMessage = nil
         } catch {
             errorMessage = L("Reload failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Whether `get` and the SDKs may read values out, or only `run` may inject them. Saved at once.
+    func setInjectOnly(_ value: Bool) {
+        do {
+            var meta = try store.load()
+            guard meta.credentials[credentialId] != nil else { return }
+            meta.credentials[credentialId]?.injectOnly = value
+            try store.save(meta)
+            NotificationCenter.default.post(name: .credentialsChanged, object: nil)
+            reloadCredential()
+        } catch {
+            errorMessage = L("Could not change: \(error.localizedDescription)")
         }
     }
 
