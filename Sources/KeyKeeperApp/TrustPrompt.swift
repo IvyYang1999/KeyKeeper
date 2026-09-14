@@ -33,6 +33,10 @@ struct TrustPromptModel: Equatable {
     var expiresAt: Date?
     /// Ask how long, not just yes or no (opening a website login for an identified caller).
     var offersDurations = false
+    /// Bumped by the presenter when the rows change under an open window (the clipboard moved):
+    /// the confirm button goes back through its settle delay, so a click already on its way
+    /// cannot land on content that was swapped in a moment ago.
+    var settleToken = 0
 
     /// Caller names come from the requesting process; keep them to one printable line.
     ///
@@ -331,8 +335,15 @@ struct TrustPromptView: View {
         }
         .padding(24)
         .glassPanel(width: 440, intensity: 0.8)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + ApprovalReadiness.settleDelay) { canConfirm = true }
+        .onAppear { settle() }
+        .onChange(of: model.settleToken) { _, _ in settle() }
+    }
+
+    private func settle() {
+        canConfirm = false
+        let token = model.settleToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + ApprovalReadiness.settleDelay) {
+            if token == model.settleToken { canConfirm = true }
         }
     }
 }
@@ -347,6 +358,8 @@ struct TrustPromptView: View {
     private var decideDuration: ((ApprovalDuration?) -> Void)?
     private var approvalID: UUID?
     private let center: ApprovalCenter
+    /// What the open panel currently shows (tests read it; the panel is the source of truth).
+    private(set) var installedModel: TrustPromptModel?
 
     init(center: ApprovalCenter = .shared) {
         self.center = center
@@ -402,6 +415,7 @@ struct TrustPromptView: View {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.delegate = self
+        installedModel = model
         let hosting = NSHostingView(rootView: TrustPromptView(
             model: model,
             onCancel: { [weak self] in self?.resolve(false) },
@@ -419,6 +433,9 @@ struct TrustPromptView: View {
     /// Same panel, new rows — the clipboard moved while a save prompt was up.
     func update(_ model: TrustPromptModel) {
         guard let hosting = panel?.contentView as? NSHostingView<TrustPromptView> else { return }
+        var model = model
+        model.settleToken = (installedModel?.settleToken ?? 0) + 1
+        installedModel = model
         hosting.rootView = TrustPromptView(model: model, onCancel: hosting.rootView.onCancel,
                                            onConfirm: hosting.rootView.onConfirm,
                                            onConfirmDuration: hosting.rootView.onConfirmDuration)
@@ -432,6 +449,7 @@ struct TrustPromptView: View {
         decideDuration = nil
         panel?.orderOut(nil)
         panel = nil
+        installedModel = nil
     }
 
     private func resolve(_ approved: Bool) {

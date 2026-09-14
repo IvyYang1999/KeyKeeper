@@ -168,11 +168,14 @@ extension ClipboardSaveSource {
             guard try canonical(metadata) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
             try validateTarget(request, metadata: metadata, fileFormat: clipboard.fileFormat)
             let changed: ClipboardSaveError = clipboard.displayFilePath == nil ? .clipboardChanged : .fileChanged
-            // The system clipboard may have moved while the prompt was up — the prompt followed
-            // it (see tick), so what the person approved is what is there now. A file or browser
-            // source must not have changed at all. Either way the content has to hold still while
-            // it is read: the equality check below is taken around the read itself.
-            if !clipboard.isSystemClipboard {
+            // Only what the person saw gets saved. The prompt follows the system clipboard once a
+            // second (see tick); if it moved after the last look — 【独立审计 2026-09-14】a swap in
+            // the sub-second gap before the click — refresh the preview, re-arm the settle delay,
+            // and let the person look again. The request stays pending; nothing is written.
+            // A file or browser source must not have changed at all.
+            if clipboard.isSystemClipboard {
+                if clipboard.changeCount != pending.changeCount { tick(); return }
+            } else {
                 guard clipboard.changeCount == pending.changeCount else { throw changed }
             }
             let countAtRead = clipboard.changeCount

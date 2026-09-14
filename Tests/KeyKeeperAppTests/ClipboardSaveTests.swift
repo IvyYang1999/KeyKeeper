@@ -59,10 +59,12 @@ import KeyKeeperTestSupport
             callerName: "Test caller",
             isConnected: { self.connected }, completion: { self.results.append($0) })
     }
-    /// 复制一次：内容变了，changeCount 也跟着涨。
-    private func copyToClipboard(_ text: String) {
+    /// 复制一次：内容变了，changeCount 也跟着涨。`seen` 是「窗口刷新过、人看到了」——
+    /// 默认如此；点击前一瞬换掉的内容传 false。
+    private func copyToClipboard(_ text: String, seen: Bool = true) {
         clipboard.text = text
         clipboard.changeCount += 1
+        if seen { controller.tick() }
     }
     private func credential() -> Credential {
         .init(label: "Existing", notes: "keep", links: [], fields: ["key": .init(secret: true)],
@@ -302,11 +304,11 @@ import KeyKeeperTestSupport
         request(); connected = false; controller.resolve(approved: true)
         XCTAssertEqual(results.last?.errorCode, .disconnected)
         XCTAssertEqual(clipboard.reads, 0); XCTAssertEqual(io.writes, 0)
-        // A clipboard that moved while the prompt was up is what the person saw and approved.
+        // A clipboard that moved unseen is not saved on that click; the prompt refreshes instead.
         connected = true
-        request(); copyToClipboard("moved-while-pending"); controller.resolve(approved: true)
-        XCTAssertEqual(results.last?.success, true)
-        XCTAssertEqual(try? service.retrieve(credentialId: "fixture", fieldName: "key"), "moved-while-pending")
+        request(); copyToClipboard("moved-while-pending", seen: false); controller.resolve(approved: true)
+        XCTAssertEqual(results.count, 1, "第二个请求还挂着，没有结果")
+        XCTAssertTrue(controller.isPending)
     }
     func testBusyRequestCannotConsumeOrReplaceFirstRequest() {
         request(); request()
@@ -468,16 +470,31 @@ import KeyKeeperTestSupport
         XCTAssertEqual(clipboard.reads, 0, "值本身要到批准之后才读")
     }
 
-    /// 窗口开着的时候又复制了别的东西：预览跟着变，存的也是最新那份——人看到什么就存什么。
-    func test弹窗期间再复制_预览刷新_存最新那份() throws {
+    /// 窗口开着的时候又复制了别的东西：预览跟着变，存的是人看过的那份。
+    func test弹窗期间再复制_预览刷新_存看过的那份() throws {
         request()
         copyToClipboard("the-second-copy-is-the-real-key-here")
-        controller.tick()
         XCTAssertEqual(updates.last?.preview?.masked, "the-…ere")
         controller.resolve(approved: true)
         XCTAssertEqual(results.first?.success, true)
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "the-second-copy-is-the-real-key-here")
         XCTAssertEqual(updates.count, 1, "没变就不刷新")
+    }
+
+    /// 【独立审计 2026-09-14】预览每秒刷新一次；点击前那不到一秒里被换掉的内容，人没看过，不能存。
+    /// 这一下不算数：预览刷新、按钮重新冷静、请求还挂着，人再看一眼再点。
+    func test点击前一瞬被换掉_不存_刷新预览让人再看() throws {
+        request()
+        copyToClipboard("swapped-in-right-before-the-click", seen: false)
+        controller.resolve(approved: true)          // no tick in between: the person never saw this
+        XCTAssertTrue(results.isEmpty, "请求还挂着")
+        XCTAssertTrue(controller.isPending)
+        XCTAssertEqual(io.writes, 0)
+        XCTAssertEqual(clipboard.reads, 0, "值没读")
+        XCTAssertEqual(updates.last?.preview?.masked, "swap…ick", "预览已经换成新内容")
+        controller.resolve(approved: true)          // second look, second click
+        XCTAssertEqual(results.first?.success, true)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "swapped-in-right-before-the-click")
     }
 
     /// 读取的那一瞬间仍然要稳定：读之前和读之后必须是同一份内容。

@@ -57,6 +57,23 @@ final class TrustPromptModelTests: XCTestCase {
         XCTAssertEqual(TrustPromptModel.copiedAgo(Date(timeIntervalSince1970: 0), now: Date(timeIntervalSince1970: 200)), "3 min ago")
     }
 
+    /// 剪贴板在窗口开着时变了：换的是别的进程也说不定。按钮重新走一遍冷静期，正落下的点击别打在换过的内容上。
+    @MainActor func test剪贴板一变_确认按钮重新走冷静期() {
+        let presenter = TrustPromptPresenter(center: ApprovalCenter())
+        var info = presentation()
+        info.preview = ClipboardPreview.masked("first-value-on-the-clipboard")
+        presenter.show(.save(info), symbol: "doc.on.clipboard", decide: { _ in })
+        defer { presenter.dismiss() }
+        XCTAssertEqual(presenter.installedModel?.settleToken, 0)
+        info.preview = ClipboardPreview.masked("second-value-on-the-clipboard")
+        presenter.update(.save(info))
+        XCTAssertEqual(presenter.installedModel?.settleToken, 1)
+        presenter.update(.save(info))
+        XCTAssertEqual(presenter.installedModel?.settleToken, 2)
+        let view = try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/KeyKeeperApp/TrustPrompt.swift"), encoding: .utf8)
+        XCTAssertTrue(view?.contains(".onChange(of: model.settleToken)") == true, "视图要在 token 变化时重置 canConfirm")
+    }
+
     func test文件只显示文件名悬停看完整路径() {
         let model = TrustPromptModel.save(presentation(file: "/Users/me/Downloads/service-account.json"))
         XCTAssertEqual(model.rows[1].value, "service-account.json")
