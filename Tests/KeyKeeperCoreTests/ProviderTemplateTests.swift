@@ -27,6 +27,16 @@ final class ProviderTemplateTests: XCTestCase {
         XCTAssertEqual(ProviderCatalog.find("anthropic")?.environmentName, "ANTHROPIC_API_KEY")
     }
 
+    func test形状检查_多前缀任一即可() {
+        var template = ProviderCatalog.find("openai")!
+        template.prefixes = ["ghp_", "github_pat_"]
+        XCTAssertNil(template.shapeProblem(for: "github_pat_" + String(repeating: "a", count: 80)))
+        XCTAssertNil(template.shapeProblem(for: "ghp_" + String(repeating: "a", count: 36)))
+        XCTAssertTrue(template.shapeProblem(for: "sk-" + String(repeating: "a", count: 80))!.contains("ghp_ or github_pat_"))
+        template.prefixes = []
+        XCTAssertNil(template.shapeProblem(for: String(repeating: "a", count: 80)), "没有前缀规则就只看长度")
+    }
+
     func test形状检查_前缀和最短长度_出错信息不带值() {
         let openai = ProviderCatalog.find("openai")!
         XCTAssertNil(openai.shapeProblem(for: "sk-proj-" + String(repeating: "a", count: 100)))
@@ -53,16 +63,46 @@ final class ProviderTemplateTests: XCTestCase {
 
     func test结果映射_200有效_401无效_其余算不可达_传输失败不可达() async {
         let validation = ProviderCatalog.find("openai")!.validation!
-        XCTAssertEqual(ProviderProbe.outcome(status: 200, validation: validation), .valid)
-        XCTAssertEqual(ProviderProbe.outcome(status: 401, validation: validation), .invalid)
-        XCTAssertEqual(ProviderProbe.outcome(status: 429, validation: validation), .unreachable)
-        XCTAssertEqual(ProviderProbe.outcome(status: 503, validation: validation), .unreachable)
-        struct Fail: ProbeTransport { func status(for request: URLRequest) async throws -> Int { throw URLError(.notConnectedToInternet) } }
+        XCTAssertEqual(ProviderProbe.outcome(.init(status: 200), validation: validation), .valid)
+        XCTAssertEqual(ProviderProbe.outcome(.init(status: 401), validation: validation), .invalid)
+        XCTAssertEqual(ProviderProbe.outcome(.init(status: 429), validation: validation), .unreachable)
+        XCTAssertEqual(ProviderProbe.outcome(.init(status: 503), validation: validation), .unreachable)
+        struct Fail: ProbeTransport { func send(_ request: URLRequest) async throws -> ProbeReply { throw URLError(.notConnectedToInternet) } }
         let failed = await ProviderProbe.run(validation, value: "k", transport: Fail())
         XCTAssertEqual(failed, .unreachable)
-        struct OK: ProbeTransport { func status(for request: URLRequest) async throws -> Int { 200 } }
+        struct OK: ProbeTransport { func send(_ request: URLRequest) async throws -> ProbeReply { .init(status: 200) } }
         let ok = await ProviderProbe.run(validation, value: "k", transport: OK())
         XCTAssertEqual(ok, .valid)
+    }
+
+    /// Resend 的「仅发送」key（我们推荐的最小权限）打只读接口回 401 restricted_api_key：那是「真 key 但不许列」，不是「错 key」。
+    func test响应体里的错误名能把401改判为有效() {
+        let resend = ProviderCatalog.find("resend")!.validation!
+        XCTAssertEqual(ProviderProbe.outcome(.init(status: 401, body: #"{"name":"restricted_api_key","message":"This API key is restricted to only send emails"}"#), validation: resend), .valid)
+        XCTAssertEqual(ProviderProbe.outcome(.init(status: 401, body: #"{"name":"missing_api_key"}"#), validation: resend), .invalid)
+        XCTAssertEqual(ProviderProbe.outcome(.init(status: 200), validation: resend), .valid)
+        let gemini = ProviderCatalog.find("gemini")!.validation!
+        XCTAssertEqual(ProviderProbe.outcome(.init(status: 400), validation: gemini), .invalid, "Gemini 无效 key 回 400")
+        let stripe = ProviderCatalog.find("stripe")!.validation!
+        XCTAssertEqual(ProviderProbe.outcome(.init(status: 403), validation: stripe), .unreachable, "受限 key 缺 Balance:Read 不算错 key")
+    }
+
+    func test十个模板都在_字段名就是SDK读的变量() {
+        let expected = ["openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "gemini": "GEMINI_API_KEY",
+                        "supabase": "SUPABASE_ACCESS_TOKEN", "vercel": "VERCEL_TOKEN", "github": "GITHUB_TOKEN",
+                        "cloudflare": "CLOUDFLARE_API_TOKEN", "stripe": "STRIPE_API_KEY", "resend": "RESEND_API_KEY",
+                        "siliconflow": "SILICONFLOW_API_KEY"]
+        XCTAssertEqual(ProviderCatalog.all.count, expected.count)
+        for (id, env) in expected {
+            let template = ProviderCatalog.find(id)
+            XCTAssertEqual(template?.environmentName, env, id)
+            XCTAssertEqual(template?.verified, "2026-09-15", id)
+            XCTAssertNotNil(template?.validation, id)
+        }
+        XCTAssertEqual(ProviderCatalog.find("硅基流动")?.id, "siliconflow")
+        XCTAssertNil(ProviderCatalog.find("github")!.shapeProblem(for: "ghp_" + String(repeating: "a", count: 36)))
+        XCTAssertNil(ProviderCatalog.find("stripe")!.shapeProblem(for: "rk_test_" + String(repeating: "a", count: 30)))
+        XCTAssertNotNil(ProviderCatalog.find("stripe")!.shapeProblem(for: "pk_test_" + String(repeating: "a", count: 30)), "公开 key 不是密钥")
     }
 
     func test模板可编码_给Agent读() throws {
