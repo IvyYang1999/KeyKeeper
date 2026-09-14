@@ -48,6 +48,9 @@ struct RunCommand: ParsableCommand {
     @Option(name: .long, help: "One line for the human: why you need this key and what you will do with it. Shown in the approval window, marked as unverified; it never changes what an approval grants.")
     var reason: String?
 
+    @Option(name: .long, help: "How long you ask to be approved for: once, session, 1h or always. A wish the person sees next to KeyKeeper's own suggestion; they decide.")
+    var duration: RequestedDuration?
+
     @Flag(name: .long, help: "Print injected variable names (not values) before running the command.")
     var verbose: Bool = false
 
@@ -137,6 +140,12 @@ struct RunCommand: ParsableCommand {
         CallerStatedReason.sanitize(reason)
     }
 
+    /// The command about to run, for the approval window and the approval record. One line, capped.
+    static func commandSummary(_ command: [String]) -> String? {
+        let line = CallerStatedReason.printableLine(command.joined(separator: " "), limit: 200)
+        return line.isEmpty ? nil : line
+    }
+
     /// `-c` accepts current and earlier group IDs; everything after this uses the current one.
     static func resolveCredentialIds(_ names: [String], in meta: MetaFile) throws -> [String] {
         try names.map { name in
@@ -202,7 +211,8 @@ struct RunCommand: ParsableCommand {
                 // Read secret via IPC — App owns the unlocked age session
                 let value = try Self.readSecret(
                     credentialId: credId, credential: cred, fieldName: fieldName,
-                    requestedFieldNames: secretFieldNames, session: session, statedReason: statedReason()
+                    requestedFieldNames: secretFieldNames, session: session, statedReason: statedReason(),
+                    requestedDuration: duration, commandSummary: Self.commandSummary(command)
                 )
                 if let format = cred.fields[fieldName]?.fileFormat {
                     _ = try format.validate(Data(value.utf8))
@@ -337,11 +347,13 @@ struct RunCommand: ParsableCommand {
     /// exactly once more.
     static func readSecret(credentialId: String, credential: Credential, fieldName: String,
                            requestedFieldNames: [String],
-                           session: SessionInfo, statedReason: CallerStatedReason?) throws -> String {
+                           session: SessionInfo, statedReason: CallerStatedReason?,
+                           requestedDuration: RequestedDuration? = nil, commandSummary: String? = nil) throws -> String {
         func read() throws -> String {
             try IPCClient.requestValue(credentialId: credentialId, fieldName: fieldName,
                                        sessionId: session.id, requestedFieldNames: requestedFieldNames,
-                                       statedReason: statedReason)
+                                       statedReason: statedReason, requestedDuration: requestedDuration,
+                                       commandSummary: commandSummary)
         }
         do {
             return try read()
@@ -349,14 +361,16 @@ struct RunCommand: ParsableCommand {
             guard shouldRequestAuthorizationAfterRefusal(error, security: credential.security, alreadyRetried: false) else {
                 throw error
             }
-            try requestApproval(credentialId: credentialId, credential: credential, session: session, statedReason: statedReason)
+            try requestApproval(credentialId: credentialId, credential: credential, session: session, statedReason: statedReason,
+                                requestedDuration: requestedDuration, commandSummary: commandSummary)
             return try read()
         }
     }
 
     /// Ask the app to put the authorization window up for this credential.
     static func requestApproval(credentialId: String, credential: Credential, session: SessionInfo,
-                                statedReason: CallerStatedReason? = nil) throws {
+                                statedReason: CallerStatedReason? = nil,
+                                requestedDuration: RequestedDuration? = nil, commandSummary: String? = nil) throws {
         let fieldNames = credential.fields.filter(\.value.secret).map(\.key).sorted()
         let request = AuthRequest(
             credentialId: credentialId,
@@ -365,7 +379,9 @@ struct RunCommand: ParsableCommand {
             sessionId: session.id,
             sessionLabel: session.label,
             pid: ProcessInfo.processInfo.processIdentifier,
-            statedReason: statedReason
+            statedReason: statedReason,
+            requestedDuration: requestedDuration,
+            commandSummary: commandSummary
         )
 
         FileHandle.standardError.write(

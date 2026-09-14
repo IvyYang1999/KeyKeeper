@@ -140,6 +140,17 @@ keykeeper get stripe secret-key --reason "Refunding order #1821 at the user's re
 - Say what the user asked for and what you are about to do with the key, in one line. A reason
   you invented is worse than none: the person reads it to decide whether the request is necessary.
 
+### Asking for a duration, and who checks it
+
+You may add `--duration once|session|1h|always` to `run` or `get`. It is a wish, not a setting:
+the prompt shows it as **Agent asks**, next to **KeyKeeper suggests** — an offline rule check
+that compares your wish and the command line with the use declared when the credential was
+created — and, if the user turned it on, a **Reviewer** line from a second model that is not
+you. The person picks; the prompt starts on KeyKeeper's suggestion when it has one, otherwise on
+yours. Ask for the smallest thing that does the job: `always` only for a use that recurs
+unattended, `1h` for a session of related work, `once` for one call. Overstating is visible,
+and the command line you ran is recorded with the approval.
+
 ## What an approval covers, exactly
 
 Tell the user the truth about this if they ask, and never imply a narrower promise in a `--reason`:
@@ -201,6 +212,8 @@ enforce new request fields. Wait for the native confirmation window, then use th
 source's Copy action once, then confirm. Do not reveal or read the value through tools.
 
 Run `keykeeper save -c <credential-id> --field <field-name> --from-clipboard` to restore an existing missing secret field. Add `--create` only for a new credential ID. KeyKeeper asks for one-time confirmation and reads the system clipboard inside the App; the CLI receives only success or a constant error. It never overwrites an existing value or grants read access. New credentials use strict protection unless you add `--security standard` — suggest that only for a key meant for unattended use (cron jobs, background agents). With `--create` you can also pass `--expires YYYY-MM-DD` when the provider shows when the key stops working; later, `keykeeper edit <id> --expires YYYY-MM-DD` records or corrects it without a prompt. The user sees both suggestions in the save prompt and approves or rejects the save. The user confirms real-key saves; do not auto-click approval without their explicit authorization for that save.
+
+With `--create`, declare what the key is for: `--purpose "one line"`, and if it applies `--expected-caller "the nightly cron"`, `--frequency once|occasional|scheduled` (default once) and `--background` (must work with nobody at the Mac). `--security standard` is refused without a `--purpose`. The declaration is recorded on the credential — the person can change it in the app, `keykeeper edit` cannot — and every later request is judged against it: a one-off purpose that asks for background use, or an `always` on a key that is not declared as recurring and unattended, is pointed out in the prompt as inflated. Declare what the user actually asked for, not the most convenient thing.
 
 Declare a known shape using `--expect base64:32`, `hex:32`, `bytes:N` or `chars:N`; do not
 guess a provider's key length. Zero or more than one clipboard revision since the request

@@ -30,6 +30,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
+        ReviewerService.shared.retrieve = { [credentialService] id, field in
+            try credentialService.retrieve(credentialId: id, fieldName: field)
+        }
         ipcServer = IPCServer(session: credentialService, approvals: .shared,
             clipboardSaveController: ClipboardSaveController(service: credentialService, approvals: .shared),
             browserSessionController: browserSessions.controller)
@@ -251,7 +254,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     target: .credential(id: request.credentialId, fields: nil),
                     duration: resolved,
                     onceFieldsRemaining: resolved == .once ? request.fieldNames : nil,
-                    reason: request.statedReason?.text
+                    reason: request.statedReason?.text,
+                    command: request.commandSummary
                 )
                 try ApprovalStore.shared.add(approval)
                 self.ipcServer.respond(to: pending, with: AuthResponse(granted: true, grantId: approval.id))
@@ -268,6 +272,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         authWindowController.show(
             request: request,
             waiting: ipcServer.waitingCount,
+            review: requestReview(for: .strict(request)),
             onAuthorize: authorize,
             onDeny: deny
         )
@@ -290,7 +295,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     target: .credential(id: pending.credentialId, fields: pending.fieldNames),
                     duration: duration,
                     onceFieldsRemaining: duration == .once ? pending.fieldNames : nil,
-                    reason: pending.request.statedReason?.text
+                    reason: pending.request.statedReason?.text,
+                    command: pending.request.commandSummary
                 )
                 // An unidentified caller gets this one answer and nothing remembered.
                 do {
@@ -308,11 +314,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         authWindowController.show(
             serviceRequest: pending,
             waiting: ipcServer.waitingCount,
+            review: requestReview(for: .service(pending)),
             onAuthorize: authorize,
             onDeny: { [weak self] in
                 self?.ipcServer.denyServiceRequest(pending)
             }
         )
+    }
+
+    /// The declared use and expiry come from meta.json; a missing or unreadable file just means
+    /// the rules have less to go on.
+    private func requestReview(for prompt: AuthorizationPrompt) -> RequestReview {
+        let credential = (try? MetaStore.default.load())?.credentials[prompt.credentialId]
+        return RequestReview.make(prompt: prompt, credential: credential, approvals: .shared)
     }
 
     static func shouldShowPopoverOnLaunch(setupComplete: Bool) -> Bool {

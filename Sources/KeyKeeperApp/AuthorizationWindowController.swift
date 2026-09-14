@@ -11,11 +11,13 @@ final class AuthorizationWindowController {
 
     func show(request: AuthRequest,
               waiting: Int = 0,
+              review: RequestReview? = nil,
               onAuthorize: @escaping (ApprovalDuration) throws -> Void,
               onDeny: @escaping () -> Void) {
         show(
             prompt: .strict(request),
             waiting: waiting,
+            review: review,
             onAuthorizeGrant: onAuthorize,
             onAuthorizeService: nil,
             onDeny: onDeny
@@ -24,11 +26,13 @@ final class AuthorizationWindowController {
 
     func show(serviceRequest: IPCServer.PendingServiceRequest,
               waiting: Int = 0,
+              review: RequestReview? = nil,
               onAuthorize: @escaping (ApprovalDuration) throws -> Void,
               onDeny: @escaping () -> Void) {
         show(
             prompt: .service(serviceRequest),
             waiting: waiting,
+            review: review,
             onAuthorizeGrant: nil,
             onAuthorizeService: onAuthorize,
             onDeny: onDeny
@@ -65,6 +69,7 @@ final class AuthorizationWindowController {
 
     private func show(prompt: AuthorizationPrompt,
                       waiting: Int,
+                      review: RequestReview?,
                       onAuthorizeGrant: ((ApprovalDuration) throws -> Void)?,
                       onAuthorizeService: ((ApprovalDuration) throws -> Void)?,
                       onDeny: @escaping () -> Void) {
@@ -84,7 +89,8 @@ final class AuthorizationWindowController {
             onDeny: { [weak self] in
                 onDeny()
                 self?.dismiss()
-            }
+            },
+            review: review
         )
 
         // Frosted, title-less like a system prompt; the title stays for accessibility and

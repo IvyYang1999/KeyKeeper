@@ -124,13 +124,32 @@ struct TrustPromptModel: Equatable {
         if request.create, let expires = request.expires {
             rows.append(Row(label: L("Expires"), value: expires, monospaced: true, note: L("Suggested by \(caller)")))
         }
+        // The caller's declaration, and what the rules make of the protection it suggested.
+        var inflated = false
+        if request.create, let intent = request.intent?.sanitized() {
+            var tail = [RequestReview.frequencyName(intent.frequency)]
+            if intent.background { tail.append(L("unattended")) }
+            if let expected = intent.expectedCaller { tail.append(expected) }
+            rows.append(Row(label: L("Declared use"), value: intent.purpose, note: tail.joined(separator: " · ") + " · " + L("Declared by \(caller)")))
+        }
+        if request.create, request.security != nil || request.intent != nil {
+            let review = IntentRules.review(IntentReviewInput(
+                credentialId: request.credentialId, credentialLabel: request.credentialId, fieldNames: [request.fieldName],
+                callerName: caller, intent: request.intent?.sanitized(), expires: request.expires, requestedSecurity: proposed))
+            if let finding = review.findings.first {
+                inflated = review.verdict == .inflated
+                let suggestion = review.suggestedSecurity.map { SecurityLevelPresentation.badge($0) + " — " } ?? ""
+                rows.append(Row(label: L("KeyKeeper suggests"), value: suggestion + RequestReview.findingText(finding),
+                                note: inflated ? L("Saving keeps the caller's suggestion; change the protection afterwards in the app.") : nil))
+            }
+        }
 
         return TrustPromptModel(
             title: title,
             subtitle: L("\(caller) wants to put it in KeyKeeper"),
             rows: rows,
             assurance: assurance,
-            tone: proposed == .standard ? .caution : .reassuring,
+            tone: proposed == .standard || inflated ? .caution : .reassuring,
             details: details,
             confirmTitle: L("Save"),
             expiresAt: info.expiresAt

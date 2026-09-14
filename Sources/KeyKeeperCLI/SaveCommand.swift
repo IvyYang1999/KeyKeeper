@@ -32,6 +32,14 @@ struct SaveCommand: ParsableCommand {
     var security: SecurityLevel?
     @Option(help: "With --create: the last day the key works at its provider, YYYY-MM-DD. Shown to the person before saving.")
     var expires: String?
+    @Option(help: "With --create: what this key is for, in one line. Required with --security standard. The person reads it, and later requests are judged against it.")
+    var purpose: String?
+    @Option(name: .customLong("expected-caller"), help: "With --create: who is expected to use it (\"the nightly cron\", \"Codex when I ask\").")
+    var expectedCaller: String?
+    @Option(help: "With --create: how often it will be used: once, occasional or scheduled. Default once.")
+    var frequency: UsageIntent.Frequency = .once
+    @Flag(help: "With --create: it has to work with nobody at the Mac. Only makes sense with --frequency scheduled or occasional.")
+    var background = false
 
     mutating func validate() throws {
         if (replaceExisting || expectedEd25519PublicKey != nil) && !fromClipboard {
@@ -43,6 +51,12 @@ struct SaveCommand: ParsableCommand {
         guard (fromSource != nil) == (pythonSymbol != nil) else {
             throw ValidationError("--from-source requires --python-symbol; --python-symbol is not valid with other sources.")
         }
+        if security == .standard, intent == nil {
+            throw ValidationError("--security standard needs --purpose: say in one line what unattended use this key is for.")
+        }
+        if (expectedCaller != nil || background || frequency != .once) && purpose == nil {
+            throw ValidationError("--expected-caller, --frequency and --background describe a --purpose; add one.")
+        }
         try request.validate()
         if let fromFile { try FileImportRequest(target: request, filePath: fromFile).validate() }
         if let fromSource, let pythonSymbol {
@@ -52,7 +66,13 @@ struct SaveCommand: ParsableCommand {
     var request: ClipboardSaveRequest {
         .init(credentialId: credential, fieldName: field, create: create, expect: expect,
               useCurrentClipboard: useCurrentClipboard, replaceExisting: replaceExisting,
-              expectedEd25519PublicKey: expectedEd25519PublicKey, security: security, expires: expires)
+              expectedEd25519PublicKey: expectedEd25519PublicKey, security: security, expires: expires,
+              intent: intent)
+    }
+    /// The caller's declaration, sanitized here and again in the app.
+    var intent: UsageIntent? {
+        guard let purpose else { return nil }
+        return UsageIntent(purpose: purpose, expectedCaller: expectedCaller, frequency: frequency, background: background).sanitized()
     }
 
     /// What went in, without saying what it is. The clipboard is a shared channel and a save
@@ -102,3 +122,7 @@ struct SaveCommand: ParsableCommand {
 }
 
 extension SecurityLevel: ExpressibleByArgument {}
+extension UsageIntent.Frequency: ExpressibleByArgument {}
+extension RequestedDuration: ExpressibleByArgument {
+    public static var allValueStrings: [String] { allCases.map(\.rawValue) }
+}

@@ -709,7 +709,8 @@ final class IPCServer: ObservableObject {
             switch try AccessPolicy.decide(credential: cred, credentialId: request.credentialId,
                                            field: request.fieldName, caller: callerIdentity,
                                            terminalSession: request.sessionId, store: approvals,
-                                           reason: request.statedReason?.text) {
+                                           reason: request.statedReason?.text,
+                                           command: request.commandSummary.map { CallerStatedReason.printableLine($0, limit: 200) }) {
             case .allowed(let approval):
                 Self.readValueAndRespond(request: request, clientFd: clientFd, session: session,
                                          matched: approval, approvals: approvals)

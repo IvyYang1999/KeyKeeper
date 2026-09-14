@@ -12,6 +12,8 @@ struct SettingsView: View {
     @State private var enforceServiceGrants = false
     @State private var serviceModeError: String?
     @State private var serviceGrantCount = 0
+    @State private var reviewerEnabled = ReviewerService.shared.isEnabled
+    @State private var reviewerCredentialId = ReviewerService.shared.credentialId
     @State private var launchAtLogin = false
     @State private var launchAtLoginError: String?
     @State private var cliState: CLIInstallState = .missing
@@ -47,6 +49,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: DS.Spacing.md) {
                     languageCard
                     backgroundAccessCard
+                    reviewerCard
                     startupCard
                     updatesCard
                     cliCard
@@ -111,6 +114,32 @@ struct SettingsView: View {
             if let serviceModeError {
                 Text(serviceModeError).font(.caption2).foregroundColor(.red)
             }
+        }
+        .dsCard(padding: DS.Spacing.md)
+    }
+
+    /// yyt 2026-09-14: 「应该有一个独立的第三方，检查下模型的需求合不合理」。
+    private var reviewerCard: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+            SectionLabel(text: L("Independent reviewer"))
+            Toggle(isOn: $reviewerEnabled) {
+                Text(L("Ask a second model whether each request is necessary and minimal"))
+                    .font(.callout)
+            }
+            .onChange(of: reviewerEnabled) { _, value in ReviewerService.shared.isEnabled = value }
+            HStack(spacing: DS.Spacing.sm) {
+                Text(L("Its key, stored in KeyKeeper:")).font(.caption).foregroundColor(.secondary)
+                TextField(ReviewerService.defaultCredentialId, text: $reviewerCredentialId)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption.monospaced())
+                    .frame(maxWidth: 200)
+                    .onChange(of: reviewerCredentialId) { _, value in ReviewerService.shared.credentialId = value }
+                Text("· \(ReviewerService.fieldName)").font(.caption.monospaced()).foregroundColor(.secondary)
+            }
+            Text(L("An Anthropic API key. The reviewer sees key names, the caller's stated reason and command, and the declared use — never a value. Its opinion is shown in the approval window; it never approves anything."))
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .dsCard(padding: DS.Spacing.md)
     }

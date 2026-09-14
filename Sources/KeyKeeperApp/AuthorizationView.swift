@@ -111,8 +111,11 @@ struct AuthorizationView: View {
     let onAuthorizeGrant: ((ApprovalDuration) throws -> Void)?
     let onAuthorizeService: ((ApprovalDuration) throws -> Void)?
     let onDeny: () -> Void
+    /// What the agent asks, what the rules think, and (if on) what the second model thinks.
+    let review: RequestReview?
 
     @State private var selectedDuration: DurationOption
+    @State private var reviewerOutcome: ReviewerService.Outcome?
     @State private var isAuthenticating = false
     @State private var errorMessage: String?
     @State private var showCallerDetails = false
@@ -230,15 +233,18 @@ struct AuthorizationView: View {
     init(prompt: AuthorizationPrompt,
          onAuthorizeGrant: ((ApprovalDuration) throws -> Void)?,
          onAuthorizeService: ((ApprovalDuration) throws -> Void)?,
-         onDeny: @escaping () -> Void) {
+         onDeny: @escaping () -> Void,
+         review: RequestReview? = nil) {
         self.prompt = prompt
         self.onAuthorizeGrant = onAuthorizeGrant
         self.onAuthorizeService = onAuthorizeService
         self.onDeny = onDeny
+        self.review = review
         self.authenticationMethod = AuthenticationMethod.detect()
-        _selectedDuration = State(initialValue: DurationOption.defaultSelection(
+        _selectedDuration = State(initialValue: DurationOption.preselection(
             hasTerminalSession: prompt.hasTerminalSession,
-            canRemember: prompt.callerIdentity.map { CallerAssurance.of($0.subject).canRemember } ?? false
+            canRemember: prompt.callerIdentity.map { CallerAssurance.of($0.subject).canRemember } ?? false,
+            review: review
         ))
     }
 
@@ -269,6 +275,35 @@ struct AuthorizationView: View {
             guard canRemember else { return .once }
             return hasTerminalSession ? .session : .oneHour
         }
+
+        init?(requested: RequestedDuration) {
+            switch requested {
+            case .once: self = .once
+            case .session: self = .session
+            case .oneHour: self = .oneHour
+            case .always: self = .always
+            }
+        }
+
+        /// What the radio group starts on. The rules' suggestion when they found something; the
+        /// agent's own wish when they did not; the plain default when it asked for nothing. Never
+        /// an option that is not offered — an unidentified caller still starts on "once".
+        static func preselection(hasTerminalSession: Bool, canRemember: Bool, review: RequestReview?) -> DurationOption {
+            let offered = available(hasTerminalSession: hasTerminalSession, canRemember: canRemember)
+            let wanted = review?.rules.suggestedDuration ?? review?.input.requestedDuration
+            if let wanted, let option = DurationOption(requested: wanted), offered.contains(option) { return option }
+            return defaultSelection(hasTerminalSession: hasTerminalSession, canRemember: canRemember)
+        }
+    }
+
+    /// Which service button is drawn prominent: the rules' suggestion when they made one, the
+    /// agent's wish when they did not, "always" otherwise (as before).
+    var recommendedServiceDuration: RequestedDuration { Self.recommendedService(review: review) }
+
+    static func recommendedService(review: RequestReview?) -> RequestedDuration {
+        if let suggested = review?.rules.suggestedDuration { return suggested }
+        if let asked = review?.input.requestedDuration, asked != .session { return asked }
+        return .always
     }
 
     var body: some View {
@@ -278,6 +313,7 @@ struct AuthorizationView: View {
                 header
                 requestInfo
                 statedReasonSection
+                reviewSection
                 callerDetailsSection
                 strictDurationPicker
                 strictButtons
@@ -285,6 +321,7 @@ struct AuthorizationView: View {
                 serviceHeader
                 serviceRequestCard
                 statedReasonSection
+                reviewSection
                 callerDetailsSection
                 serviceButtons
             }
@@ -442,6 +479,61 @@ struct AuthorizationView: View {
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .surface(.card)
+        }
+    }
+
+    /// Three voices, each on its own line and each named: the agent (a claim), KeyKeeper's rules
+    /// (offline, deterministic), and — when the person turned it on — a second model (advice).
+    @ViewBuilder
+    private var reviewSection: some View {
+        if let review, review.hasContent || ReviewerService.shared.isEnabled {
+            VStack(alignment: .leading, spacing: 6) {
+                if let intent = review.intentLine {
+                    reviewRow(L("Declared use"), text: intent, symbol: "text.book.closed")
+                }
+                if let asks = review.agentAsksLine {
+                    reviewRow(L("Agent asks"), text: review.input.command.map { "\(asks) · \($0)" } ?? asks, symbol: "hand.raised", monospacedTail: review.input.command != nil)
+                } else if let command = review.input.command {
+                    reviewRow(L("Command"), text: command, symbol: "terminal", monospacedTail: true)
+                }
+                if let suggests = review.keykeeperSuggestsLine {
+                    reviewRow(L("KeyKeeper suggests"), text: suggests, symbol: "checkmark.shield", tone: review.rules.verdict == .inflated ? .orange : .secondary)
+                }
+                if ReviewerService.shared.isEnabled {
+                    switch reviewerOutcome {
+                    case nil:
+                        reviewRow(L("Reviewer"), text: L("asking…"), symbol: "person.crop.circle.badge.questionmark")
+                    case .opinion(let opinion):
+                        reviewRow(L("Reviewer"), text: ReviewerService.line(for: opinion), symbol: "person.crop.circle.badge.checkmark",
+                                  tone: opinion.minimalScope && opinion.necessity >= 3 ? .secondary : .orange)
+                    case .unavailable(let why):
+                        reviewRow(L("Reviewer"), text: L("unavailable: \(why)"), symbol: "person.crop.circle.badge.exclamationmark")
+                    case .disabled:
+                        EmptyView()
+                    }
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .surface(.card)
+            .task {
+                guard ReviewerService.shared.isEnabled, reviewerOutcome == nil else { return }
+                reviewerOutcome = await ReviewerService.shared.review(review.input)
+            }
+        }
+    }
+
+    private func reviewRow(_ label: String, text: String, symbol: String, tone: Color = .secondary, monospacedTail: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: symbol).font(.caption).foregroundColor(tone)
+            Text(label).font(.caption.weight(.semibold)).foregroundColor(tone)
+            Text(verbatim: text)
+                .font(monospacedTail ? .caption.monospaced() : .caption)
+                .foregroundColor(.primary)
+                .lineLimit(3)
+                .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
         }
     }
 
@@ -660,43 +752,38 @@ struct AuthorizationView: View {
                 Spacer()
 
                 HStack(spacing: DS.Spacing.sm) {
-                    Button(L("Once")) {
-                        authenticate {
-                            try onAuthorizeService?(.once)
-                        }
-                    }
-                    .disabled(isAuthenticating || !canApprove)
-
+                    serviceButton(L("Once"), .once) { .once }
                     if callerAssurance.canRemember {
-                    Button(L("1 Hour")) {
-                        authenticate {
-                            try onAuthorizeService?(.timed(Date().addingTimeInterval(3600)))
-                        }
-                    }
-                    .disabled(isAuthenticating || !canApprove)
-
-                    Button {
-                        authenticate {
-                            try onAuthorizeService?(.always)
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            if isAuthenticating {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Image(systemName: authenticationMethod.symbolName)
-                            }
-                            Text(L("Always"))
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isAuthenticating || !canApprove)
+                        serviceButton(L("1 Hour"), .oneHour) { .timed(Date().addingTimeInterval(3600)) }
+                        serviceButton(L("Always"), .always) { .always }
                     }
                 }
             }
         }
         .onAppear { startSettleTimer() }
+    }
+
+    /// One of the three service answers. The recommended one is drawn prominent and carries the
+    /// authentication symbol; an unidentified caller only ever sees "Once", which is then the one.
+    @ViewBuilder
+    private func serviceButton(_ title: String, _ kind: RequestedDuration, duration: @escaping () -> ApprovalDuration) -> some View {
+        let prominent = kind == recommendedServiceDuration || (!callerAssurance.canRemember && kind == .once)
+        let button = Button {
+            authenticate { try onAuthorizeService?(duration()) }
+        } label: {
+            HStack(spacing: 4) {
+                if prominent {
+                    if isAuthenticating {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: authenticationMethod.symbolName)
+                    }
+                }
+                Text(title)
+            }
+        }
+        .disabled(isAuthenticating || !canApprove)
+        if prominent { button.buttonStyle(.borderedProminent) } else { button }
     }
 
     /// Runs the grant callback and keeps the window open with the reason when it fails.

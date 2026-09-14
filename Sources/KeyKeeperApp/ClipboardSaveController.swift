@@ -208,7 +208,13 @@ extension ClipboardSaveSource {
                 metadata.credentials[request.credentialId] = Credential(label: request.credentialId,
                     notes: "", links: [], fields: [request.fieldName: .init(secret: true, fileFormat: clipboard.fileFormat)],
                     security: request.security ?? .strict, created: date, updated: date,
-                    expires: request.expires)
+                    expires: request.expires,
+                    intent: request.intent?.sanitized().map { intent in
+                        var declared = intent
+                        declared.declaredBy = pending.presentation.callerName
+                        declared.declaredAt = now()
+                        return declared
+                    })
                 do { try metaStore.save(metadata) }
                 catch { throw ClipboardSaveError.metadataCommitFailed }
             }

@@ -116,13 +116,17 @@ enum IPCClient {
     static func requestValue(credentialId: String, fieldName: String,
                              sessionId: String?,
                              requestedFieldNames: [String]? = nil,
-                             statedReason: CallerStatedReason? = nil) throws -> String {
+                             statedReason: CallerStatedReason? = nil,
+                             requestedDuration: RequestedDuration? = nil,
+                             commandSummary: String? = nil) throws -> String {
         let request = ValueRequest(
             credentialId: credentialId,
             fieldName: fieldName,
             sessionId: sessionId,
             requestedFieldNames: requestedFieldNames,
-            statedReason: statedReason
+            statedReason: statedReason,
+            requestedDuration: requestedDuration,
+            commandSummary: commandSummary
         )
         let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: .value(request)))
         defer { close(fd) }
