@@ -14,6 +14,12 @@ struct SettingsView: View {
     @State private var serviceGrantCount = 0
     @State private var reviewerEnabled = ReviewerService.shared.isEnabled
     @State private var reviewerCredentialId = ReviewerService.shared.credentialId
+    @State private var reviewerBaseURL = ReviewerService.shared.baseURLText
+    @State private var reviewerAPI = ReviewerService.shared.apiOverride?.rawValue ?? "auto"
+    @State private var reviewerModel = ReviewerService.shared.model
+    @State private var reviewerModels: [String] = []
+    @State private var reviewerListing = false
+    @State private var reviewerStatus: String?
     @State private var launchAtLogin = false
     @State private var launchAtLoginError: String?
     @State private var cliState: CLIInstallState = .missing
@@ -136,7 +142,60 @@ struct SettingsView: View {
                     .onChange(of: reviewerCredentialId) { _, value in ReviewerService.shared.credentialId = value }
                 Text("· \(ReviewerService.fieldName)").font(.caption.monospaced()).foregroundColor(.secondary)
             }
-            Text(L("An Anthropic API key. The reviewer sees key names, the caller's stated reason and command, and the declared use — never a value. Its opinion is shown in the approval window; it never approves anything."))
+            HStack(spacing: DS.Spacing.sm) {
+                Text(L("Base URL:")).font(.caption).foregroundColor(.secondary)
+                TextField(ReviewerEndpoint.defaultBaseURL, text: $reviewerBaseURL)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption.monospaced())
+                    .onChange(of: reviewerBaseURL) { _, value in ReviewerService.shared.baseURLText = value; reviewerModels = [] }
+                Picker("", selection: $reviewerAPI) {
+                    Text(L("Auto")).tag("auto")
+                    Text("Anthropic").tag(ReviewerEndpoint.API.anthropic.rawValue)
+                    Text(L("OpenAI-compatible")).tag(ReviewerEndpoint.API.openAICompatible.rawValue)
+                }
+                .labelsHidden()
+                .frame(maxWidth: 170)
+                .onChange(of: reviewerAPI) { _, value in ReviewerService.shared.apiOverride = ReviewerEndpoint.API(rawValue: value) }
+            }
+            HStack(spacing: DS.Spacing.sm) {
+                Text(L("Model:")).font(.caption).foregroundColor(.secondary)
+                if reviewerModels.isEmpty {
+                    TextField(ReviewerEndpoint.defaultModel, text: $reviewerModel)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption.monospaced())
+                        .frame(maxWidth: 220)
+                        .onChange(of: reviewerModel) { _, value in ReviewerService.shared.model = value }
+                } else {
+                    Picker("", selection: $reviewerModel) {
+                        ForEach(reviewerModels, id: \.self) { Text($0).tag($0) }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 260)
+                    .onChange(of: reviewerModel) { _, value in ReviewerService.shared.model = value }
+                }
+                Button {
+                    reviewerListing = true; reviewerStatus = nil
+                    Task {
+                        let result = await ReviewerService.shared.listModels()
+                        reviewerListing = false
+                        switch result {
+                        case .success(let models):
+                            reviewerModels = models
+                            if !models.contains(reviewerModel) { reviewerModel = models[0]; ReviewerService.shared.model = models[0] }
+                            reviewerStatus = L("\(models.count) models available")
+                        case .failure(let error):
+                            reviewerStatus = error.localizedDescription
+                        }
+                    }
+                } label: {
+                    if reviewerListing { ProgressView().controlSize(.small) } else { Text(L("Find models")) }
+                }
+                .disabled(reviewerListing)
+            }
+            if let reviewerStatus {
+                Text(reviewerStatus).font(.caption2).foregroundColor(.secondary)
+            }
+            Text(L("Any service that speaks the Anthropic or OpenAI API. The reviewer sees key names, the caller's stated reason and command, and the declared use — never a value. Its opinion is shown in the approval window; it never approves anything."))
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

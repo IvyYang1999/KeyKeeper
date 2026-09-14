@@ -108,9 +108,15 @@ private final class StubTransport: ReviewTransport, @unchecked Sendable {
     var body: Data?
     var headers: [String: String] = [:]
     init(reply: Data) { self.reply = reply }
+    var getURL: URL?
     func post(url: URL, headers: [String: String], body: Data) async throws -> Data {
         lock.lock(); defer { lock.unlock() }
         self.body = body; self.headers = headers
+        return reply
+    }
+    func get(url: URL, headers: [String: String]) async throws -> Data {
+        lock.lock(); defer { lock.unlock() }
+        getURL = url; self.headers = headers
         return reply
     }
 }
@@ -163,6 +169,32 @@ final class ReviewerServiceTests: XCTestCase {
         XCTAssertTrue(line.contains("2/5") && line.contains("Once") && line.hasSuffix("one deploy"), line)
     }
 
+    /// yyt 2026-09-14：换个服务只要改 Base URL；接口按主机猜，模型从服务列出来的里面挑。
+    func test默认Anthropic_换地址就按OpenAI兼容_列出的模型给人挑() async {
+        let service = service()
+        service.isEnabled = true
+        service.retrieve = { _, _ in "sk-x" }
+        XCTAssertEqual(service.endpoint?.api, .anthropic)
+        XCTAssertEqual(service.endpoint?.model, "claude-sonnet-5")
+        service.baseURLText = "https://api.deepseek.com/"
+        XCTAssertEqual(service.endpoint?.api, .openAICompatible)
+        service.apiOverride = .anthropic
+        XCTAssertEqual(service.endpoint?.api, .anthropic, "人可以指定接口")
+        service.apiOverride = nil
+        let transport = StubTransport(reply: Data(#"{"data":[{"id":"deepseek-chat"},{"id":"deepseek-reasoner"}]}"#.utf8))
+        service.transport = transport
+        guard case .success(let models) = await service.listModels() else { return XCTFail() }
+        XCTAssertEqual(models, ["deepseek-chat", "deepseek-reasoner"])
+        XCTAssertEqual(transport.getURL?.absoluteString, "https://api.deepseek.com/v1/models")
+        XCTAssertEqual(transport.headers["authorization"], "Bearer sk-x")
+        service.model = "deepseek-chat"
+        XCTAssertEqual(service.endpoint?.completionURL.absoluteString, "https://api.deepseek.com/v1/chat/completions")
+        service.baseURLText = "not a url"
+        XCTAssertNil(service.endpoint)
+        guard case .unavailable(let why) = await service.review(IntentReviewInput(credentialId: "c", credentialLabel: "L", callerName: "x")) else { return XCTFail() }
+        XCTAssertTrue(why.lowercased().contains("url"), why)
+    }
+
     func test超时就退回规则() async {
         let service = service()
         service.isEnabled = true
@@ -171,10 +203,11 @@ final class ReviewerServiceTests: XCTestCase {
             func post(url: URL, headers: [String: String], body: Data) async throws -> Data {
                 try await Task.sleep(nanoseconds: 5_000_000_000); return Data()
             }
+            func get(url: URL, headers: [String: String]) async throws -> Data { try await post(url: url, headers: headers, body: Data()) }
         }
         service.transport = Slow()
         do {
-            _ = try await ReviewerService.withTimeout(0.05) { try await Slow().post(url: ModelReviewer.endpoint, headers: [:], body: Data()) }
+            _ = try await ReviewerService.withTimeout(0.05) { try await Slow().post(url: URL(string: "https://example.com")!, headers: [:], body: Data()) }
             XCTFail("should time out")
         } catch {
             XCTAssertTrue(error is CancellationError)
