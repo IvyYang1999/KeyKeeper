@@ -277,21 +277,27 @@ public struct ValueRequest: Codable, Sendable {
     public var requestedFieldNames: [String]
     /// What the caller says it needs the value for. Shown in the prompt, never trusted.
     public var statedReason: CallerStatedReason?
+    public var requestedDuration: RequestedDuration?
+    public var commandSummary: String?
 
     private enum CodingKeys: String, CodingKey {
-        case credentialId, fieldName, sessionId, requestedFieldNames, statedReason
+        case credentialId, fieldName, sessionId, requestedFieldNames, statedReason, requestedDuration, commandSummary
     }
 
     public init(credentialId: String,
                 fieldName: String,
                 sessionId: String?,
                 requestedFieldNames: [String]? = nil,
-                statedReason: CallerStatedReason? = nil) {
+                statedReason: CallerStatedReason? = nil,
+                requestedDuration: RequestedDuration? = nil,
+                commandSummary: String? = nil) {
         self.credentialId = credentialId
         self.fieldName = fieldName
         self.sessionId = sessionId
         self.requestedFieldNames = requestedFieldNames ?? [fieldName]
         self.statedReason = statedReason
+        self.requestedDuration = requestedDuration
+        self.commandSummary = commandSummary
     }
 
     public init(from decoder: Decoder) throws {
@@ -302,6 +308,8 @@ public struct ValueRequest: Codable, Sendable {
         requestedFieldNames = try container.decodeIfPresent([String].self, forKey: .requestedFieldNames)
             ?? [fieldName]
         statedReason = try container.decodeIfPresent(CallerStatedReason.self, forKey: .statedReason)
+        requestedDuration = try container.decodeIfPresent(RequestedDuration.self, forKey: .requestedDuration)
+        commandSummary = try container.decodeIfPresent(String.self, forKey: .commandSummary)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -311,6 +319,8 @@ public struct ValueRequest: Codable, Sendable {
         try container.encodeIfPresent(sessionId, forKey: .sessionId)
         try container.encode(requestedFieldNames, forKey: .requestedFieldNames)
         try container.encodeIfPresent(statedReason, forKey: .statedReason)
+        try container.encodeIfPresent(requestedDuration, forKey: .requestedDuration)
+        try container.encodeIfPresent(commandSummary, forKey: .commandSummary)
     }
 }
 
@@ -363,12 +373,18 @@ public struct AuthRequest: Codable, Sendable {
     public var callerIdentity: CallerIdentity?
     /// What the caller says it needs the key for. Shown in the prompt, never trusted.
     public var statedReason: CallerStatedReason?
+    /// How long the caller asks to be approved for. A wish, checked against its declaration.
+    public var requestedDuration: RequestedDuration?
+    /// The command line about to run, as the caller reports it. Shown, never trusted.
+    public var commandSummary: String?
 
     public init(credentialId: String, credentialLabel: String,
                 fieldNames: [String], sessionId: String?,
                 sessionLabel: String?, pid: Int32,
                 callerIdentity: CallerIdentity? = nil,
-                statedReason: CallerStatedReason? = nil) {
+                statedReason: CallerStatedReason? = nil,
+                requestedDuration: RequestedDuration? = nil,
+                commandSummary: String? = nil) {
         self.credentialId = credentialId
         self.credentialLabel = credentialLabel
         self.fieldNames = fieldNames
@@ -377,6 +393,8 @@ public struct AuthRequest: Codable, Sendable {
         self.pid = pid
         self.callerIdentity = callerIdentity
         self.statedReason = statedReason
+        self.requestedDuration = requestedDuration
+        self.commandSummary = commandSummary
     }
 }
 

@@ -40,10 +40,13 @@ public struct Credential: Codable, Sendable {
     /// Nil when nobody recorded one — and then it is left out of the file entirely, so metadata
     /// signed before this existed still verifies.
     public var expires: String?
+    /// What the creator said it is for (see UsageIntent). Nil when nobody declared one.
+    public var intent: UsageIntent?
 
     public init(label: String, notes: String, links: [String],
                 fields: [String: CredentialField], security: SecurityLevel,
-                created: String, updated: String, aliases: [String]? = nil, expires: String? = nil) {
+                created: String, updated: String, aliases: [String]? = nil, expires: String? = nil,
+                intent: UsageIntent? = nil) {
         self.label = label
         self.notes = notes
         self.links = links
@@ -53,6 +56,7 @@ public struct Credential: Codable, Sendable {
         self.updated = updated
         self.aliases = aliases
         self.expires = expires
+        self.intent = intent
     }
 }
 

@@ -122,10 +122,13 @@ public struct Approval: Codable, Identifiable, Equatable, Sendable {
     /// What the caller said it needed the key for when the person approved. Its words, kept for
     /// the record; never a fact KeyKeeper verified.
     public var reason: String?
+    /// The command line that was running when the person approved, as the caller reported it.
+    public var command: String?
 
     public init(id: String = UUID().uuidString, subject: ApprovalSubject, target: ApprovalTarget,
                 duration: ApprovalDuration, createdAt: Date = Date(), lastUsedAt: Date? = nil,
-                consumed: Bool = false, onceFieldsRemaining: [String]? = nil, reason: String? = nil) {
+                consumed: Bool = false, onceFieldsRemaining: [String]? = nil, reason: String? = nil,
+                command: String? = nil) {
         self.id = id
         self.subject = subject
         self.target = target
@@ -135,6 +138,7 @@ public struct Approval: Codable, Identifiable, Equatable, Sendable {
         self.consumed = consumed
         self.onceFieldsRemaining = onceFieldsRemaining
         self.reason = reason
+        self.command = command
     }
 
     /// How long a "just this once" approval stays open for the rest of the run's fields.
@@ -183,10 +187,11 @@ public struct ServiceAuditEvent: Codable, Sendable, Equatable {
     public var decision: String
     /// The caller's stated reason, when it gave one.
     public var reason: String?
+    public var command: String?
 
     public init(timestamp: Date = Date(), credentialId: String, fieldName: String,
                 subjectFingerprint: String, subjectDisplayName: String,
-                mode: ServiceAuthorizationMode, decision: String, reason: String? = nil) {
+                mode: ServiceAuthorizationMode, decision: String, reason: String? = nil, command: String? = nil) {
         self.timestamp = timestamp
         self.credentialId = credentialId
         self.fieldName = fieldName
@@ -195,6 +200,7 @@ public struct ServiceAuditEvent: Codable, Sendable, Equatable {
         self.mode = mode
         self.decision = decision
         self.reason = reason
+        self.command = command
     }
 }
 
@@ -461,7 +467,8 @@ public enum AccessPolicy {
     ///   decides, and either way the access log gets a line.
     public static func decide(credential: Credential, credentialId: String, field: String,
                               caller: CallerIdentity, terminalSession: String?,
-                              store: ApprovalStore, reason: String? = nil, now: Date = Date()) throws -> AccessDecision {
+                              store: ApprovalStore, reason: String? = nil, command: String? = nil,
+                              now: Date = Date()) throws -> AccessDecision {
         if let approval = try store.valid(credentialId: credentialId, field: field,
                                           fingerprint: caller.subject.fingerprint,
                                           terminalSession: terminalSession, now: now) {
@@ -472,7 +479,7 @@ public enum AccessPolicy {
         try store.recordAudit(ServiceAuditEvent(
             timestamp: now, credentialId: credentialId, fieldName: field,
             subjectFingerprint: caller.subject.fingerprint, subjectDisplayName: caller.displayName,
-            mode: mode, decision: mode == .permissive ? "allowed_without_grant" : "prompt_required", reason: reason))
+            mode: mode, decision: mode == .permissive ? "allowed_without_grant" : "prompt_required", reason: reason, command: command))
         return mode == .permissive ? .allowed(nil) : .needsApproval
     }
 

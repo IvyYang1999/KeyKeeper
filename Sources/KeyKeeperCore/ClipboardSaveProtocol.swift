@@ -27,12 +27,14 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
     /// with the suggestion in front of them.
     public var security: SecurityLevel?
     public var expires: String?
+    /// What the new credential is for, declared by the caller. Only with `create`.
+    public var intent: UsageIntent?
     public var isReplacement: Bool { replaceExisting == true }
 
     public init(credentialId: String, fieldName: String, create: Bool = false,
                 expect: String? = nil, useCurrentClipboard: Bool = false,
                 replaceExisting: Bool = false, expectedEd25519PublicKey: String? = nil,
-                security: SecurityLevel? = nil, expires: String? = nil) {
+                security: SecurityLevel? = nil, expires: String? = nil, intent: UsageIntent? = nil) {
         self.credentialId = credentialId
         self.fieldName = fieldName
         self.create = create
@@ -42,10 +44,11 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
         self.expectedEd25519PublicKey = expectedEd25519PublicKey
         self.security = security
         self.expires = expires
+        self.intent = intent
     }
 
     public func validate() throws {
-        if security != nil || expires != nil {
+        if security != nil || expires != nil || intent != nil {
             guard create else { throw ClipboardSaveError.suggestionRequiresCreate }
         }
         if let expires {
