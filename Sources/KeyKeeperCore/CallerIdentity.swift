@@ -317,7 +317,20 @@ public enum CallerIdentityResolver {
 
         if let app = nonKeyKeeperProcesses.first(where: { $0.bundleIdentifier != nil && !isInsideFramework($0.executablePath) }) {
             let bundle = app.bundleIdentifier ?? "unknown-bundle"
-            let team = app.teamIdentifier ?? "unsigned"
+            // 【独立审计 2026-09-14 · critical】the bundle id is read from the ancestor's own
+            // Info.plist. For a signed app the team anchors it; for an unsigned app it anchored
+            // nothing — any process inside a Fake.app claiming `com.openai.codex` matched Codex's
+            // "always". An app without a verifiable team is identified like any unsigned program:
+            // by the file it runs from. The bundle id stays as the display name only.
+            guard let team = app.teamIdentifier else {
+                guard let executable = app.executablePath, !executable.isEmpty else {
+                    return CallerSubject(kind: .app, fingerprint: CallerSubject.unverifiedPrefix + "unlocatable-app",
+                                         displayName: bundle, detail: "unsigned, executable not located")
+                }
+                let normalized = normalizedPath(executable)
+                return CallerSubject(kind: .app, fingerprint: "app:unsigned:path=\(sha256Hex(normalized))",
+                                     displayName: bundle, detail: "unsigned, \(normalized)")
+            }
             let signing = app.signingIdentifier ?? bundle
             let fingerprint = "app:team=\(team):bundle=\(bundle):signing=\(signing)"
             return CallerSubject(
