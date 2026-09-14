@@ -6,6 +6,60 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>KeyKeeper</title>
         <item>
+            <title>0.3.4</title>
+            <pubDate>Mon, 14 Sep 2026 22:12:56 +0800</pubDate>
+            <link>https://github.com/IvyYang1999/KeyKeeper</link>
+            <sparkle:version>0.3.4</sparkle:version>
+            <sparkle:shortVersionString>0.3.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# KeyKeeper 0.3.4
+
+适用于 Apple Silicon Mac，macOS 14 或更新版本。
+
+**建议升级**：这一版把「谁可以用哪把 key」的记录搬进了钥匙串，并修了一批授权相关的安全问题。
+
+- 「始终允许」现在真的只对你批准的那个程序有效，本机别的程序蹭不到；没签名的 App 按它运行的文件认，不再按它自称的名字认。升级后已有的授权会各再问一次。
+- 授权窗改成三个回答：仅这一次、这次运行期间（程序退出就失效）、以后都不问。Agent 的留言放在正中，其余细节折叠。
+- 新安装默认「后台可用」的 key 也要先见过调用方一次才放行。
+- Agent 通过命令行写入的明文字段（区域、地址这类）要你在 KeyKeeper 里确认后，`run` 才会注入。
+- Agent 新建的凭据默认「只能注入、不能读出」：值只经 `keykeeper run` 进入命令的环境，`get` 和 SDK 拿不到；需要时在凭据页打开「允许读出」。
+- 可选的「独立审查员」：填一个 Anthropic 或 OpenAI 接口的服务和 key，它会在授权窗里给出「是否必要、范围是否最小」的意见。它看不到任何值，也不会替你批准。
+- 授权记录从明文文件搬进 macOS 钥匙串，别的程序改不了；旧文件改名留档，不再读取。
+- 授权窗写清楚这次批准覆盖的范围，认不出的程序只能批准这一次。
+- 在 KeyKeeper 自己的窗口里登录网站，登录态可以像 key 一样按次、按小时或长期交给一个 Agent，随时撤销。
+- 凭据可以记录过期日；Agent 新建凭据时可以建议保护方式和过期日，由你批准。
+- Agent 第一次请求一把 key 必须说明用途，授权窗里能看到；已批准过的不再需要。
+- Agent 新建凭据时要声明用途；之后每次请求，授权窗会并列显示它的要求和 KeyKeeper 的建议。可选开启一个独立审查员（另一个模型）给意见，它看不到任何值，也不会替你批准。
+- 从剪贴板保存：先复制还是先让 Agent 发命令都行，不再要求「请求之后再复制一次」。确认窗会显示开头结尾几个字符、长度和复制时间，认对了再存；不对就再复制，窗口会跟着变。
+- 命令行等待你批准时不再超时失败；元数据被外部改动时会提示并可确认恢复。
+- 修了字段名可能变成 PATH 这类环境变量、注册文件被改后无法修复等问题。
+
+---
+
+For Apple Silicon Macs, macOS 14 or later.
+
+**Recommended**: approvals now live in the Keychain, and a batch of authorization fixes.
+
+- "Always allow" now applies only to the program you approved; nothing else on this Mac can ride on it, and an unsigned app is recognised by the file it runs from, not by the name it claims. Existing approvals will ask once more after upgrading.
+- The approval window offers three answers: just this once, while it runs (ends when the program quits), or don't ask again. The agent's message sits in the middle; details are folded away.
+- On a fresh install, "Background OK" keys are only released to callers you have seen once.
+- Plain fields an agent writes over the command line (a region, an address) are injected by `run` only after you confirm them in KeyKeeper.
+- Credentials an agent creates are inject-only: values reach a command's environment through `keykeeper run` and are never returned by `get` or the SDKs. Turn on "Can be read out" on a credential when you need that.
+- Optional independent reviewer: point it at any Anthropic- or OpenAI-style service with a key, and it adds an opinion on necessity and scope to the approval window. It never sees a value and never approves for you.
+- Approval records moved from plain files into the macOS Keychain, where other programs cannot edit them. The old files are kept, renamed, and no longer read.
+- The approval window states exactly what an approval covers; a program KeyKeeper cannot identify can only be approved once.
+- Log in to a website inside KeyKeeper's own window, and hand that login to an agent once, for an hour, or until you revoke it — just like a key.
+- Credentials can record an expiry date; an agent creating one can suggest its protection and expiry, for you to approve.
+- An agent's first request for a key must say what it is for, and the approval window shows it; approved callers need not repeat it.
+- An agent creating a credential declares its use; later requests show the agent's ask next to KeyKeeper's own suggestion. An optional independent reviewer (a second model) can add its opinion — it never sees a value and never approves for you.
+- Clipboard saves no longer require a copy made after the request: copy first or run the command first, either works. The confirmation shows the first and last characters, the length and when it was copied, so you can tell it is the right thing; copy again if not, and the window follows.
+- The command line no longer times out while you read an approval window; metadata changed outside KeyKeeper is flagged and can be confirmed.
+- Fixed field names that could become variables like PATH, and a Chrome registration that could not be repaired after tampering.
+]]></description>
+            <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.4/KeyKeeper-0.3.4.dmg" length="7597070" type="application/octet-stream" sparkle:edSignature="KBUAoZH65qWNsuq8VW9kzzrCO8PvLKyd8NOl8zJvCgzAo4CUE6qirgqdc7HVAS0jCw9vrsK9eRX+4n6mY80xDA=="/>
+        </item>
+        <item>
             <title>0.3.3</title>
             <pubDate>Sun, 13 Sep 2026 16:37:10 +0800</pubDate>
             <link>https://github.com/IvyYang1999/KeyKeeper</link>
@@ -102,55 +156,9 @@ Plain fields are not encrypted. Converting a real secret to plain writes it to a
 ]]></description>
             <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.2/KeyKeeper-0.3.2.dmg" length="6875025" type="application/octet-stream" sparkle:edSignature="s6jvzLqilPVfFtb2RML+5RaCl/a37V6ltlxe/neQwoe0eEgip3V5BbaY6MPzZ7jAKPqW/xgXpsbt66DekfP9BQ=="/>
         </item>
-        <item>
-            <title>0.3.1</title>
-            <pubDate>Sun, 13 Sep 2026 11:33:06 +0800</pubDate>
-            <link>https://github.com/IvyYang1999/KeyKeeper</link>
-            <sparkle:version>0.3.1</sparkle:version>
-            <sparkle:shortVersionString>0.3.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[# KeyKeeper 0.3.1
-
-## 下载与安装 / Installation
-
-适用于 Apple Silicon Mac（M1 及后续芯片），macOS 14 或更新版本。打开 DMG，将 KeyKeeper 拖到 Applications，再启动 App。CLI 可从 App 的设置向导安装。
-
-Requires an Apple Silicon Mac and macOS 14 or later. Open the DMG, drag KeyKeeper into Applications, and launch it. Install the bundled CLI from the setup assistant.
-
-## 安全修复（建议尽快升级）
-
-- **在授权窗点「使用密码」会直接放行。** Touch ID 面板上选择改用密码时，0.3.0 把这个信号当成验证通过，直接交出密钥值并关窗——任何人坐在这台 Mac 前都能这样绕过 Touch ID。现在选「使用密码」会真的走一次系统密码验证，验过才放行；验不了就报错并保留窗口。
-- **授权窗显示的凭据名和字段名曾由调用方自报。** 本机任一进程可以一边申请 A 凭据、一边让弹窗显示 B 的名字，或少报字段让范围看起来更小。现在一律显示本地记录的名字与该凭据的全部机密字段；本地没有这条凭据则直接拒绝，不弹窗。
-
-## Security fixes (please update)
-
-- **"Use Password" in the approval window released the secret without checking anything.** Choosing the password fallback on the Touch ID sheet was treated as a successful check in 0.3.0, so anyone at the Mac could bypass Touch ID. It now runs a real device-password check and only releases the value if that check passes.
-- **The credential name and key names in the approval window came from the caller.** A local process could request one credential while the window displayed another's name, or under-report the keys involved. The window now shows what KeyKeeper has on file, lists every secret key the approval covers, and refuses requests for unknown credentials.
-
-## 本次更新
-
-- 授权窗新增「调用方留言」：脚本或 Agent 可用 `keykeeper run --reason "…"` 写一句人话说明为什么要用这把 key。留言标注「未核实」、纯文本显示、折成一行并限长，永远不参与任何判定，也不改变允许之后的范围。
-- 授权时长旁补上一句实话：允许之后，这个调用方能读这一组里的全部密钥；「始终允许」对以后的会话同样有效。
-- 修复展开「调用方详情」时窗口底部短暂露出直角、失去磨砂的问题（展开动画期间玻璃跟不上窗口）。
-
-## What's new
-
-- Callers can state their case: `keykeeper run --reason "…"` puts one line in the approval window, labelled unverified, plain text, folded to a single line and capped. It never affects any decision.
-- The duration picker now says plainly what an approval covers: every key in that credential, and future sessions for "Always allow".
-- Fixed the approval window briefly showing square, unfrosted corners while the caller details expanded.
-
-## 升级注意 / Upgrade notes
-
-密钥继续保存在 macOS 钥匙串中。此安装包不会找回已经缺失的密钥值。
-
-Secrets remain in macOS Keychain. This installer cannot recover secret values that are already missing.
-]]></description>
-            <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.1/KeyKeeper-0.3.1.dmg" length="6800840" type="application/octet-stream" sparkle:edSignature="U8n43WUbZny7DxxdMUl1DQh057v7Y0lK20zbPeAb6qZIDcUySN39vbVuKf0kGTyQnSTnT23qiE7ULJptwWAGAA=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: kKnAAWo1xZDSvEQs+NOO2B2wr4zbPSmOtN6R5Oyv3yazbBtmJd9vnOjONzkx+medwESPT/m4aWru+B7v9hEBBA==
-length: 13517
+edSignature: aaejG/qLXHRaDmcOE2nPHrFeKjs7Ci+eHDZT13kAV6cT9ZyAppDRtRAxejgh/4IrHRsGrDWlewTtMj2Xct94Cw==
+length: 15616
 -->
