@@ -4,28 +4,38 @@ import CryptoKit
 
 @MainActor protocol ClipboardSaveSource: AnyObject {
     var changeCount: Int { get }
-    /// True for the shared system clipboard, where "what is there now" is not evidence that the
-    /// user put it there for this request. The browser and file sources own their own content.
-    var requiresFreshCopy: Bool { get }
+    /// True for the shared system clipboard: whatever is there when the person approves is what
+    /// is saved, and the confirmation shows a preview of it that follows the clipboard. The
+    /// browser and file sources own their content and must not change under the prompt.
+    var isSystemClipboard: Bool { get }
     var fileFormat: CredentialFileFormat? { get }
     var displayFilePath: String? { get }
     var pythonSymbol: String? { get }
     func readText() throws -> String?
     func clearIfUnchanged(since count: Int)
+    /// A masked look at the current content for the confirmation, or nil when there is nothing to show.
+    func preview() -> ClipboardPreview?
 }
 
 extension ClipboardSaveSource {
-    var requiresFreshCopy: Bool { false }
+    var isSystemClipboard: Bool { false }
     var fileFormat: CredentialFileFormat? { nil }
     var displayFilePath: String? { nil }
     var pythonSymbol: String? { nil }
+    func preview() -> ClipboardPreview? { nil }
 }
 
 @MainActor final class SystemClipboardSaveSource: ClipboardSaveSource {
     var changeCount: Int { NSPasteboard.general.changeCount }
-    var requiresFreshCopy: Bool { true }
+    var isSystemClipboard: Bool { true }
     func readText() -> String? { NSPasteboard.general.string(forType: .string) }
     func clearIfUnchanged(since count: Int) { SecretPasteboard.clearIfUnchanged(since: count) }
+    func preview() -> ClipboardPreview? {
+        guard let text = readText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        var preview = ClipboardPreview.masked(text)
+        preview.copiedAt = ClipboardWatch.shared.lastChangeAt
+        return preview
+    }
 }
 
 /// One single-use request at a time. No queue: a queued request could capture the wrong copy.
@@ -37,12 +47,14 @@ extension ClipboardSaveSource {
         var filePath: String?
         var pythonSymbol: String?
         var expiresAt: Date?
+        /// What the clipboard looks like right now; refreshed while the prompt is up.
+        var preview: ClipboardPreview?
     }
     private struct Pending {
         let id: UUID
-        let presentation: Presentation
+        var presentation: Presentation
         let metadata: Data
-        let changeCount: Int
+        var changeCount: Int
         let valueFingerprint: Data?
         let source: ClipboardSaveSource
         let expiresAt: Date
@@ -55,6 +67,8 @@ extension ClipboardSaveSource {
     private let clipboard: ClipboardSaveSource
     private let now: () -> Date
     private let present: (Presentation, @escaping (Bool) -> Void) -> Void
+    /// The prompt is already up; only its rows changed (the clipboard moved).
+    private let update: (Presentation) -> Void
     private let dismiss: () -> Void
     private var pending: Pending?
     private var timer: Timer?
@@ -64,6 +78,7 @@ extension ClipboardSaveSource {
     init(service: KeychainCredentialService, metaStore: MetaStore = .default, approvals: ApprovalStore,
          clipboard: ClipboardSaveSource? = nil, now: @escaping () -> Date = Date.init,
          present: ((Presentation, @escaping (Bool) -> Void) -> Void)? = nil,
+         update: ((Presentation) -> Void)? = nil,
          dismiss: (() -> Void)? = nil) {
         self.service = service; self.metaStore = metaStore; self.approvals = approvals
         self.clipboard = clipboard ?? SystemClipboardSaveSource(); self.now = now
@@ -72,6 +87,7 @@ extension ClipboardSaveSource {
             // An isolated e2e instance answers itself; the prompt never appears.
             if TestInstance.autoApprove != nil { DispatchQueue.main.async { decide(true) } } else { window.show(info, decide: decide) }
         }
+        self.update = update ?? { info in window.update(info) }
         self.dismiss = dismiss ?? { window.dismiss() }
     }
 
@@ -89,11 +105,11 @@ extension ClipboardSaveSource {
             let metadata = try metaStore.load()
             try validateTarget(request, metadata: metadata, fileFormat: source?.fileFormat)
             let expiresAt = now().addingTimeInterval(90)
-            let info = Presentation(request: request, callerName: callerName,
-                fromBrowser: source != nil && source?.displayFilePath == nil,
-                filePath: source?.displayFilePath, pythonSymbol: source?.pythonSymbol,
-                expiresAt: expiresAt)
             let source = source ?? clipboard
+            let info = Presentation(request: request, callerName: callerName,
+                fromBrowser: source.displayFilePath == nil && !source.isSystemClipboard,
+                filePath: source.displayFilePath, pythonSymbol: source.pythonSymbol,
+                expiresAt: expiresAt, preview: source.isSystemClipboard ? source.preview() : nil)
             let id = UUID()
             pending = Pending(id: id, presentation: info, metadata: try canonical(metadata),
                 changeCount: source.changeCount,
@@ -102,7 +118,7 @@ extension ClipboardSaveSource {
                 source: source, expiresAt: expiresAt,
                 isConnected: isConnected, completion: completion)
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.expireIfNeeded() }
+                Task { @MainActor in self?.tick() }
             }
             if !deferPresentation { presentPending() }
         } catch {
@@ -118,6 +134,16 @@ extension ClipboardSaveSource {
             guard self?.pending?.id == pending.id else { return }
             self?.resolve(approved: approved)
         }
+    }
+
+    /// Once a second while a save is pending: expire, or follow the clipboard so the prompt
+    /// always shows what approving would store.
+    func tick() {
+        expireIfNeeded()
+        guard let pending, pending.source.isSystemClipboard, pending.source.changeCount != pending.changeCount else { return }
+        self.pending?.changeCount = pending.source.changeCount
+        self.pending?.presentation.preview = pending.source.preview()
+        if isPresented, let presentation = self.pending?.presentation { update(presentation) }
     }
 
     func expireIfNeeded() {
@@ -142,27 +168,11 @@ extension ClipboardSaveSource {
             guard try canonical(metadata) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
             try validateTarget(request, metadata: metadata, fileFormat: clipboard.fileFormat)
             let changed: ClipboardSaveError = clipboard.displayFilePath == nil ? .clipboardChanged : .fileChanged
-            // Two different questions, and the old code asked only the second one.
-            //   1. Did the user copy something FOR this request? Ordinal freshness: the count must
-            //      have moved exactly once since the request started. Extra revisions, including
-            //      those from clipboard managers, are ambiguous and therefore refused.
-            //   2. Did the content hold still while we read it? That is the equality check, taken
-            //      around the read itself rather than against the request's own baseline.
-            let requiresFreshCopy = clipboard.requiresFreshCopy && !request.useCurrentClipboard
-            if requiresFreshCopy {
-                // Exactly one write, not "at least one": the count is an integer, so
-                // baseline + 1 means one copy happened and nothing has touched the clipboard
-                // since. "At least one" would be weaker than the old rule — copy the key, then
-                // copy something else, and it would store the something else, which is the
-                // accident this is meant to prevent. changeCount can say whether the clipboard
-                // changed; it cannot say which of two copies you meant, so refuse and let the
-                // person redo it.
-                switch clipboard.changeCount - pending.changeCount {
-                case 0: throw ClipboardSaveError.clipboardNotCopiedYet
-                case 1: break
-                default: throw ClipboardSaveError.clipboardCopiedMoreThanOnce
-                }
-            } else {
+            // The system clipboard may have moved while the prompt was up — the prompt followed
+            // it (see tick), so what the person approved is what is there now. A file or browser
+            // source must not have changed at all. Either way the content has to hold still while
+            // it is read: the equality check below is taken around the read itself.
+            if !clipboard.isSystemClipboard {
                 guard clipboard.changeCount == pending.changeCount else { throw changed }
             }
             let countAtRead = clipboard.changeCount
@@ -295,6 +305,9 @@ extension Notification.Name {
             : info.fromBrowser ? "safari" : "doc.on.clipboard"
         presenter.show(.save(info), symbol: symbol, decide: decide)
     }
+
+    /// The clipboard moved while the prompt was up: same window, new rows.
+    func update(_ info: ClipboardSaveController.Presentation) { presenter.update(.save(info)) }
 
     func dismiss() { presenter.dismiss() }
 }

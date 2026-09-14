@@ -1,5 +1,28 @@
 import AppKit
 
+/// Remembers when the general pasteboard last changed. NSPasteboard has a change count and no
+/// clock, so the app keeps its own: a one-second poll of the count, which is what the save
+/// confirmation turns into "copied 2 min ago". Before the first observed change it knows nothing.
+@MainActor final class ClipboardWatch {
+    static let shared = ClipboardWatch()
+    private var lastCount: Int
+    private(set) var lastChangeAt: Date?
+    private var timer: Timer?
+
+    init(pasteboard: NSPasteboard = .general) {
+        lastCount = pasteboard.changeCount
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.observe(pasteboard.changeCount) }
+        }
+    }
+
+    func observe(_ count: Int, now: Date = Date()) {
+        guard count != lastCount else { return }
+        lastCount = count
+        lastChangeAt = now
+    }
+}
+
 /// Clipboard handling for secret values: keeps them on this Mac, marks them as concealed so
 /// clipboard managers skip them, and clears them again after a short delay unless the user has
 /// copied something else in the meantime.

@@ -13,12 +13,13 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
     /// key and reported success. Declaring the shape costs the caller nothing and can only ever
     /// cause a refusal, never a wider permission — so it is safe to accept from any process.
     public var expect: String?
-    /// Accept whatever is already on the clipboard instead of waiting for a fresh copy.
+    /// Kept on the wire for older clients; the app no longer reads it.
     ///
-    /// The default is to require a copy AFTER the request, because "whatever was lying on the
-    /// clipboard when the command ran" is exactly what went wrong on 2026-09-13: a copy the user
-    /// had made minutes earlier had already been replaced by something else. Ordinal freshness is
-    /// all macOS offers — NSPasteboard exposes changeCount and no timestamp at all.
+    /// 0.3.3 required a copy AFTER the request (the 2026-09-13 incident: a minutes-old copy had
+    /// been replaced by prose). 2026-09-14, yyt: "I had already copied it, then the agent told me
+    /// to copy again, and I had closed the window." The current clipboard is now always what is
+    /// saved, and the confirmation shows a masked preview and the copy time so the person can
+    /// tell whether it is the right thing.
     public var useCurrentClipboard: Bool
     public var replaceExisting: Bool?
     public var expectedEd25519PublicKey: String?
@@ -55,7 +56,7 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
             guard CredentialExpiry.normalize(expires) == expires else { throw ClipboardSaveError.invalidExpiry }
         }
         if isReplacement {
-            guard !create, !useCurrentClipboard, expect != nil else { throw ClipboardSaveError.invalidReplacement }
+            guard !create, expect != nil else { throw ClipboardSaveError.invalidReplacement }
         }
         if let expectedEd25519PublicKey {
             guard isReplacement, expect == "base64:32", Data(base64Encoded: expectedEd25519PublicKey)?.count == 32 else {
@@ -85,7 +86,7 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
     case reservedFieldName, suggestionRequiresCreate, invalidExpiry
     public var errorDescription: String? {
         switch self {
-        case .invalidReplacement: return "Replacement requires an existing text field, --from-clipboard, --expect, and a fresh copy. Do not combine with --create or --use-current-clipboard."
+        case .invalidReplacement: return "Replacement requires an existing text field, --from-clipboard and --expect. Do not combine with --create."
         case .targetValueChanged: return "The existing value changed while approval was pending. Nothing was replaced. Start a fresh request."
         case .identityMismatch: return "The private key does not match the expected public key. Nothing was saved."
         case .invalidSource: return "Choose an owned regular UTF-8 Python file up to 1 MiB and an explicit Python symbol. No source contents were returned."
@@ -104,8 +105,9 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
         case .clipboardChanged: return "Clipboard changed while awaiting approval. Copy the intended key and try again."
         case .invalidExpectation: return "Use --expect base64[:BYTES], hex[:BYTES], bytes:N or chars:N. Nothing was read or saved."
         case .shapeMismatch: return "The value does not look like what you said to expect, so nothing was saved. Check what is actually on the clipboard."
-        case .clipboardNotCopiedYet: return "Nothing was copied after this request started, so nothing was saved. Copy the value now and run the command again — what was already on the clipboard is not accepted, because it may have been replaced since you copied it."
-        case .clipboardCopiedMoreThanOnce: return "The clipboard was written more than once after this request started, so there is no way to tell which copy you meant. Nothing was saved. Run the command again and copy exactly once, or pass --use-current-clipboard if something else keeps writing to your clipboard."
+        // No longer raised since 0.3.4; kept so older apps and clients still decode each other.
+        case .clipboardNotCopiedYet: return "Nothing was saved. Copy the value and run the command again."
+        case .clipboardCopiedMoreThanOnce: return "Nothing was saved. Copy the value and run the command again."
         case .emptyClipboard: return "Clipboard must contain nonempty text no larger than 64 KiB."
         case .busy: return "Another confirmation is pending. Finish it before requesting a save."
         case .denied: return "Save cancelled. Nothing was saved."

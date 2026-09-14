@@ -22,7 +22,7 @@ struct SaveCommand: ParsableCommand {
     var create = false
     @Option(help: "What the value should look like: base64[:BYTES], hex[:BYTES], bytes:N or chars:N. Refuses the save if it does not match, before anything is written.")
     var expect: String?
-    @Flag(help: "Accept whatever is already on the clipboard. By default KeyKeeper accepts exactly one copy made after this command starts, because what is already there may have been replaced since you copied it.")
+    @Flag(help: .hidden)   // 0.3.3 needed it; the current clipboard is now always what is saved.
     var useCurrentClipboard = false
     @Flag(name: .customLong("replace"), help: "Replace one existing text field after explicit confirmation. Requires --from-clipboard and --expect; keeps existing permissions.")
     var replaceExisting = false
@@ -99,8 +99,8 @@ struct SaveCommand: ParsableCommand {
             print("Saved credential file. Original file retained. No read permission was granted.")
             return
         }
-        if fromClipboard && !useCurrentClipboard {
-            print("Copy the value NOW — exactly once — then confirm in KeyKeeper. What is already on the clipboard is not accepted, and a second copy cancels the save.")
+        if fromClipboard {
+            print("Confirm in KeyKeeper. The window shows the first and last characters of what is on the clipboard, its length and when it was copied; copy again if it is not the right thing.")
             fflush(stdout)
         }
         let result = try IPCClient.requestClipboardSave(request, fromBrowser: fromBrowser) { url in

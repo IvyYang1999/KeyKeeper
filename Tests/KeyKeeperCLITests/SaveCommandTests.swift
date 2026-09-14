@@ -7,9 +7,9 @@ final class SaveCommandTests: XCTestCase {
         let base = ["-c", "fixture", "--field", "key", "--from-clipboard", "--replace", "--expect", "chars:16"]
         let command = try SaveCommand.parse(base)
         XCTAssertTrue(command.request.isReplacement)
-        for extra in ["--create", "--use-current-clipboard"] {
-            XCTAssertThrowsError(try SaveCommand.parse(base + [extra]))
-        }
+        XCTAssertThrowsError(try SaveCommand.parse(base + ["--create"]))
+        // 2026-09-14：这个开关不再有含义，旧脚本带着它也不该报错。
+        XCTAssertNoThrow(try SaveCommand.parse(base + ["--use-current-clipboard"]))
         XCTAssertThrowsError(try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-clipboard", "--replace"]))
         XCTAssertThrowsError(try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-browser", "--replace", "--expect", "chars:16"]))
         let data = try JSONEncoder().encode(IPCRequest.clipboardSave(command.request))

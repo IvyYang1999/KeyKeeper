@@ -24,17 +24,37 @@ final class TrustPromptModelTests: XCTestCase {
 
     func test三行信息卡依次是存为来源请求方() {
         let model = TrustPromptModel.save(presentation())
-        // 默认要求「本次请求之后再复制」，来源那一行要如实说出这件事。
-        XCTAssertEqual(model.rows.map(\.value), ["openai · api-key", "Clipboard · copied after this request", "claude"])
-        XCTAssertEqual(model.title, "Copy the value now, then save it?")
-
-        // 明确选择「用现在剪贴板上的东西」时，文案要退回旧口径，不能骗人说是新复制的。
+        XCTAssertEqual(model.rows.map(\.value), ["openai · api-key", "Clipboard", "claude"])
+        XCTAssertEqual(model.title, "Save what is on the clipboard?")
+        // 旧脚本还会传这个开关；现在它什么也不改。
         let current = TrustPromptModel.save(presentation(useCurrentClipboard: true))
-        XCTAssertEqual(current.rows.map(\.value), ["openai · api-key", "Clipboard", "claude"])
-        XCTAssertEqual(current.title, "Save what you just copied?")
+        XCTAssertEqual(current.rows.map(\.value), model.rows.map(\.value))
         XCTAssertEqual(model.rows[0].note, "New, Ask every time")
         XCTAssertEqual(model.confirmTitle, "Save")
         XCTAssertEqual(model.expiresAt, Date(timeIntervalSince1970: 100))
+    }
+
+    /// 认对认错靠这一行：头尾几个字符、长度、是不是多行——不是靠「什么时候复制的」那套规矩。
+    func test剪贴板预览一行_写清复制时间和样子() {
+        var info = presentation()
+        var preview = ClipboardPreview.masked("sk-live-0123456789abcdefghijklmnopqrstuvwxyz")
+        preview.copiedAt = Date(timeIntervalSince1970: 90)
+        info.preview = preview
+        let model = TrustPromptModel.save(info, now: Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(model.rows[1].value, "Clipboard · copied 10 s ago")
+        let looks = model.rows.first { $0.label == "Looks like" }!
+        XCTAssertEqual(looks.value, "sk-l…xyz · 44 characters")
+        XCTAssertFalse(model.rows.contains { $0.value.contains("0123456789") })
+
+        var prose = ClipboardPreview.masked("Sure! Here is the key you asked for:\nsk-live-123")
+        prose.copiedAt = nil
+        info.preview = prose
+        let suspicious = TrustPromptModel.save(info, now: Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(suspicious.rows[1].value, "Clipboard · copied before KeyKeeper started")
+        XCTAssertTrue(suspicious.rows.first { $0.label == "Looks like" }!.value.contains("2 lines"))
+        XCTAssertEqual(suspicious.tone, .caution, "多行、带空格的东西八成不是 key")
+        XCTAssertEqual(TrustPromptModel.copiedAgo(Date(timeIntervalSince1970: 100), now: Date(timeIntervalSince1970: 102)), "just now")
+        XCTAssertEqual(TrustPromptModel.copiedAgo(Date(timeIntervalSince1970: 0), now: Date(timeIntervalSince1970: 200)), "3 min ago")
     }
 
     func test文件只显示文件名悬停看完整路径() {

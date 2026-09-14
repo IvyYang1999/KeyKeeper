@@ -46,7 +46,7 @@ struct TrustPromptModel: Equatable {
 
     // MARK: Saves (clipboard, browser paste, service-account file, Python source)
 
-    static func save(_ info: ClipboardSaveController.Presentation) -> TrustPromptModel {
+    static func save(_ info: ClipboardSaveController.Presentation, now: Date = Date()) -> TrustPromptModel {
         let caller = sanitizedCaller(info.callerName)
         let request = info.request
         let target = "\(request.credentialId) · \(request.fieldName)"
@@ -91,16 +91,13 @@ struct TrustPromptModel: Equatable {
             source = Row(label: L("Source"), value: L("Browser paste page on this Mac"))
             assurance = L("\(caller) never sees the value, and nothing is overwritten.")
             details = [L("Save the value just pasted into the local browser receiver. No value is shown to the caller. Nothing is overwritten and no read permission is granted. Website identity is not verified. This request expires in 90 seconds.")]
-        } else if request.useCurrentClipboard {
-            title = L("Save what you just copied?")
-            source = Row(label: L("Source"), value: L("Clipboard"))
-            assurance = L("\(caller) never sees the value. Nothing is overwritten, and the clipboard is cleared after saving.")
-            details = [L("The App will read your current clipboard. No value is shown to the caller. Nothing is overwritten and no read permission is granted. The clipboard is cleared after saving. This request expires in 90 seconds.")]
         } else {
-            title = L("Copy the value now, then save it?")
-            source = Row(label: L("Source"), value: L("Clipboard · copied after this request"))
+            // yyt 2026-09-14: whatever is on the clipboard now, shown so the person can tell.
+            title = L("Save what is on the clipboard?")
+            let copied = info.preview.map { $0.copiedAt.map { L("copied \(copiedAgo($0, now: now))") } ?? L("copied before KeyKeeper started") }
+            source = Row(label: L("Source"), value: copied.map { L("Clipboard") + " · " + $0 } ?? L("Clipboard"))
             assurance = L("\(caller) never sees the value. Nothing is overwritten, and the clipboard is cleared after saving.")
-            details = [L("Copy the value first, then approve. KeyKeeper accepts exactly one copy made after this request — anything already on the clipboard, or a second copy, is refused. The App reads the clipboard only after you approve. This request expires in 90 seconds.")]
+            details = [L("The line above shows the first and last characters and the length, so you can tell it is the right thing without the value being displayed. Copy again if it is not — this window follows the clipboard. The clipboard is cleared after saving. This request expires in 90 seconds.")]
         }
         if info.filePath != nil {
             details.append(L("Nothing is overwritten and no read permission is granted. If the file changes, this save is refused. This request expires in 90 seconds."))
@@ -116,6 +113,15 @@ struct TrustPromptModel: Equatable {
             source,
             Row(label: L("Requested by"), value: caller),
         ]
+        var looksLikeProse = false
+        if let preview = info.preview {
+            var parts = [preview.masked, L("\(preview.shape.characters) characters")]
+            if preview.shape.lines > 1 { parts.append(L("\(preview.shape.lines) lines")) }
+            else if preview.shape.hasWhitespace { parts.append(L("has spaces")) }
+            looksLikeProse = preview.shape.lines > 1 || preview.shape.hasWhitespace
+            rows.append(Row(label: L("Looks like"), value: parts.joined(separator: " · "), monospaced: true,
+                            note: looksLikeProse ? L("Keys rarely have spaces or several lines. Check what you copied.") : nil))
+        }
         // The three facts stay first and in place; a suggestion adds a line after them.
         if request.create, request.security != nil {
             rows.append(Row(label: L("Protection"), value: SecurityLevelPresentation.badge(proposed),
@@ -149,11 +155,20 @@ struct TrustPromptModel: Equatable {
             subtitle: L("\(caller) wants to put it in KeyKeeper"),
             rows: rows,
             assurance: assurance,
-            tone: proposed == .standard || inflated ? .caution : .reassuring,
+            tone: proposed == .standard || inflated || looksLikeProse ? .caution : .reassuring,
             details: details,
             confirmTitle: L("Save"),
             expiresAt: info.expiresAt
         )
+    }
+
+    /// "just now", "10 s ago", "3 min ago", "2 h ago".
+    static func copiedAgo(_ date: Date, now: Date) -> String {
+        let seconds = Int(now.timeIntervalSince(date).rounded(.down))
+        if seconds < 5 { return L("just now") }
+        if seconds < 60 { return L("\(seconds) s ago") }
+        if seconds < 3600 { return L("\(seconds / 60) min ago") }
+        return L("\(seconds / 3600) h ago")
     }
 
     // MARK: Website sessions
@@ -399,6 +414,15 @@ struct TrustPromptView: View {
         panel.center()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    /// Same panel, new rows — the clipboard moved while a save prompt was up.
+    func update(_ model: TrustPromptModel) {
+        guard let hosting = panel?.contentView as? NSHostingView<TrustPromptView> else { return }
+        hosting.rootView = TrustPromptView(model: model, onCancel: hosting.rootView.onCancel,
+                                           onConfirm: hosting.rootView.onConfirm,
+                                           onConfirmDuration: hosting.rootView.onConfirmDuration)
+        panel?.setContentSize(hosting.fittingSize)
     }
 
     func dismiss() {

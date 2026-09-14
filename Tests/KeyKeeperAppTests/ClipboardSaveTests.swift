@@ -9,11 +9,15 @@ import KeyKeeperTestSupport
     var changeCount = 1
     var text: String? = "synthetic-import"
     var reads = 0
+    /// Masked looks for the prompt; not a read of the value into the save path.
+    var previews = 0
     var clears = 0
-    var requiresFreshCopy = true
+    var isSystemClipboard = true
+    var copiedAt: Date? = Date(timeIntervalSince1970: 1_000)
     /// Simulates the clipboard being replaced during the read itself.
     var mutateOnRead: (() -> Void)?
     func readText() -> String? { reads += 1; mutateOnRead?(); return text }
+    func preview() -> ClipboardPreview? { previews += 1; return text.map { var p = ClipboardPreview.masked($0); p.copiedAt = copiedAt; return p } }
     func clearIfUnchanged(since count: Int) {
         if count == changeCount { text = nil; changeCount += 1; clears += 1 }
     }
@@ -30,6 +34,7 @@ import KeyKeeperTestSupport
     private var results: [ClipboardSaveResponse] = []
     private var clock = Date()
     private var connected = true
+    private var updates: [ClipboardSaveController.Presentation] = []
 
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("clipboard-save-tests-\(UUID())")
@@ -40,7 +45,7 @@ import KeyKeeperTestSupport
         clipboard = SaveTestClipboard()
         approvals = ApprovalStore.inMemory()
         controller = ClipboardSaveController(service: service, metaStore: meta, approvals: approvals, clipboard: clipboard,
-            now: { self.clock }, present: { _, _ in }, dismiss: {})
+            now: { self.clock }, present: { _, _ in }, update: { self.updates.append($0) }, dismiss: {})
         results = []; connected = true
     }
     override func tearDownWithError() throws {
@@ -97,7 +102,8 @@ import KeyKeeperTestSupport
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "newer-fixture")
     }
     func testReplacementRefusalsPreserveBlobAndGrants() throws {
-        for failure in ["cancel", "expired", "disconnected", "twice", "write"] {
+        // "twice" (a second copy while pending) is no longer a refusal: the prompt follows the clipboard.
+        for failure in ["cancel", "expired", "disconnected", "write"] {
             try prepareReplacement()
             let original = io.blob
             try approvals.add(Approval(subject: .init(fingerprint: "unsigned:path=a", displayName: "a"),
@@ -267,7 +273,7 @@ import KeyKeeperTestSupport
                 XCTAssertTrue(info.fromBrowser); presentations += 1
             }, dismiss: {})
         let browserSource = SaveTestClipboard()
-        browserSource.requiresFreshCopy = false   // 浏览器粘贴页自己持有内容，不是共享的系统剪贴板
+        browserSource.isSystemClipboard = false   // 浏览器粘贴页自己持有内容，不是共享的系统剪贴板
         browserSource.text = "synthetic-browser"
         controller.receive(.init(credentialId: "fixture", fieldName: "key", create: true), callerName: "Test",
             isConnected: { self.connected }, source: browserSource, deferPresentation: true,
@@ -293,11 +299,14 @@ import KeyKeeperTestSupport
         XCTAssertEqual(clipboard.reads, 0); XCTAssertEqual(io.writes, 0)
     }
     func testClipboardChangeAndDisconnectFailClosed() {
-        request(); clipboard.changeCount += 1; controller.resolve(approved: true)
-        XCTAssertEqual(results.last?.errorCode, .clipboardChanged)
         request(); connected = false; controller.resolve(approved: true)
         XCTAssertEqual(results.last?.errorCode, .disconnected)
         XCTAssertEqual(clipboard.reads, 0); XCTAssertEqual(io.writes, 0)
+        // A clipboard that moved while the prompt was up is what the person saw and approved.
+        connected = true
+        request(); copyToClipboard("moved-while-pending"); controller.resolve(approved: true)
+        XCTAssertEqual(results.last?.success, true)
+        XCTAssertEqual(try? service.retrieve(credentialId: "fixture", fieldName: "key"), "moved-while-pending")
     }
     func testBusyRequestCannotConsumeOrReplaceFirstRequest() {
         request(); request()
@@ -435,43 +444,45 @@ import KeyKeeperTestSupport
 
     // MARK: 新鲜度的零点在「请求之后你有没有复制过」
 
-    /// 【真实事故的根因】原来的检查要求剪贴板从请求到批准**一直不变**，也就是说被认可的
-    /// 永远是「请求到达时躺在那儿的东西」。那次误复制发生在请求之前，所以每一道检查都如实
-    /// 通过了。现在默认要求「请求之后至少复制过一次」——请求之前躺着什么都不算数。
-    func test默认要求请求之后再复制一次() throws {
+    /// yyt 2026-09-14：「我明明已经复制了，AI 却说要它先发起、我再复制才有效……这个时候我已经把窗口关了」。
+    /// 「请求之后恰好复制一次」把人绕晕了。现在剪贴板上有什么就存什么——先复制还是先发命令都行——
+    /// 认对认错靠窗口：遮罩预览（头尾几个字符和长度）加复制时间，看一眼就知道是不是那把 key。
+    func test已经复制好的内容直接可存_不要求请求之后再复制() throws {
         request(useCurrentClipboard: false)
-        controller.resolve(approved: true)
-        XCTAssertEqual(results.first?.errorCode, .clipboardNotCopiedYet)
-        XCTAssertEqual(io.writes, 0)
-        XCTAssertEqual(clipboard.reads, 0, "没复制就别读人家剪贴板")
-    }
-
-    func test请求之后复制了就正常存() throws {
-        request(useCurrentClipboard: false)
-        copyToClipboard("copied-after-the-request")
         controller.resolve(approved: true)
         XCTAssertEqual(results.first?.success, true)
-        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "copied-after-the-request")
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "synthetic-import")
     }
 
-    /// 【差点又踩进去】「至少复制过一次」听着对，其实比原来更宽松：复制真钥匙、又复制了
-    /// 别的东西，照样放行，存进去的还是最后那份——正是事故本身。changeCount 只能回答
-    /// 「变过没有」，回答不了「最后那次是不是你要的那次」。所以判据是**恰好变了一次**：
-    /// 请求之后写过两次以上，就无法确定哪一次是你要存的，拒绝，让人重来。
-    func test请求之后复制了不止一次就拒绝() throws {
-        request(useCurrentClipboard: false)
-        copyToClipboard("the-real-value")
-        copyToClipboard("一段不小心复制进来的提示词")
+    func test弹窗上的预览只有头尾和长度_从不带完整值() throws {
+        clipboard.text = "sk-live-0123456789abcdefghijklmnopqrstuvwxyz"
+        var shown: ClipboardSaveController.Presentation?
+        controller = ClipboardSaveController(service: service, metaStore: meta, approvals: approvals, clipboard: clipboard,
+            now: { self.clock }, present: { info, _ in shown = info }, update: { _ in }, dismiss: {})
+        request()
+        let preview = try XCTUnwrap(shown?.preview)
+        XCTAssertEqual(preview.masked, "sk-l…xyz")
+        XCTAssertEqual(preview.shape.characters, 44)
+        XCTAssertEqual(preview.copiedAt, Date(timeIntervalSince1970: 1_000))
+        XCTAssertEqual(clipboard.previews, 1, "预览看一次，只算头尾和长度，不留全文")
+        XCTAssertEqual(clipboard.reads, 0, "值本身要到批准之后才读")
+    }
+
+    /// 窗口开着的时候又复制了别的东西：预览跟着变，存的也是最新那份——人看到什么就存什么。
+    func test弹窗期间再复制_预览刷新_存最新那份() throws {
+        request()
+        copyToClipboard("the-second-copy-is-the-real-key-here")
+        controller.tick()
+        XCTAssertEqual(updates.last?.preview?.masked, "the-…ere")
         controller.resolve(approved: true)
-        XCTAssertEqual(results.first?.errorCode, .clipboardCopiedMoreThanOnce)
-        XCTAssertEqual(io.writes, 0, "分不清哪一次是你要的，就一个字节都不写")
-        XCTAssertEqual(clipboard.reads, 0)
+        XCTAssertEqual(results.first?.success, true)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "the-second-copy-is-the-real-key-here")
+        XCTAssertEqual(updates.count, 1, "没变就不刷新")
     }
 
     /// 读取的那一瞬间仍然要稳定：读之前和读之后必须是同一份内容。
     func test读取窗口内被改掉仍然拒绝() throws {
-        request(useCurrentClipboard: false)
-        copyToClipboard("first")
+        request()
         clipboard.mutateOnRead = { self.clipboard.changeCount += 1 }
         controller.resolve(approved: true)
         XCTAssertEqual(results.first?.errorCode, .clipboardChanged)

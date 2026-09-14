@@ -206,23 +206,24 @@ keykeeper edit baidu-qianfan --title "百度千帆 · 学术搜索"
 7. For missing or unusable credentials, follow the assistance workflow above, retaining all authorization and higher-priority gates.
 ## Save without exposing a key to the model
 
-For system clipboard saves in 0.3.3+, start the save request BEFORE copying. Check both
-the installed App version and `keykeeper save --help` for `--expect`; an old App may not
-enforce new request fields. Wait for the native confirmation window, then use the exact
-source's Copy action once, then confirm. Do not reveal or read the value through tools.
+Clipboard saves take **whatever is on the clipboard when the person confirms**. The order
+does not matter: the user may copy first and run the command later, or the other way round.
+Never tell the user to copy again "so the request sees it" — that rule is gone (0.3.4). The
+confirmation window shows the first and last characters of the clipboard, its length, when it
+was copied, and whether it looks like prose; the person recognises the key from that, and can
+copy again while the window is open (it follows the clipboard). Do not reveal or read the
+value through tools. Check `keykeeper save --help` for `--expect` on older installs.
 
 Run `keykeeper save -c <credential-id> --field <field-name> --from-clipboard` to restore an existing missing secret field. Add `--create` only for a new credential ID. KeyKeeper asks for one-time confirmation and reads the system clipboard inside the App; the CLI receives only success or a constant error. It never overwrites an existing value or grants read access. New credentials use strict protection unless you add `--security standard` — suggest that only for a key meant for unattended use (cron jobs, background agents). With `--create` you can also pass `--expires YYYY-MM-DD` when the provider shows when the key stops working; later, `keykeeper edit <id> --expires YYYY-MM-DD` records or corrects it without a prompt. The user sees both suggestions in the save prompt and approves or rejects the save. The user confirms real-key saves; do not auto-click approval without their explicit authorization for that save.
 
 With `--create`, declare what the key is for: `--purpose "one line"`, and if it applies `--expected-caller "the nightly cron"`, `--frequency once|occasional|scheduled` (default once) and `--background` (must work with nobody at the Mac). `--security standard` is refused without a `--purpose`. The declaration is recorded on the credential — the person can change it in the app, `keykeeper edit` cannot — and every later request is judged against it: a one-off purpose that asks for background use, or an `always` on a key that is not declared as recurring and unattended, is pointed out in the prompt as inflated. Declare what the user actually asked for, not the most convenient thing.
 
 Declare a known shape using `--expect base64:32`, `hex:32`, `bytes:N` or `chars:N`; do not
-guess a provider's key length. Zero or more than one clipboard revision since the request
-is refused. After the source copy, keep the clipboard unchanged until confirmation. A
-revision is not proof of source identity: use a local public-key comparison or an authorized
-read-only provider check before consumption. Same-length wrong keys remain possible.
-Do not use `--use-current-clipboard` to bypass a failed freshness check. Cancel and establish
-a fresh request/copy instead. On timeout/connection failure, inspect metadata and App state
-before retrying; never blindly repeat an uncertain write. A wholly missing store stays blocked.
+guess a provider's key length. A matching shape is not proof of source identity: use a local
+public-key comparison or an authorized read-only provider check before consumption.
+Same-length wrong keys remain possible. `--use-current-clipboard` is accepted and does nothing.
+On timeout/connection failure, inspect metadata and App state before retrying; never blindly
+repeat an uncertain write. A wholly missing store stays blocked.
 
 This command reads the macOS system clipboard. A tool's browser-session clipboard may be isolated; do not assume `tab.clipboard` reaches KeyKeeper.
 
@@ -231,7 +232,7 @@ This command reads the macOS system clipboard. A tool's browser-session clipboar
 An explicitly user-authorized correction can use `save --replace --from-clipboard --expect <shape>`.
 This is a replacement, not a create or missing-value restore. Verify App and CLI support first;
 the distinct replacement IPC request is refused by older Apps, with no fallback. Do not combine
-with `--create`, `--use-current-clipboard`, browser/file/source import, or a change of field type.
+with `--create`, browser/file/source import, or a change of field type.
 The native prompt says **Replace value** and requires the user's confirmation for this correction.
 Existing read permissions still apply to the new value; replacement does not revoke them.
 
