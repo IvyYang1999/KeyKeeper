@@ -218,6 +218,10 @@ extension AppL10n {
         "{0} s ago": "{0} 秒前",
         "{0} min ago": "{0} 分钟前",
         "{0} h ago": "{0} 小时前",
+        // 待确认的明文字段（2026-09-14 晚）
+        "Confirm": "确认",
+        "Written by {0} over the command line. Not injected by `run` until you confirm it.": "由 {0} 通过命令行写入。你确认之前 `run` 不会注入它。",
+        "Could not confirm: {0}": "无法确认：{0}",
         // 授权窗三档（2026-09-14 晚）
         "While it runs": "这次运行期间",
         "{0} can open it without asking while it runs": "{0} 这次运行期间可以直接打开",

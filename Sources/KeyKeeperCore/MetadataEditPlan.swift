@@ -113,8 +113,10 @@ public enum MetadataEditPlan {
     static let displayNameLimit = 200
     static let plainValueLimit = 4096
 
+    /// `caller` names the process editing over the socket; plain values it sets are marked
+    /// unconfirmed. Nil for the app's own use of the plan.
     public static func apply(_ edit: MetadataEdit, to meta: MetaFile, groupId name: String,
-                             today: String = MetadataEditPlan.today()) throws -> MetadataEditResult {
+                             today: String = MetadataEditPlan.today(), caller: String? = nil) throws -> MetadataEditResult {
         guard let groupId = meta.resolveGroupId(name), var credential = meta.credentials[groupId] else {
             throw MetadataEditError.notFound(name)
         }
@@ -191,6 +193,7 @@ public enum MetadataEditPlan {
             var entry = credential.fields[name] ?? CredentialField(secret: false)
             entry.secret = false
             entry.value = cleaned
+            if let caller { entry.setByCaller = caller }
             credential.fields[name] = entry
             changes.append(.plainFieldSet(field: name, value: cleaned))
         }

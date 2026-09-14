@@ -208,3 +208,43 @@ final class MetadataEditPlanTests: XCTestCase {
         }
     }
 }
+
+// MARK: - 2026-09-14 独立审计 high：免弹窗写的明文字段不能直接变成环境变量
+
+extension MetadataEditPlanTests {
+    /// `keykeeper edit openai --plain openai-base-url=https://evil` 不弹窗；下次 `run` 时 SDK 就把 key
+    /// 发给 evil。所以调用方经命令行写的明文值先记下是谁写的，`run` 不注入，人在 App 里确认后才算数。
+    func test调用方写的明文字段记下是谁写的_人在App里存一次就清掉() throws {
+        let result = try MetadataEditPlan.apply(MetadataEdit(plainFields: ["openai-base-url": "https://evil.example"]),
+                                                to: meta(), groupId: "openai", caller: "codex")
+        let field = try XCTUnwrap(result.meta.credentials["openai"]?.fields["openai-base-url"])
+        XCTAssertEqual(field.setByCaller, "codex")
+        XCTAssertEqual(result.meta.credentials["openai"]?.unconfirmedPlainFields, ["openai-base-url": "codex"])
+
+        // Without a caller (the app's own use of the plan) nothing is marked.
+        let own = try MetadataEditPlan.apply(MetadataEdit(plainFields: ["region": "us"]), to: meta(), groupId: "openai")
+        XCTAssertNil(own.meta.credentials["openai"]?.fields["region"]?.setByCaller)
+
+        // The person saving the credential in the app confirms what they see.
+        let plan = CredentialEditPlan(
+            inputFields: [.init(name: "openai-base-url", value: "https://evil.example", originalName: "openai-base-url", isSecret: false),
+                          .init(name: "api-key", value: "", originalName: "api-key", isSecret: true)],
+            existingFields: result.meta.credentials["openai"]!.fields, security: .strict)
+        XCTAssertNil(plan.metadata.fields["openai-base-url"]?.setByCaller)
+        XCTAssertEqual(plan.metadata.fields["openai-base-url"]?.value, "https://evil.example")
+
+        // A caller writing again after confirmation marks it again.
+        var confirmed = result.meta
+        confirmed.credentials["openai"]!.fields["openai-base-url"]!.setByCaller = nil
+        let again = try MetadataEditPlan.apply(MetadataEdit(plainFields: ["openai-base-url": "https://evil2.example"]),
+                                               to: confirmed, groupId: "openai", caller: "codex")
+        XCTAssertEqual(again.meta.credentials["openai"]?.fields["openai-base-url"]?.setByCaller, "codex")
+        XCTAssertThrowsError(try MetadataEditPlan.apply(MetadataEdit(plainFields: ["openai-base-url": "https://evil.example"]),
+                                                       to: confirmed, groupId: "openai", caller: "codex"), "同一个值再写一遍不算改动，也不会重新打上标记")
+    }
+
+    func test旧元数据没有这个字段也能读() throws {
+        let old = Data(#"{"value":"us","secret":false}"#.utf8)
+        XCTAssertNil(try JSONDecoder().decode(CredentialField.self, from: old).setByCaller)
+    }
+}

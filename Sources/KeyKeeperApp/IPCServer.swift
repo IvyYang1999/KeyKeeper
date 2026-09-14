@@ -437,7 +437,7 @@ final class IPCServer: ObservableObject {
         }
         let editor = MetadataEditor(session: manager, metaStore: metaStore, approvals: approvals)
         do {
-            let result = try editor.apply(request.edit, groupId: request.groupId)
+            let result = try editor.apply(request.edit, groupId: request.groupId, caller: callerName)
             let label = result.meta.credentials[result.groupId]?.label ?? result.groupId
             let record = MetadataChangeRecord(caller: callerName, groupId: result.groupId, label: label, changes: result.changes)
             try? changeLog.append(record)

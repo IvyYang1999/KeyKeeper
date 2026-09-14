@@ -105,6 +105,7 @@ public struct CredentialEditPlan: Sendable {
                 plain.secret = false
                 plain.fileFormat = nil
                 plain.value = field.value
+                plain.setByCaller = nil   // the person saving it in the app has seen it
                 metadataFields[field.name] = plain
                 if let original = field.originalName, original != field.name { fieldRenames[original] = field.name }
                 continue

@@ -339,6 +339,19 @@ struct CredentialDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .help(field.visible ? L("Hide") : L("Show"))
+            } else if let caller = field.setByCaller {
+                // 【独立审计 2026-09-14】written over the socket by a caller, not yet seen by the
+                // person: `run` leaves it out until this button is clicked (or the value is saved here).
+                Button(action: { vm.confirmPlainField(field.name) }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text(L("Confirm"))
+                    }
+                    .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .tint(.orange)
+                .help(L("Written by \(TrustPromptModel.sanitizedCaller(caller)) over the command line. Not injected by `run` until you confirm it."))
             } else {
                 Image(systemName: "doc.plaintext")
                     .foregroundColor(.secondary)

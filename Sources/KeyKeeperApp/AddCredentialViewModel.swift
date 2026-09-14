@@ -12,6 +12,8 @@ struct FieldEntry: Identifiable {
     var originalName: String?
     /// Free-text label for people and agents (detail editor only; on Add the typed name is it).
     var displayName: String = ""
+    /// A plain value a caller wrote over the socket that nobody has confirmed yet (detail view).
+    var setByCaller: String?
     /// False for plain metadata (an account id, a region, an email): the value is stored in
     /// meta.json in the clear and injected without asking anyone.
     var isSecret: Bool = true

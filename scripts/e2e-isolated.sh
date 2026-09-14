@@ -96,7 +96,10 @@ expect_contains "child output redacted" "[REDACTED]" "$OUT"; expect_not_contains
 echo "==> plain fields through the promptless edit path, served only when the app vouches for meta.json"
 OUT="$("$KK" edit svc --set region=us-east-1 --title Svc 2>&1)"; expect_contains "edit plain field" "region" "$OUT"
 OUT="$("$KK" get svc region 2>&1)"; expect_contains "get plain field" "us-east-1" "$OUT"
-OUT="$("$KK" run -c svc -- sh -c 'echo "$REGION"' 2>&1)"; expect_contains "plain field injected" "us-east-1" "$OUT"
+# 【独立审计 2026-09-14】a plain value a caller wrote over the socket is not injected until the person confirms it in the app.
+OUT="$("$KK" run -c svc -- sh -c 'echo "REGION=$REGION"' 2>&1)"
+expect_contains "unconfirmed plain field is held back with an explanation" "Not injected from 'svc': region" "$OUT"
+expect_not_contains "and not injected" "REGION=us-east-1" "$OUT"
 
 echo "==> strict credential: every run asks, the instance answers 'once'"
 OUT="$("$KK" save -c strict1 --field key --from-source "$TMP/config.py" --python-symbol STRICT_KEY --create 2>&1)"

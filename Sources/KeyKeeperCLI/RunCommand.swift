@@ -75,7 +75,7 @@ struct RunCommand: ParsableCommand {
     /// audit entry. Earlier field names keep their variables, same as secret fields.
     static func nonSecretEnvironment(for credential: Credential, prefix: String) -> [String: String] {
         var result: [String: String] = [:]
-        for (field, entry) in credential.fields.sorted(by: { $0.key < $1.key }) where !entry.secret {
+        for (field, entry) in credential.fields.sorted(by: { $0.key < $1.key }) where !entry.secret && entry.setByCaller == nil {
             guard let value = entry.value, !value.isEmpty else { continue }
             for name in credential.environmentNames(forField: field, prefix: prefix) where result[name] == nil {
                 result[name] = value
@@ -93,8 +93,18 @@ struct RunCommand: ParsableCommand {
 
     /// The variable names a plain field claims under its current name (aliases are best effort).
     static func nonSecretCurrentNames(for credential: Credential, prefix: String) -> Set<String> {
-        Set(credential.fields.filter { !$0.value.secret && $0.value.value?.isEmpty == false }
+        Set(credential.fields.filter { !$0.value.secret && $0.value.setByCaller == nil && $0.value.value?.isEmpty == false }
             .map { EnvironmentVariableName.from(fieldName: $0.key, prefix: prefix) })
+    }
+
+    /// Why some plain fields are missing from the environment: a caller wrote them over the
+    /// socket and nobody has confirmed them in the app. 【独立审计 2026-09-14】a plain value next
+    /// to a key can redirect the key (`OPENAI_BASE_URL`, `HTTPS_PROXY`, `SSL_CERT_FILE`).
+    static func unconfirmedPlainNote(credentialId: String, credential: Credential) -> String? {
+        let pending = credential.unconfirmedPlainFields.sorted { $0.key < $1.key }
+        guard !pending.isEmpty else { return nil }
+        let list = pending.map { "\($0.key) (written by \($0.value))" }.joined(separator: ", ")
+        return "Not injected from '\(credentialId)': \(list). A plain value set over the command line is not used until the person confirms it in KeyKeeper — open the credential there and click Confirm."
     }
 
     /// Plain values a credential contributes, split the same way secret ones are: a field's
@@ -169,7 +179,12 @@ struct RunCommand: ParsableCommand {
         // Plain values are injected straight from meta.json; refuse if that file is not the one
         // the app signed. Only asked when something plain would actually be injected.
         let injectsPlainValues = credentialIds.contains { id in
-            meta.credentials[id]?.fields.values.contains { !$0.secret && $0.value?.isEmpty == false } == true
+            meta.credentials[id]?.fields.values.contains { !$0.secret && $0.setByCaller == nil && $0.value?.isEmpty == false } == true
+        }
+        for id in credentialIds {
+            if let cred = meta.credentials[id], let note = Self.unconfirmedPlainNote(credentialId: id, credential: cred) {
+                FileHandle.standardError.write(Data((note + "\n").utf8))
+            }
         }
         if injectsPlainValues {
             let verdict = IPCClient.requestMetadataIntegrity()

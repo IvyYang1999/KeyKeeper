@@ -20,10 +20,10 @@ public struct MetadataEditor {
         self.approvals = approvals
     }
 
-    public func apply(_ edit: MetadataEdit, groupId: String) throws -> MetadataEditResult {
+    public func apply(_ edit: MetadataEdit, groupId: String, caller: String? = nil) throws -> MetadataEditResult {
         let meta = try metaStore.load()
         guard meta.version == 1 else { throw ClipboardSaveError.storageUnavailable }
-        let result = try MetadataEditPlan.apply(edit, to: meta, groupId: groupId)
+        let result = try MetadataEditPlan.apply(edit, to: meta, groupId: groupId, caller: caller)
         let oldId = result.previousGroupId
         let newId = result.groupId
         let before = meta.credentials[oldId]!

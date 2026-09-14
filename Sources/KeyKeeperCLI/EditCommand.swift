@@ -76,6 +76,9 @@ struct EditCommand: ParsableCommand {
     static func report(_ response: MetadataEditResponse) -> String {
         var lines = ["Updated \(response.groupId ?? "credential"):"]
         lines += response.changes.map { "- \($0.summary)" }
+        if response.changes.contains(where: { if case .plainFieldSet = $0 { return true } else { return false } }) {
+            lines.append("Plain values set over the command line are not injected by `run` until the person confirms them in KeyKeeper (open the credential, click Confirm). Tell the user to do that.")
+        }
         lines.append("Values and security are unchanged. Tell the user what you changed.")
         return lines.joined(separator: "\n")
     }

@@ -120,6 +120,11 @@ keykeeper edit apple-notary --unset region
 This never touches a secret field: asking to `--set` one is refused, because that would move a
 Keychain value into the clear. Tell the user what you recorded.
 
+A plain value you set this way is **not injected by `run` until the person confirms it** in
+KeyKeeper (the credential's page shows a Confirm button next to it), because a plain field
+becomes an environment variable and a value like `*_BASE_URL` or `HTTPS_PROXY` next to a key
+decides where the key is sent. Ask the user to confirm it; do not work around it.
+
 ## Saying why you need a key (required the first time)
 
 Whenever KeyKeeper would have to ask the user — a key set to ask every time, or the first time

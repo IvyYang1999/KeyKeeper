@@ -137,6 +137,20 @@ final class CredentialDetailViewModel: ObservableObject {
         }
     }
 
+    /// The person has looked at a plain value a caller wrote: from now on `run` injects it.
+    func confirmPlainField(_ name: String) {
+        do {
+            var meta = try store.load()
+            guard meta.credentials[credentialId]?.fields[name]?.setByCaller != nil else { return }
+            meta.credentials[credentialId]?.fields[name]?.setByCaller = nil
+            try store.save(meta)
+            NotificationCenter.default.post(name: .credentialsChanged, object: nil)
+            reloadCredential()
+        } catch {
+            errorMessage = L("Could not confirm: \(error.localizedDescription)")
+        }
+    }
+
     @discardableResult
     func saveChanges() -> Bool {
         do {
@@ -294,6 +308,7 @@ final class CredentialDetailViewModel: ObservableObject {
                 fileFormat: field.fileFormat,
                 originalName: name,
                 displayName: field.displayName ?? "",
+                setByCaller: field.setByCaller,
                 isSecret: field.secret
             )
         }

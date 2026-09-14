@@ -33,6 +33,14 @@ final class EditCommandTests: XCTestCase {
         XCTAssertThrowsError(try EditCommand.parse(["x", "--set", "no-equals"]).request())
     }
 
+    func test写了明文字段就提醒要人确认() {
+        let text = EditCommand.report(.init(success: true, groupId: "openai",
+                                            changes: [.plainFieldSet(field: "openai-base-url", value: "https://x")]))
+        XCTAssertTrue(text.contains("not injected") && text.contains("confirm"), text)
+        let renameOnly = EditCommand.report(.init(success: true, groupId: "openai", changes: [.plainFieldRemoved(field: "region")]))
+        XCTAssertFalse(renameOnly.contains("not injected"))
+    }
+
     func test输出告诉Agent改了什么并提醒它告诉用户() {
         let text = EditCommand.report(MetadataEditResponse(success: true, groupId: "baidu-qianfan",
             changes: [.groupRenamed(from: "百度千帆", to: "baidu-qianfan"), .fieldRenamed(from: "cc", to: "api-key")]))

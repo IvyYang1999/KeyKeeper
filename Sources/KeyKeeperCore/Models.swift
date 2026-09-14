@@ -15,13 +15,19 @@ public struct CredentialField: Codable, Sendable {
     public var displayName: String?
     /// Earlier machine names. They keep working forever: `run` still injects their variables.
     public var aliases: [String]?
+    /// Who wrote this plain value over the socket, when nobody has confirmed it since. A plain
+    /// field becomes an environment variable, and `*_BASE_URL`, `HTTPS_PROXY` or `SSL_CERT_FILE`
+    /// next to a key sends the key wherever the value says — so a value a caller set without a
+    /// prompt is not injected until the person has seen it in the app. 【独立审计 2026-09-14】
+    public var setByCaller: String?
 
     public init(value: String? = nil, secret: Bool, fileFormat: CredentialFileFormat? = nil,
-                displayName: String? = nil, aliases: [String]? = nil) {
+                displayName: String? = nil, aliases: [String]? = nil, setByCaller: String? = nil) {
         self.value = value
         self.secret = secret
         self.fileFormat = fileFormat
         self.displayName = displayName
+        self.setByCaller = setByCaller
         self.aliases = aliases
     }
 }
@@ -42,6 +48,13 @@ public struct Credential: Codable, Sendable {
     public var expires: String?
     /// What the creator said it is for (see UsageIntent). Nil when nobody declared one.
     public var intent: UsageIntent?
+
+    /// Plain fields a caller wrote that nobody has confirmed: field name → who wrote it.
+    public var unconfirmedPlainFields: [String: String] {
+        fields.reduce(into: [:]) { result, entry in
+            if !entry.value.secret, let caller = entry.value.setByCaller { result[entry.key] = caller }
+        }
+    }
 
     public init(label: String, notes: String, links: [String],
                 fields: [String: CredentialField], security: SecurityLevel,

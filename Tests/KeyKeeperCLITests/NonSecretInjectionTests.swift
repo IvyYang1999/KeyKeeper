@@ -98,3 +98,19 @@ final class NonSecretInjectionTests: XCTestCase {
         XCTAssertThrowsError(try RunCommand.mergePlainFields(of: cred, prefix: "", into: &injected, aliases: &aliases))
     }
 }
+
+extension NonSecretInjectionTests {
+    /// 【独立审计 2026-09-14】调用方经命令行写的明文值，人没确认之前 `run` 不注入，并在 stderr 说明。
+    func test待确认的明文字段不注入并说明() {
+        let cred = credential([
+            "openai-base-url": CredentialField(value: "https://evil.example", secret: false, setByCaller: "codex"),
+            "region": CredentialField(value: "us", secret: false),
+            "api-key": CredentialField(secret: true),
+        ])
+        XCTAssertEqual(RunCommand.nonSecretEnvironment(for: cred, prefix: ""), ["REGION": "us"])
+        XCTAssertEqual(RunCommand.nonSecretCurrentNames(for: cred, prefix: ""), ["REGION"])
+        let note = RunCommand.unconfirmedPlainNote(credentialId: "openai", credential: cred)!
+        XCTAssertTrue(note.contains("openai-base-url") && note.contains("codex") && note.contains("KeyKeeper"), note)
+        XCTAssertNil(RunCommand.unconfirmedPlainNote(credentialId: "x", credential: credential(["region": CredentialField(value: "us", secret: false)])))
+    }
+}
