@@ -3,23 +3,16 @@ import KeyKeeperCore
 
 /// Asks a second model what it thinks of a request, when the person has turned that on.
 ///
-/// The model's key is itself a KeyKeeper credential (`keykeeper-reviewer` / `api-key` by
-/// default), read by the app for its own use — no approval, no audit entry, never handed to a
-/// caller. Off by default. Its answer is advice: the prompt shows it next to the rules and the
+/// The model's key is typed in by the person and kept in the app-owned Keychain document with
+/// the approvals — never a KeyKeeper credential, never handed to a caller. Off by default. Its answer is advice: the prompt shows it next to the rules and the
 /// buttons stay the person's. A slow or failed answer falls back to the rules alone.
-/// yyt 2026-09-14: any provider — a base URL, the API it speaks, and a model picked from what
+/// Its settings sit in the app-owned Keychain item with the approvals — in UserDefaults any local
+/// process could point the app at a real key and its own server. yyt 2026-09-14: any provider — a base URL, the API it speaks, and a model picked from what
 /// that service lists for the key.
 @MainActor
 final class ReviewerService {
     static let shared = ReviewerService()
 
-    static let enabledKey = "reviewerEnabled"
-    static let credentialKey = "reviewerCredentialId"
-    static let baseURLKey = "reviewerBaseURL"
-    static let apiKeyKey = "reviewerAPI"          // "auto" or a ReviewerEndpoint.API raw value
-    static let modelKey = "reviewerModel"
-    static let defaultCredentialId = "keykeeper-reviewer"
-    static let fieldName = "api-key"
     static let timeout: TimeInterval = 15
 
     enum Outcome: Equatable {
@@ -28,44 +21,44 @@ final class ReviewerService {
         case unavailable(String)
     }
 
-    var defaults: UserDefaults = .standard
-    /// The app's own read of a credential value, injected so tests never touch the Keychain.
-    var retrieve: (String, String) throws -> String = { _, _ in throw KeychainError.notFound }
+    /// Settings live in the app-owned approvals Keychain item, never in UserDefaults: they name
+    /// which credential's value leaves the machine and where to.
+    let store: ApprovalStore
     var transport: any ReviewTransport = URLSessionReviewTransport()
 
-    var isEnabled: Bool {
-        get { defaults.bool(forKey: Self.enabledKey) }
-        set { defaults.set(newValue, forKey: Self.enabledKey) }
+    init(store: ApprovalStore = .shared) { self.store = store }
+
+    private var settings: ReviewerSettings {
+        get { (try? store.reviewerSettings()) ?? ReviewerSettings() }
+        set { try? store.setReviewerSettings(newValue) }
     }
 
-    var credentialId: String {
-        get {
-            let stored = defaults.string(forKey: Self.credentialKey)?.trimmingCharacters(in: .whitespaces) ?? ""
-            return stored.isEmpty ? Self.defaultCredentialId : stored
-        }
-        set { defaults.set(newValue, forKey: Self.credentialKey) }
+    var isEnabled: Bool {
+        get { settings.enabled }
+        set { settings.enabled = newValue }
     }
+
+    /// Typed by the person in Settings; stored in the Keychain document; never shown back.
+    var apiKey: String {
+        get { settings.apiKey }
+        set { settings.apiKey = newValue.trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+    var hasKey: Bool { !apiKey.isEmpty }
 
     var baseURLText: String {
-        get {
-            let stored = defaults.string(forKey: Self.baseURLKey)?.trimmingCharacters(in: .whitespaces) ?? ""
-            return stored.isEmpty ? ReviewerEndpoint.defaultBaseURL : stored
-        }
-        set { defaults.set(newValue, forKey: Self.baseURLKey) }
+        get { let url = settings.baseURL.trimmingCharacters(in: .whitespaces); return url.isEmpty ? ReviewerEndpoint.defaultBaseURL : url }
+        set { settings.baseURL = newValue }
     }
 
     /// Nil means "guess from the host".
     var apiOverride: ReviewerEndpoint.API? {
-        get { defaults.string(forKey: Self.apiKeyKey).flatMap(ReviewerEndpoint.API.init(rawValue:)) }
-        set { defaults.set(newValue?.rawValue ?? "auto", forKey: Self.apiKeyKey) }
+        get { settings.api }
+        set { settings.api = newValue }
     }
 
     var model: String {
-        get {
-            let stored = defaults.string(forKey: Self.modelKey)?.trimmingCharacters(in: .whitespaces) ?? ""
-            return stored.isEmpty ? ReviewerEndpoint.defaultModel : stored
-        }
-        set { defaults.set(newValue, forKey: Self.modelKey) }
+        get { let model = settings.model.trimmingCharacters(in: .whitespaces); return model.isEmpty ? ReviewerEndpoint.defaultModel : model }
+        set { settings.model = newValue }
     }
 
     /// Nil when the base URL is not a URL.
@@ -74,11 +67,9 @@ final class ReviewerService {
         return ReviewerEndpoint(baseURL: url, api: apiOverride ?? ReviewerEndpoint.guessAPI(for: url), model: model)
     }
 
-    private func key() -> String? { try? retrieve(credentialId, Self.fieldName) }
+    private func key() -> String? { hasKey ? apiKey : nil }
 
-    var missingKeyMessage: String {
-        L("No key found at \(credentialId) · \(Self.fieldName). Save one there to turn the reviewer on.")
-    }
+    var missingKeyMessage: String { L("No API key entered for the reviewer.") }
 
     func review(_ input: IntentReviewInput) async -> Outcome {
         guard isEnabled else { return .disabled }

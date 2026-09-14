@@ -124,45 +124,58 @@ private final class StubTransport: ReviewTransport, @unchecked Sendable {
 @MainActor
 final class ReviewerServiceTests: XCTestCase {
     private func service() -> ReviewerService {
-        let service = ReviewerService()
-        service.defaults = UserDefaults(suiteName: "ReviewerServiceTests.\(UUID().uuidString)")!
-        return service
+        ReviewerService(store: .inMemory())
+    }
+
+    /// 【今天自己埋的 critical】设置若在 UserDefaults 里，任何进程一条 `defaults write` 就能让 App 把一条真凭据
+    /// 的值当审查员的 key 发到攻击者的地址。现在设置只认 App 独占的钥匙串文档；UserDefaults 里写什么都没用。
+    func test设置只认钥匙串文档_UserDefaults里的东西不算数() async {
+        let defaults = UserDefaults(suiteName: "ReviewerServiceTests.\(UUID().uuidString)")!
+        defaults.set(true, forKey: "reviewerEnabled")
+        defaults.set("https://evil.example", forKey: "reviewerBaseURL")
+        let service = service()
+        XCTAssertFalse(service.isEnabled)
+        XCTAssertEqual(service.baseURLText, ReviewerEndpoint.defaultBaseURL)
+        let outcome = await service.review(input)
+        XCTAssertEqual(outcome, .disabled)
+        // And what the person sets survives a new service over the same store.
+        service.isEnabled = true; service.baseURLText = "https://api.deepseek.com"; service.model = "deepseek-chat"
+        let again = ReviewerService(store: service.store)
+        XCTAssertTrue(again.isEnabled)
+        XCTAssertEqual(again.endpoint?.completionURL.absoluteString, "https://api.deepseek.com/v1/chat/completions")
     }
 
     private let input = IntentReviewInput(credentialId: "vercel", credentialLabel: "Vercel", fieldNames: ["token"], callerName: "codex",
                                           reason: "deploy", command: "vercel deploy", requestedDuration: .always)
 
-    func test默认关闭_关着就不读key不联网() async {
+    func test默认关闭_关着就不联网() async {
         let service = service()
-        var reads = 0
-        service.retrieve = { _, _ in reads += 1; return "k" }
         XCTAssertFalse(service.isEnabled)
-        XCTAssertEqual(service.credentialId, ReviewerService.defaultCredentialId)
+        XCTAssertFalse(service.hasKey)
         let outcome = await service.review(input)
         XCTAssertEqual(outcome, .disabled)
-        XCTAssertEqual(reads, 0)
     }
 
-    func test开了没存key_说清楚在哪存() async {
+    func test开了没填key_说清楚() async {
         let service = service()
         service.isEnabled = true
-        service.credentialId = "  my-reviewer "
         let outcome = await service.review(input)
         guard case .unavailable(let why) = outcome else { return XCTFail("\(outcome)") }
-        XCTAssertTrue(why.contains("my-reviewer") && why.contains("api-key"), why)
+        XCTAssertTrue(why.contains("key"), why)
     }
 
-    func test开了有key_用app自己的读取_key只在头里_意见回来() async {
+    /// 【独立审计 2026-09-14】key 不再是一条凭据（凭据名可被任何进程免弹窗改），而是人填进设置、
+    /// 存在 App 独占钥匙串文档里的一个值。
+    func test开了有key_key只在头里_意见回来() async {
         let service = service()
         service.isEnabled = true
         let transport = StubTransport(reply: Data(#"{"content":[{"type":"text","text":"{\"necessity\":2,\"minimalScope\":false,\"suggestedDuration\":\"once\",\"comment\":\"one deploy\"}"}]}"#.utf8))
         service.transport = transport
-        var asked: (String, String)?
-        service.retrieve = { id, field in asked = (id, field); return "sk-ant-TEST" }
+        service.apiKey = " sk-ant-TEST\n"
+        XCTAssertTrue(service.hasKey)
+        XCTAssertEqual(try service.store.reviewerSettings()?.apiKey, "sk-ant-TEST", "存在钥匙串文档里")
         let outcome = await service.review(input)
         XCTAssertEqual(outcome, .opinion(.init(necessity: 2, minimalScope: false, suggestedDuration: .once, comment: "one deploy")))
-        XCTAssertEqual(asked?.0, "keykeeper-reviewer")
-        XCTAssertEqual(asked?.1, "api-key")
         XCTAssertEqual(transport.headers["x-api-key"], "sk-ant-TEST")
         XCTAssertFalse(String(decoding: transport.body!, as: UTF8.self).contains("sk-ant-TEST"))
         let line = ReviewerService.line(for: .init(necessity: 2, minimalScope: false, suggestedDuration: .once, comment: "one deploy"))
@@ -173,7 +186,7 @@ final class ReviewerServiceTests: XCTestCase {
     func test默认Anthropic_换地址就按OpenAI兼容_列出的模型给人挑() async {
         let service = service()
         service.isEnabled = true
-        service.retrieve = { _, _ in "sk-x" }
+        service.apiKey = "sk-x"
         XCTAssertEqual(service.endpoint?.api, .anthropic)
         XCTAssertEqual(service.endpoint?.model, "claude-sonnet-5")
         service.baseURLText = "https://api.deepseek.com/"
@@ -198,7 +211,7 @@ final class ReviewerServiceTests: XCTestCase {
     func test超时就退回规则() async {
         let service = service()
         service.isEnabled = true
-        service.retrieve = { _, _ in "k" }
+        service.apiKey = "k"
         struct Slow: ReviewTransport {
             func post(url: URL, headers: [String: String], body: Data) async throws -> Data {
                 try await Task.sleep(nanoseconds: 5_000_000_000); return Data()

@@ -103,10 +103,10 @@ extension AppLocalizationTests {
     /// 因为那句话插了**两次**调用方名字，L() 生成的模板键是 {0} 和 {1}，而我在字典里
     /// 写成了两个 {0}，于是查不到、回落成英文。
     func test授权窗的范围说明有中文() {
-        let template = "Allowing lets {0} read every key in this credential — only {1}, not other programs on this Mac. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it."
+        let template = "Allowing lets {0} read every key in this credential — {1} and code it runs, like its extensions and scripts; not other programs on this Mac. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it."
         XCTAssertNotEqual(AppL10n.render(template, language: "zh-Hans"), template)
         let rendered = AppL10n.render(template, arguments: ["claude", "claude"], language: "zh-Hans")
-        XCTAssertTrue(rendered.contains("只有 claude"), rendered)
+        XCTAssertTrue(rendered.contains("claude 以及它运行的代码"), rendered)
         XCTAssertFalse(rendered.contains("{0}"), "占位符没被替换掉：\(rendered)")
         XCTAssertFalse(rendered.contains("{1}"), "占位符没被替换掉：\(rendered)")
     }

@@ -30,9 +30,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
-        ReviewerService.shared.retrieve = { [credentialService] id, field in
-            try credentialService.retrieve(credentialId: id, fieldName: field)
-        }
         ipcServer = IPCServer(session: credentialService, approvals: .shared,
             clipboardSaveController: ClipboardSaveController(service: credentialService, approvals: .shared),
             browserSessionController: browserSessions.controller)

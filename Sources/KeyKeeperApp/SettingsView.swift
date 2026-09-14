@@ -13,7 +13,8 @@ struct SettingsView: View {
     @State private var serviceModeError: String?
     @State private var serviceGrantCount = 0
     @State private var reviewerEnabled = ReviewerService.shared.isEnabled
-    @State private var reviewerCredentialId = ReviewerService.shared.credentialId
+    @State private var reviewerKeyDraft = ""
+    @State private var reviewerHasKey = ReviewerService.shared.hasKey
     @State private var reviewerBaseURL = ReviewerService.shared.baseURLText
     @State private var reviewerAPI = ReviewerService.shared.apiOverride?.rawValue ?? "auto"
     @State private var reviewerModel = ReviewerService.shared.model
@@ -134,13 +135,17 @@ struct SettingsView: View {
             }
             .onChange(of: reviewerEnabled) { _, value in ReviewerService.shared.isEnabled = value }
             HStack(spacing: DS.Spacing.sm) {
-                Text(L("Its key, stored in KeyKeeper:")).font(.caption).foregroundColor(.secondary)
-                TextField(ReviewerService.defaultCredentialId, text: $reviewerCredentialId)
+                Text(L("API key:")).font(.caption).foregroundColor(.secondary)
+                SecureField(reviewerHasKey ? L("saved · paste to replace") : L("paste the reviewer's key"), text: $reviewerKeyDraft)
                     .textFieldStyle(.roundedBorder)
                     .font(.caption.monospaced())
-                    .frame(maxWidth: 200)
-                    .onChange(of: reviewerCredentialId) { _, value in ReviewerService.shared.credentialId = value }
-                Text("· \(ReviewerService.fieldName)").font(.caption.monospaced()).foregroundColor(.secondary)
+                    .frame(maxWidth: 260)
+                    .onSubmit { commitReviewerKey() }
+                Button(L("Save key")) { commitReviewerKey() }
+                    .disabled(reviewerKeyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                if reviewerHasKey {
+                    Button(L("Forget")) { ReviewerService.shared.apiKey = ""; reviewerHasKey = false; reviewerModels = [] }
+                }
             }
             HStack(spacing: DS.Spacing.sm) {
                 Text(L("Base URL:")).font(.caption).foregroundColor(.secondary)
@@ -195,12 +200,21 @@ struct SettingsView: View {
             if let reviewerStatus {
                 Text(reviewerStatus).font(.caption2).foregroundColor(.secondary)
             }
-            Text(L("Any service that speaks the Anthropic or OpenAI API. The reviewer sees key names, the caller's stated reason and command, and the declared use — never a value. Its opinion is shown in the approval window; it never approves anything."))
+            Text(L("Any service that speaks the Anthropic or OpenAI API. Its key is stored in KeyKeeper's own Keychain item, not as a credential. The reviewer sees key names, the caller's stated reason and command, and the declared use — never a value. Its opinion is shown in the approval window; it never approves anything."))
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .dsCard(padding: DS.Spacing.md)
+    }
+
+    private func commitReviewerKey() {
+        let key = reviewerKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        ReviewerService.shared.apiKey = key
+        reviewerKeyDraft = ""
+        reviewerHasKey = true
+        reviewerStatus = L("Key saved in KeyKeeper's own Keychain item. It is never a credential and never shown again.")
     }
 
     private var startupCard: some View {

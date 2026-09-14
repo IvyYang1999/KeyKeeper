@@ -188,6 +188,7 @@ final class ApprovalStoreTests: XCTestCase {
 
     func test宽松模式standard未命中也放行并记审计() throws {
         let store = ApprovalStore.inMemory()
+        try store.setMode(.permissive)   // 2026-09-14 起新文档默认 enforced；这里测的是人主动关掉之后
         let decision = try AccessPolicy.decide(credential: credential(.standard), credentialId: "cron-api", field: "key",
                                                caller: caller(), terminalSession: nil, store: store, now: now)
         XCTAssertEqual(decision, .allowed(nil))
@@ -249,5 +250,58 @@ final class ApprovalStoreTests: XCTestCase {
         XCTAssertEqual(try decoder.decode(Approval.self, from: encoder.encode(approval)), approval)
         let legacy = Data(#"{"type":"session","value":"w0"}"#.utf8)
         XCTAssertEqual(try JSONDecoder().decode(ApprovalDuration.self, from: legacy), .terminalSession("w0"))
+    }
+}
+
+// MARK: - 2026-09-14 傍晚：审查员设置和默认模式
+
+extension ApprovalStoreTests {
+    /// 【今天自己埋的 critical】审查员设置放在 UserDefaults 里，本机任何进程都能把它指向一条真凭据和
+    /// 攻击者的地址。搬进这个 App 独占的钥匙串条目——和授权记录同一处，别的进程写不了。
+    func test审查员设置存在钥匙串文档里_旧文档没有也能读() throws {
+        let store = ApprovalStore.inMemory()
+        XCTAssertNil(try store.reviewerSettings())
+        let settings = ReviewerSettings(enabled: true, apiKey: "sk-test", baseURL: "https://api.deepseek.com",
+                                        api: .openAICompatible, model: "deepseek-chat")
+        try store.setReviewerSettings(settings)
+        XCTAssertEqual(try store.reviewerSettings(), settings)
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let old = Data(#"{"version":2,"mode":"enforced","approvals":[],"auditEvents":[]}"#.utf8)
+        XCTAssertNil(try decoder.decode(ApprovalDocument.self, from: old).reviewerSettings)
+    }
+
+    /// 新装机默认「后台读取要先问」。以前默认 permissive：新用户不去设置里打开开关，
+    /// 任何本机进程都能无提示读「后台可用」的 key。升级用户保留自己原来的模式（迁移另有测试）。
+    func test新文档默认enforced() throws {
+        XCTAssertEqual(ApprovalDocument().mode, .enforced)
+        XCTAssertEqual(try ApprovalStore.inMemory().mode(), .enforced)
+    }
+}
+
+extension ApprovalStoreTests {
+    /// 【独立审计 2026-09-14】「仅这一次」在 120 秒窗口里同一个字段能被读很多次：isValid 只看时间，不看
+    /// 这个字段用没用过。现在每个字段只能取一次，窗口只是给同一次运行里的其他字段留的。
+    func test一次性授权_每个字段只能取一次() throws {
+        let store = ApprovalStore.inMemory()
+        let approval = Approval(subject: .init(fingerprint: "unsigned:path=a", displayName: "a"),
+                                target: .credential(id: "c", fields: nil), duration: .once, createdAt: now,
+                                onceFieldsRemaining: ["key", "secret"])
+        try store.add(approval)
+        XCTAssertNotNil(try store.valid(credentialId: "c", field: "key", fingerprint: "unsigned:path=a", terminalSession: nil, now: now))
+        try store.noteUse(id: approval.id, field: "key")
+        XCTAssertNil(try store.valid(credentialId: "c", field: "key", fingerprint: "unsigned:path=a", terminalSession: nil, now: now.addingTimeInterval(1)), "同一字段第二次不行")
+        XCTAssertNotNil(try store.valid(credentialId: "c", field: "secret", fingerprint: "unsigned:path=a", terminalSession: nil, now: now.addingTimeInterval(1)), "同一次运行的另一个字段还行")
+        XCTAssertNil(try store.valid(credentialId: "c", field: "other", fingerprint: "unsigned:path=a", terminalSession: nil, now: now), "没列在里面的字段一开始就不行")
+    }
+
+    /// 【独立审计 2026-09-14】授权列表回给任何进程时带完整指纹（脚本路径哈希、bundle）。回传前只留档位。
+    func test授权列表回传前抹掉指纹() {
+        let approval = Approval(subject: .init(fingerprint: "script:sha256=abcdef", displayName: "daily.sh"),
+                                target: .credential(id: "c", fields: nil), duration: .always)
+        XCTAssertEqual(approval.redactedForCaller().subject.fingerprint, "script:…")
+        XCTAssertEqual(approval.redactedForCaller().subject.displayName, "daily.sh")
+        let signed = Approval(subject: .init(fingerprint: "app:team=T:bundle=b:signing=s", displayName: "b"),
+                              target: .credential(id: "c", fields: nil), duration: .always)
+        XCTAssertEqual(signed.redactedForCaller().subject.fingerprint, "app:…")
     }
 }

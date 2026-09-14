@@ -71,9 +71,9 @@ extension CallerAssurance {
     func scope(caller: String, wholeCredential: Bool) -> UILocalizedString {
         switch (self, wholeCredential) {
         case (.signed, true):
-            return "Allowing lets \(caller) read every key in this credential — only \(caller), not other programs on this Mac. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it."
+            return "Allowing lets \(caller) read every key in this credential — \(caller) and code it runs, like its extensions and scripts; not other programs on this Mac. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it."
         case (.signed, false):
-            return "Allowing lets \(caller) read this key — only \(caller), not other programs on this Mac. \u{201C}Always\u{201D} lasts until you revoke it."
+            return "Allowing lets \(caller) read this key — \(caller) and code it runs, like its extensions and scripts; not other programs on this Mac. \u{201C}Always\u{201D} lasts until you revoke it."
         case (.unsigned, true):
             return "Allowing lets \(caller) read every key in this credential. KeyKeeper recognises it by the file it runs from, so anything started from that same file counts as it too. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it."
         case (.unsigned, false):
@@ -93,7 +93,7 @@ extension CallerAssurance {
     /// One line under the choice; the full sentence lives in the folded details.
     func scopeSummary(caller: String) -> UILocalizedString {
         switch self {
-        case .signed: return "Only \(caller) can use this approval."
+        case .signed: return "\(caller) and code it runs (extensions, scripts) can use this approval."
         case .relayed: return "Applies to \(caller) and everything started inside it."
         case .unsigned: return "Applies to anything started from the same file as \(caller)."
         case .unverified: return "This request only; nothing is remembered."

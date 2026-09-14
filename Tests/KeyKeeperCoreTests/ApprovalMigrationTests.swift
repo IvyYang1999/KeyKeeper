@@ -24,7 +24,7 @@ final class ApprovalMigrationTests: XCTestCase {
         let result = try XCTUnwrap(try ApprovalMigration.runIfNeeded(directory: dir, store: store, now: now))
         XCTAssertEqual(result.imported, 1, "只有 codex 那条有主人且有效")
         XCTAssertEqual(result.skippedUnowned, 3, "三条无主的 strict 授权（始终、会话、已用掉的一次）都不导入")
-        XCTAssertEqual(try store.mode(), .permissive)
+        XCTAssertEqual(try store.mode(), .permissive, "升级用户保留 0.3.3 里的模式")
         XCTAssertEqual(try store.auditEvents().count, 1)
         let codex = "app:team=unsigned:bundle=com.openai.codex:signing=com.openai.codex"
         XCTAssertNotNil(try store.valid(credentialId: "vercel", field: "token", fingerprint: codex, terminalSession: nil, now: now))
@@ -51,5 +51,15 @@ final class ApprovalMigrationTests: XCTestCase {
         let store = ApprovalStore.inMemory()
         XCTAssertNil(try ApprovalMigration.runIfNeeded(directory: empty, store: store, now: now))
         XCTAssertFalse(try store.exists())
+    }
+}
+
+extension ApprovalMigrationTests {
+    /// 旧文件没写模式 = 那个版本还没有这个概念，人从没选过：按新装机对待，enforced。
+    func test旧文件没有模式_按enforced() throws {
+        try Data(#"{"grants":[]}"#.utf8).write(to: dir.appendingPathComponent("service-grants.json"))
+        let store = ApprovalStore.inMemory()
+        _ = try ApprovalMigration.runIfNeeded(directory: dir, store: store, now: now)
+        XCTAssertEqual(try store.mode(), .enforced)
     }
 }

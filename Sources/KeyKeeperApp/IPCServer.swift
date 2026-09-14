@@ -404,7 +404,7 @@ final class IPCServer: ObservableObject {
             let response: ApprovalsListResponse
             do {
                 let all = try request.credentialId.map { try approvals.approvals(forCredential: $0) } ?? approvals.all()
-                response = ApprovalsListResponse(mode: try approvals.mode(), approvals: all)
+                response = ApprovalsListResponse(mode: try approvals.mode(), approvals: all.map { $0.redactedForCaller() })
             } catch {
                 response = ApprovalsListResponse(mode: .enforced, approvals: [])
             }

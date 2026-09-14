@@ -164,6 +164,23 @@ public struct Approval: Codable, Identifiable, Equatable, Sendable {
         }
     }
 
+    /// A "once" approval hands each field out one time; the window only exists so the other
+    /// fields of the same run can follow. 【独立审计 2026-09-14】isValid alone let the same field be
+    /// read again and again for 120 s.
+    public func stillCovers(field: String) -> Bool {
+        guard case .once = duration, let remaining = onceFieldsRemaining else { return true }
+        return remaining.contains(field)
+    }
+
+    /// What another process may see of an approval: whose (a name), what, how long — not the
+    /// fingerprint, which names the script's path hash or the app's bundle. 【独立审计 2026-09-14】
+    public func redactedForCaller() -> Approval {
+        var copy = self
+        let kind = subject.fingerprint.split(separator: ":", maxSplits: 1).first.map(String.init) ?? ""
+        copy.subject = ApprovalSubject(fingerprint: kind + ":…", displayName: subject.displayName)
+        return copy
+    }
+
     func supersedes(_ other: Approval) -> Bool {
         subject.fingerprint == other.subject.fingerprint && target == other.target && duration.sameKind(as: other.duration)
     }
@@ -204,19 +221,48 @@ public struct ServiceAuditEvent: Codable, Sendable, Equatable {
     }
 }
 
+/// Where the second-opinion model lives, and its key. Kept in the app-owned Keychain item next
+/// to the approvals — nothing else on the Mac can write it. 【独立审计 2026-09-14】the first cut
+/// stored these in UserDefaults and named a KeyKeeper credential to read the key from: any
+/// process could point that at a real credential (or rename one into it) and at its own server.
+/// The key is typed in by the person and lives only here; it is never a credential.
+public struct ReviewerSettings: Codable, Equatable, Sendable {
+    public var enabled: Bool
+    public var apiKey: String
+    public var baseURL: String
+    /// Nil means "guess from the host".
+    public var api: ReviewerEndpoint.API?
+    public var model: String
+
+    public init(enabled: Bool = false, apiKey: String = "",
+                baseURL: String = ReviewerEndpoint.defaultBaseURL, api: ReviewerEndpoint.API? = nil,
+                model: String = ReviewerEndpoint.defaultModel) {
+        self.enabled = enabled
+        self.apiKey = apiKey
+        self.baseURL = baseURL
+        self.api = api
+        self.model = model
+    }
+}
+
 /// Everything in the approvals Keychain item.
 public struct ApprovalDocument: Codable, Equatable, Sendable {
     public var version: Int
+    /// Fresh stores start enforced: a "Background OK" key is not readable by any local process
+    /// until the person has seen that caller once. Stores migrated from 0.3.3 keep their mode.
     public var mode: ServiceAuthorizationMode
     public var approvals: [Approval]
     public var auditEvents: [ServiceAuditEvent]
+    public var reviewerSettings: ReviewerSettings?
 
-    public init(version: Int = 2, mode: ServiceAuthorizationMode = .permissive,
-                approvals: [Approval] = [], auditEvents: [ServiceAuditEvent] = []) {
+    public init(version: Int = 2, mode: ServiceAuthorizationMode = .enforced,
+                approvals: [Approval] = [], auditEvents: [ServiceAuditEvent] = [],
+                reviewerSettings: ReviewerSettings? = nil) {
         self.version = version
         self.mode = mode
         self.approvals = approvals
         self.auditEvents = auditEvents
+        self.reviewerSettings = reviewerSettings
     }
 }
 
@@ -305,6 +351,7 @@ public final class ApprovalStore: @unchecked Sendable {
         return try all().first {
             $0.subject.fingerprint == fingerprint
                 && $0.target.covers(credentialId: credentialId, field: field)
+                && $0.stillCovers(field: field)
                 && $0.isValid(now: now, terminalSession: terminalSession)
         }
     }
@@ -323,6 +370,12 @@ public final class ApprovalStore: @unchecked Sendable {
 
     public func setMode(_ mode: ServiceAuthorizationMode) throws {
         try update { $0.mode = mode }
+    }
+
+    public func reviewerSettings() throws -> ReviewerSettings? { try lock.withLock { try load().reviewerSettings } }
+
+    public func setReviewerSettings(_ settings: ReviewerSettings) throws {
+        try update { $0.reviewerSettings = settings }
     }
 
     /// Store an approval. Never for a caller that cannot be identified: refused, not silently dropped.

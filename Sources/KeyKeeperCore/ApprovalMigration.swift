@@ -73,7 +73,7 @@ public enum ApprovalMigration {
             }
         }
         if let data = try? Data(contentsOf: serviceURL), let file = try? decoder.decode(LegacyServiceGrantFile.self, from: data) {
-            document.mode = file.mode ?? .permissive
+            document.mode = file.mode ?? .enforced   // a file with no mode predates the choice: treat as fresh
             document.auditEvents = Array((file.auditEvents ?? []).suffix(ApprovalStore.maxAuditEvents))
             for grant in file.grants {
                 let once = grant.duration.duration == .once

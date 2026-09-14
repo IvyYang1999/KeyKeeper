@@ -17,6 +17,7 @@ final class IPCValueHandlerTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         metaStore = MetaStore(directory: directory)
         approvals = ApprovalStore.inMemory()
+        try approvals.setMode(.permissive)   // 这些用例测的是宽松模式；新文档默认 enforced（2026-09-14）
     }
 
     override func tearDownWithError() throws {
