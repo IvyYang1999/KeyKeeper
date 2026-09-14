@@ -195,6 +195,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
         ipcServer?.stop()
+        if TestInstance.cleansUpOnQuit { TestInstance.cleanUpKeychain() }
         terminationSignalSources.forEach { $0.cancel() }
         terminationSignalSources.removeAll()
     }
@@ -238,14 +239,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
 
-        authWindowController.show(
-            request: request,
-            waiting: ipcServer.waitingCount,
-            onAuthorize: { [weak self] duration in
+        // Errors propagate to the window, which shows them and stays open so the
+        // user can pick another option; the CLI keeps waiting on the same request.
+        let authorize: (GrantDuration) throws -> Void = { [weak self] duration in
                 guard let self else { return }
-
-                // Errors propagate to the window, which shows them and stays open so the
-                // user can pick another option; the CLI keeps waiting on the same request.
                 let resolvedDuration = try GrantAuthorizationPolicy.resolveIssuedDuration(
                     requestedDuration: duration,
                     requestSessionId: request.sessionId
@@ -268,13 +265,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 try grantStore.addGrant(grant)
                 let response = AuthResponse(granted: true, grantId: grant.id)
                 self.ipcServer.respond(to: pending, with: response)
-            },
-            onDeny: { [weak self] in
-                self?.ipcServer.respond(
-                    to: pending,
-                    with: AuthResponse(granted: false, error: "User denied")
-                )
-            }
+        }
+        let deny: () -> Void = { [weak self] in
+            self?.ipcServer.respond(to: pending, with: AuthResponse(granted: false, error: "User denied"))
+        }
+        // An isolated e2e instance answers itself; the window never appears.
+        if let auto = TestInstance.autoApprove {
+            do { try authorize(auto.grantDuration) } catch { deny() }
+            clearAuthApproval()
+            return
+        }
+        authWindowController.show(
+            request: request,
+            waiting: ipcServer.waitingCount,
+            onAuthorize: authorize,
+            onDeny: deny
         )
     }
 
@@ -288,12 +293,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             deny: { [weak self] in self?.ipcServer.denyServiceRequest(pending) }
         )
 
-        authWindowController.show(
-            serviceRequest: pending,
-            waiting: ipcServer.waitingCount,
-            onAuthorize: { [weak self] duration in
+        let authorize: (ServiceGrantDuration) throws -> Void = { [weak self] duration in
                 guard let self else { return }
-
                 let grant = ServiceGrant(
                     credentialId: pending.credentialId,
                     subjectFingerprint: pending.callerIdentity.subjectFingerprint,
@@ -307,7 +308,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     try serviceGrantStore.addGrant(grant)
                 }
                 self.ipcServer.fulfillServiceRequest(pending, serviceGrant: grant)
-            },
+        }
+        if let auto = TestInstance.autoApprove {
+            do { try authorize(auto.serviceDuration) } catch { ipcServer.denyServiceRequest(pending) }
+            clearAuthApproval()
+            return
+        }
+        authWindowController.show(
+            serviceRequest: pending,
+            waiting: ipcServer.waitingCount,
+            onAuthorize: authorize,
             onDeny: { [weak self] in
                 self?.ipcServer.denyServiceRequest(pending)
             }

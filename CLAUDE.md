@@ -10,6 +10,9 @@ commit 后 git hook 自动：push → 编译 → 替换 /Applications/KeyKeeper.
 pre-commit hook 自动跑 `swift test` + 编译检查，不过就拒绝 commit。
 绝对不允许：多个不相关功能塞同一个 commit / 编译不过就 commit / 测试不过就 commit。
 改动前先 `git status` 确认工作区干净。
+**装进 /Applications 之前必须先过 `scripts/e2e-isolated.sh --build`**（隔离实例端到端：自己的数据目录、
+钥匙串条目、socket，自动批准，退出时清理；不碰真实数据）。2026-09-13 晚没有这一关，一晚上装了 6 次，
+其中一次把 yyt 的后台授权全清空了。
 
 # 开发规则
 

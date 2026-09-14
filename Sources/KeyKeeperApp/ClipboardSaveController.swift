@@ -67,7 +67,10 @@ extension ClipboardSaveSource {
         self.service = service; self.metaStore = metaStore
         self.clipboard = clipboard ?? SystemClipboardSaveSource(); self.now = now
         let window = ClipboardSaveWindow()
-        self.present = present ?? { window.show($0, decide: $1) }
+        self.present = present ?? { info, decide in
+            // An isolated e2e instance answers itself; the prompt never appears.
+            if TestInstance.autoApprove != nil { DispatchQueue.main.async { decide(true) } } else { window.show(info, decide: decide) }
+        }
         self.dismiss = dismiss ?? { window.dismiss() }
     }
 

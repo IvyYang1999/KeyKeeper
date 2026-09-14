@@ -68,6 +68,18 @@ public final class SecItemBlobIO: KeychainBlobIO, @unchecked Sendable {
         try readBlob(allowInteraction: true)
     }
 
+    /// Remove the item entirely. Used by an isolated test instance to leave nothing behind in the
+    /// login Keychain; production never calls it. A missing item is not an error.
+    public func deleteItem() throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError.deleteFailed(status) }
+    }
+
     public func readBlobWithoutInteraction() throws -> Data? {
         try readBlob(allowInteraction: false)
     }
