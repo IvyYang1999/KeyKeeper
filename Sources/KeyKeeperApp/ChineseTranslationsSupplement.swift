@@ -200,6 +200,10 @@ extension AppL10n {
         "Allowing lets {0} — and anything started inside it, like its terminals and the agents they run — read every key in this credential. \u{201C}Always allow\u{201D} also covers its future sessions, until you revoke it.": "允许之后，{0}——以及在它里面启动的一切，比如它的终端和终端里跑的 Agent——都能读这一组里的全部密钥。选「始终允许」对它以后的会话同样有效，直到你撤销。",
         "Allowing lets {0} — and anything started inside it — read this key. \u{201C}Always\u{201D} lasts until you revoke it.": "允许之后，{0}——以及在它里面启动的一切——都能读这把密钥。「始终」直到你撤销为止。",
         "No longer applies": "已失效",
+        "Only {0} can use this approval.": "只有 {0} 能用这次批准。",
+        "Applies to {0} and everything started inside it.": "对 {0} 以及在它里面启动的一切有效。",
+        "Applies to anything started from the same file as {0}.": "对从 {0} 同一个文件启动的程序都有效。",
+        "This request only; nothing is remembered.": "只管这一次，不会记住。",
         // Dates
         "Today": "今天",
         "Yesterday": "昨天",

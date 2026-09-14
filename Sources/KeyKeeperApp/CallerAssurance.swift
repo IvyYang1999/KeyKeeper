@@ -90,6 +90,18 @@ extension CallerAssurance {
     /// Whether an approval can be remembered for this caller at all (see GrantIssuancePolicy).
     var canRemember: Bool { self != .unverified }
 
+    /// One line under the choice; the full sentence lives in the folded details.
+    func scopeSummary(caller: String) -> UILocalizedString {
+        switch self {
+        case .signed: return "Only \(caller) can use this approval."
+        case .relayed: return "Applies to \(caller) and everything started inside it."
+        case .unsigned: return "Applies to anything started from the same file as \(caller)."
+        case .unverified: return "This request only; nothing is remembered."
+        }
+    }
+
+    func scopeSummaryLine(caller: String) -> String { L(scopeSummary(caller: caller)) }
+
     func scopeLine(caller: String, wholeCredential: Bool) -> String {
         L(scope(caller: caller, wholeCredential: wholeCredential))
     }

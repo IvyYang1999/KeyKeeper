@@ -55,6 +55,11 @@ enum AuthorizationPrompt {
         }
     }
 
+    var isStrict: Bool {
+        if case .strict = self { return true }
+        return false
+    }
+
     var fieldNames: [String] {
         switch self {
         case .strict(let request):
@@ -346,13 +351,14 @@ struct AuthorizationView: View {
             infoRow(L("Credential"), value: prompt.credentialLabel, bold: true)
             infoRow(L("Keys"), value: prompt.fieldNames.joined(separator: ", "), monospaced: true)
 
-            if let sessionLabel = prompt.sessionLabel {
+            // "From" only when there is a terminal session to name; "no terminal session" is noise.
+            if prompt.hasTerminalSession, let sessionLabel = prompt.sessionLabel {
                 infoRow(L("From"), value: CallerStatedReason.printableLine(AppL10n.text(sessionLabel), limit: 80))
             }
 
-            if let caller = prompt.callerIdentity {
+            if prompt.callerIdentity != nil {
                 infoRow(L("Caller"), value: callerName)
-                callerAssuranceRow(CallerAssurance.of(caller.subject))
+                callerAssuranceRow(callerAssurance)
             }
             // Subject fingerprint, PID and the process chain are diagnostics; they live
             // in the collapsible "Caller Details" section below.
@@ -367,16 +373,13 @@ struct AuthorizationView: View {
     }
 
     /// What is actually known about the asker, next to its name.
+    /// One line. What the tier means is in the folded details — yyt 2026-09-14: the window was
+    /// mostly explanations, and the facts got lost among them.
     private func callerAssuranceRow(_ assurance: CallerAssurance) -> some View {
-        HStack(alignment: .top, spacing: 6) {
+        HStack(spacing: 6) {
             Image(systemName: assurance.symbolName)
                 .foregroundColor(assurance.isReassuring ? .secondary : .orange)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(assurance.label).font(.caption.weight(.semibold))
-                Text(assurance.explanation)
-                    .font(.caption2).foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(assurance.label).font(.caption.weight(.semibold))
             Spacer(minLength: 0)
         }
         .padding(.top, 2)
@@ -456,19 +459,11 @@ struct AuthorizationView: View {
             .pickerStyle(.radioGroup)
             .labelsHidden()
 
-            // What an approval actually covers, next to the choice — a caller's note may
-            // promise "just one field, just once", but the grant is per credential.
-            Text(callerAssurance.scopeLine(caller: callerName, wholeCredential: true))
+            // Who the approval covers, in one line; the full wording is in the folded details.
+            Text(callerAssurance.scopeSummaryLine(caller: callerName))
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-
-            if !prompt.hasTerminalSession {
-                Text(L("This caller has no terminal session (cron, IDE or SDK), so a per-session grant isn't available."))
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 
@@ -564,6 +559,8 @@ struct AuthorizationView: View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             infoRow(L("Credential"), value: prompt.credentialLabel, bold: true)
             infoRow(L("Keys"), value: prompt.fieldNames.joined(separator: ", "), monospaced: true)
+            infoRow(L("Caller"), value: callerName)
+            callerAssuranceRow(callerAssurance)
         }
         .padding(14)
         .glassCard()
@@ -574,6 +571,19 @@ struct AuthorizationView: View {
         if let caller = prompt.callerIdentity {
             DisclosureGroup(isExpanded: $showCallerDetails) {
                 VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                    // The wording that used to fill the window: still here, one click away.
+                    Text(callerAssurance.explanation)
+                        .font(.caption2).foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(callerAssurance.scopeLine(caller: callerName, wholeCredential: prompt.isStrict))
+                        .font(.caption2).foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if prompt.isStrict, !prompt.hasTerminalSession {
+                        Text(L("This caller has no terminal session (cron, IDE or SDK), so a per-session grant isn't available."))
+                            .font(.caption2).foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Divider()
                     if let path = caller.executablePath {
                         detailRow(L("Path"), value: path)
                     }
@@ -603,7 +613,7 @@ struct AuthorizationView: View {
                 }
                 .padding(.top, DS.Spacing.xs)
             } label: {
-                Label(L("Caller Details"), systemImage: "info.circle")
+                Label(L("Details"), systemImage: "info.circle")
             }
             .font(.caption)
             .foregroundColor(.secondary)
@@ -632,9 +642,7 @@ struct AuthorizationView: View {
                 .font(.subheadline.bold())
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // The strict window has said this since 863d53e; this one never did, and "Always"
-            // means the same thing in both.
-            Text(callerAssurance.scopeLine(caller: callerName, wholeCredential: false))
+            Text(callerAssurance.scopeSummaryLine(caller: callerName))
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
