@@ -12,31 +12,17 @@ final class AuthorizationWindowController {
     func show(request: AuthRequest,
               waiting: Int = 0,
               review: RequestReview? = nil,
-              onAuthorize: @escaping (ApprovalDuration) throws -> Void,
+              onAuthorize: @escaping (AuthorizationView.DurationChoice) throws -> Void,
               onDeny: @escaping () -> Void) {
-        show(
-            prompt: .strict(request),
-            waiting: waiting,
-            review: review,
-            onAuthorizeGrant: onAuthorize,
-            onAuthorizeService: nil,
-            onDeny: onDeny
-        )
+        show(prompt: .strict(request), waiting: waiting, review: review, onAuthorize: onAuthorize, onDeny: onDeny)
     }
 
     func show(serviceRequest: IPCServer.PendingServiceRequest,
               waiting: Int = 0,
               review: RequestReview? = nil,
-              onAuthorize: @escaping (ApprovalDuration) throws -> Void,
+              onAuthorize: @escaping (AuthorizationView.DurationChoice) throws -> Void,
               onDeny: @escaping () -> Void) {
-        show(
-            prompt: .service(serviceRequest),
-            waiting: waiting,
-            review: review,
-            onAuthorizeGrant: nil,
-            onAuthorizeService: onAuthorize,
-            onDeny: onDeny
-        )
+        show(prompt: .service(serviceRequest), waiting: waiting, review: review, onAuthorize: onAuthorize, onDeny: onDeny)
     }
 
     /// Keeps the "(N more waiting)" suffix current while the window is open; requests
@@ -70,20 +56,15 @@ final class AuthorizationWindowController {
     private func show(prompt: AuthorizationPrompt,
                       waiting: Int,
                       review: RequestReview?,
-                      onAuthorizeGrant: ((ApprovalDuration) throws -> Void)?,
-                      onAuthorizeService: ((ApprovalDuration) throws -> Void)?,
+                      onAuthorize: @escaping (AuthorizationView.DurationChoice) throws -> Void,
                       onDeny: @escaping () -> Void) {
         // Close existing window if any
         dismiss()
 
         let view = AuthorizationView(
             prompt: prompt,
-            onAuthorizeGrant: { [weak self] duration in
-                try onAuthorizeGrant?(duration)
-                self?.dismiss()
-            },
-            onAuthorizeService: { [weak self] duration in
-                try onAuthorizeService?(duration)
+            onAuthorize: { [weak self] choice in
+                try onAuthorize(choice)
                 self?.dismiss()
             },
             onDeny: { [weak self] in

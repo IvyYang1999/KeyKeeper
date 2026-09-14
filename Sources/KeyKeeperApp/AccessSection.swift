@@ -72,6 +72,7 @@ enum AccessEntryBuilder {
         switch approval.duration {
         case .once: base = L("Once")
         case .terminalSession: base = L("While that session is open")
+        case .process: base = L("While it runs")
         case .timed(let date): base = date > now ? L("Until \(relative(date, now: now))") : L("Expired")
         case .always: base = L("Always")
         }

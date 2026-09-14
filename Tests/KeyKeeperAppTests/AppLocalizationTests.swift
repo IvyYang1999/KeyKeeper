@@ -76,10 +76,10 @@ final class AppLocalizationTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(String.self, from: Data(encoded.utf8)), sample)
     }
     func testEveryAuthorizationDurationHasTranslationButStableRawValue() {
-        XCTAssertEqual(AuthorizationView.DurationOption.allCases.map(\.rawValue),
-                       ["Just this once", "This terminal session", "1 hour", "Always"])
-        for option in AuthorizationView.DurationOption.allCases {
-            XCTAssertNotNil(AppL10n.chinese[option.rawValue])
+        XCTAssertEqual(AuthorizationView.DurationChoice.allCases.map(\.rawValue),
+                       ["Just this once", "While it runs", "Don't ask again"])
+        for option in AuthorizationView.DurationChoice.allCases {
+            XCTAssertNotEqual(AppL10n.render(option.rawValue, language: "zh-Hans"), option.rawValue, option.rawValue)
         }
     }
 

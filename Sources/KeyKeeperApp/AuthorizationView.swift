@@ -108,13 +108,11 @@ struct AuthorizationView: View {
     let prompt: AuthorizationPrompt
     /// Throwing lets the window show what went wrong and stay open, instead of
     /// closing as if the grant succeeded while the CLI receives a denial.
-    let onAuthorizeGrant: ((ApprovalDuration) throws -> Void)?
-    let onAuthorizeService: ((ApprovalDuration) throws -> Void)?
+    let onAuthorize: (DurationChoice) throws -> Void
     let onDeny: () -> Void
     /// What the agent asks, what the rules think, and (if on) what the second model thinks.
     let review: RequestReview?
 
-    @State private var selectedDuration: DurationOption
     @State private var reviewerOutcome: ReviewerService.Outcome?
     @State private var isAuthenticating = false
     @State private var errorMessage: String?
@@ -231,100 +229,67 @@ struct AuthorizationView: View {
     }
 
     init(prompt: AuthorizationPrompt,
-         onAuthorizeGrant: ((ApprovalDuration) throws -> Void)?,
-         onAuthorizeService: ((ApprovalDuration) throws -> Void)?,
+         onAuthorize: @escaping (DurationChoice) throws -> Void,
          onDeny: @escaping () -> Void,
          review: RequestReview? = nil) {
         self.prompt = prompt
-        self.onAuthorizeGrant = onAuthorizeGrant
-        self.onAuthorizeService = onAuthorizeService
+        self.onAuthorize = onAuthorize
         self.onDeny = onDeny
         self.review = review
         self.authenticationMethod = AuthenticationMethod.detect()
-        _selectedDuration = State(initialValue: DurationOption.preselection(
-            hasTerminalSession: prompt.hasTerminalSession,
-            canRemember: prompt.callerIdentity.map { CallerAssurance.of($0.subject).canRemember } ?? false,
-            review: review
-        ))
     }
 
-    enum DurationOption: String, CaseIterable {
+    /// The three answers. yyt 2026-09-14: "once / 1 hour / always" were all about time, and
+    /// "always" was the only way not to be asked again for the same agent doing the same job —
+    /// at the price of forever. The middle answer is now the job: while that process runs.
+    enum DurationChoice: String, CaseIterable {
         case once = "Just this once"
-        case session = "This terminal session"
-        case oneHour = "1 hour"
-        case always = "Always"
+        case thisRun = "While it runs"
+        case always = "Don't ask again"
 
-        var grantDuration: ApprovalDuration {
-            switch self {
-            case .once: return .once
-            case .session: return .terminalSession("")  // session ID filled by caller
-            case .oneHour: return .timed(Date().addingTimeInterval(3600))
-            case .always: return .always
-            }
-        }
-
-        /// "This terminal session" is only offered when the caller actually has one — and nothing but
-        /// "once" when the caller cannot be identified. 【独立审计 2026-09-13】a longer answer cannot be
-        /// remembered for it, so offering one promised what KeyKeeper would not do.
-        static func available(hasTerminalSession: Bool, canRemember: Bool = true) -> [DurationOption] {
-            guard canRemember else { return [.once] }
-            return allCases.filter { $0 != .session || hasTerminalSession }
-        }
-
-        static func defaultSelection(hasTerminalSession: Bool, canRemember: Bool = true) -> DurationOption {
-            guard canRemember else { return .once }
-            return hasTerminalSession ? .session : .oneHour
-        }
-
-        init?(requested: RequestedDuration) {
-            switch requested {
+        init(requested: RequestedDuration) {
+            switch requested.folded {
             case .once: self = .once
-            case .session: self = .session
-            case .oneHour: self = .oneHour
             case .always: self = .always
+            default: self = .thisRun
             }
         }
 
-        /// What the radio group starts on. The rules' suggestion when they found something; the
-        /// agent's own wish when they did not; the plain default when it asked for nothing. Never
-        /// an option that is not offered — an unidentified caller still starts on "once".
-        static func preselection(hasTerminalSession: Bool, canRemember: Bool, review: RequestReview?) -> DurationOption {
-            let offered = available(hasTerminalSession: hasTerminalSession, canRemember: canRemember)
+        /// Nothing but "once" for a caller that cannot be identified; no "while it runs" when
+        /// there is neither a terminal session nor a located process to tie it to.
+        static func available(canRemember: Bool, canBindToRun: Bool) -> [DurationChoice] {
+            guard canRemember else { return [.once] }
+            return canBindToRun ? [.once, .thisRun, .always] : [.once, .always]
+        }
+
+        /// The one drawn prominent: the rules' suggestion when they made one, the agent's own
+        /// wish when they did not, otherwise "while it runs" — never an answer not on offer.
+        static func recommended(canRemember: Bool, canBindToRun: Bool, review: RequestReview?) -> DurationChoice {
+            let offered = available(canRemember: canRemember, canBindToRun: canBindToRun)
             let wanted = review?.rules.suggestedDuration ?? review?.input.requestedDuration
-            if let wanted, let option = DurationOption(requested: wanted), offered.contains(option) { return option }
-            return defaultSelection(hasTerminalSession: hasTerminalSession, canRemember: canRemember)
+            if let wanted, offered.contains(DurationChoice(requested: wanted)) { return DurationChoice(requested: wanted) }
+            return offered.contains(.thisRun) ? .thisRun : .once
         }
     }
 
-    /// Which service button is drawn prominent: the rules' suggestion when they made one, the
-    /// agent's wish when they did not, "always" otherwise (as before).
-    var recommendedServiceDuration: RequestedDuration { Self.recommendedService(review: review) }
-
-    static func recommendedService(review: RequestReview?) -> RequestedDuration {
-        if let suggested = review?.rules.suggestedDuration { return suggested }
-        if let asked = review?.input.requestedDuration, asked != .session { return asked }
-        return .always
+    /// The tier that decides what "Allow" can honestly promise.
+    private var callerAssurance: CallerAssurance {
+        prompt.callerIdentity.map { CallerAssurance.of($0.subject) } ?? .unverified
     }
 
+    private var canBindToRun: Bool { prompt.hasTerminalSession || prompt.callerIdentity?.subjectPID != nil }
+    private var choices: [DurationChoice] { DurationChoice.available(canRemember: callerAssurance.canRemember, canBindToRun: canBindToRun) }
+    private var recommended: DurationChoice { DurationChoice.recommended(canRemember: callerAssurance.canRemember, canBindToRun: canBindToRun, review: review) }
+
+    // yyt 2026-09-14: one thing per band, top to bottom — who wants what; what it says; what
+    // KeyKeeper thinks; the three answers. Everything else is behind "Details".
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            switch prompt {
-            case .strict:
-                header
-                requestInfo
-                statedReasonSection
-                reviewSection
-                callerDetailsSection
-                strictDurationPicker
-                strictButtons
-            case .service:
-                serviceHeader
-                serviceRequestCard
-                statedReasonSection
-                reviewSection
-                callerDetailsSection
-                serviceButtons
-            }
+        VStack(alignment: .leading, spacing: 16) {
+            header
+            statedReasonSection
+            adviceSection
+            choiceButtons
+            callerDetailsSection
 
             if let error = errorMessage {
                 Text(error)
@@ -339,260 +304,32 @@ struct AuthorizationView: View {
         // Capped at what the screen can show: expanded caller details used to make the window
         // taller than the display, and a clamped window shows only the middle of the glass —
         // which reads as four square corners.
-        .authorizationPanel(width: 420, maxHeight: Self.availableHeight)
+        .authorizationPanel(width: 440, maxHeight: Self.availableHeight)
+        .onAppear { startSettleTimer() }
     }
 
-    private func startSettleTimer() {
-        guard !canApprove else { return }
-        let remaining = ApprovalReadiness.settleDelay - Date().timeIntervalSince(shownAt)
-        guard remaining > 0 else { canApprove = true; return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { canApprove = true }
-    }
-
-    /// What the screen can actually show, leaving room for the menu bar and a margin.
     static var availableHeight: CGFloat {
         let visible = NSScreen.main?.visibleFrame.height ?? 900
         return max(360, visible - 80)
     }
 
-    /// The caller's name, treated as hostile text like everything else in this window.
-    ///
-    /// 【安全审计 2026-09-13】6bff4fd hardened the credential label in this very sentence but
-    /// left the caller name on the weaker filter — which strips control characters and nothing
-    /// else, so zero-width and bidi characters went straight into the bold headline.
+    private func startSettleTimer() {
+        guard !canApprove else { return }
+        let remaining = ApprovalReadiness.settleDelay - Date().timeIntervalSince(shownAt)
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, remaining)) { canApprove = true }
+    }
+
     private var callerName: String {
-        let raw = prompt.callerIdentity?.displayName ?? L("Unknown Caller")
-        let line = CallerStatedReason.printableLine(raw, limit: 80)
-        return line.isEmpty ? L("Unknown Caller") : line
+        TrustPromptModel.sanitizedCaller(prompt.callerIdentity?.displayName ?? L("Unknown Caller"))
     }
 
+    // MARK: - Bands
+
+    /// Who wants what, and how sure KeyKeeper is about the who. The credential's ID is shown
+    /// when it differs from the title, because any local process can retitle a credential
+    /// without a prompt and the ID cannot be changed that way. 【独立审计 2026-09-14】
     private var header: some View {
-        HStack(spacing: 14) {
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .frame(width: 52, height: 52)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(L("\(callerName) wants to use \(prompt.credentialLabel)"))
-                    .font(.system(size: 17, weight: .bold))
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(prompt.title)
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-
-    private var requestInfo: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            infoRow(L("Credential"), value: prompt.credentialLabel, bold: true)
-            infoRow(L("Keys"), value: prompt.fieldNames.joined(separator: ", "), monospaced: true)
-
-            // "From" only when there is a terminal session to name; "no terminal session" is noise.
-            if prompt.hasTerminalSession, let sessionLabel = prompt.sessionLabel {
-                infoRow(L("From"), value: CallerStatedReason.printableLine(AppL10n.text(sessionLabel), limit: 80))
-            }
-
-            if prompt.callerIdentity != nil {
-                infoRow(L("Caller"), value: callerName)
-                callerAssuranceRow(callerAssurance)
-            }
-            // Subject fingerprint, PID and the process chain are diagnostics; they live
-            // in the collapsible "Caller Details" section below.
-        }
-        .padding(14)
-        .glassCard()
-    }
-
-    /// The tier that decides what "Allow" can honestly promise.
-    private var callerAssurance: CallerAssurance {
-        prompt.callerIdentity.map { CallerAssurance.of($0.subject) } ?? .unverified
-    }
-
-    /// What is actually known about the asker, next to its name.
-    /// One line. What the tier means is in the folded details — yyt 2026-09-14: the window was
-    /// mostly explanations, and the facts got lost among them.
-    private func callerAssuranceRow(_ assurance: CallerAssurance) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: assurance.symbolName)
-                .foregroundColor(assurance.isReassuring ? .secondary : .orange)
-            Text(assurance.label).font(.caption.weight(.semibold))
-            Spacer(minLength: 0)
-        }
-        .padding(.top, 2)
-    }
-
-    private func infoRow(_ label: String,
-                         value: String,
-                         bold: Bool = false,
-                         monospaced: Bool = false) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            Spacer(minLength: 12)
-            Text(value)
-                .font(rowFont(bold: bold, monospaced: monospaced))
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-    }
-
-    private func rowFont(bold: Bool, monospaced: Bool) -> Font {
-        if monospaced { return .subheadline.monospaced() }
-        if bold { return .subheadline.bold() }
-        return .subheadline
-    }
-
-    /// What the caller wrote about this request. It sits below the facts KeyKeeper verified
-    /// and above the diagnostics, is plain text with no emphasis of its own, and says plainly
-    /// that nobody checked it — the process that wants the value is the one that wrote it.
-    @ViewBuilder
-    private var statedReasonSection: some View {
-        if let reason = prompt.statedReason {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Image(systemName: "quote.bubble")
-                    Text(L("What the caller says"))
-                    Text(L("not verified"))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.secondary.opacity(0.15)))
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-                Text(verbatim: reason.text)
-                    .font(.callout)
-                    .foregroundColor(.primary)
-                    .lineLimit(4)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-
-                Text(reason.truncated
-                     ? L("Cut off at \(CallerStatedReason.maximumLength) characters. Written by the process asking for the key; KeyKeeper doesn't check it and it doesn't limit what allowing grants.")
-                     : L("Written by the process asking for the key. KeyKeeper doesn't check it, and it doesn't limit what allowing grants."))
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .surface(.card)
-        }
-    }
-
-    /// Three voices, each on its own line and each named: the agent (a claim), KeyKeeper's rules
-    /// (offline, deterministic), and — when the person turned it on — a second model (advice).
-    @ViewBuilder
-    private var reviewSection: some View {
-        if let review, review.hasContent || ReviewerService.shared.isEnabled {
-            VStack(alignment: .leading, spacing: 6) {
-                if let intent = review.intentLine {
-                    reviewRow(L("Declared use"), text: intent, symbol: "text.book.closed")
-                }
-                if let asks = review.agentAsksLine {
-                    reviewRow(L("Agent asks"), text: review.input.command.map { "\(asks) · \($0)" } ?? asks, symbol: "hand.raised", monospacedTail: review.input.command != nil)
-                } else if let command = review.input.command {
-                    reviewRow(L("Command"), text: command, symbol: "terminal", monospacedTail: true)
-                }
-                if let suggests = review.keykeeperSuggestsLine {
-                    reviewRow(L("KeyKeeper suggests"), text: suggests, symbol: "checkmark.shield", tone: review.rules.verdict == .inflated ? .orange : .secondary)
-                }
-                if ReviewerService.shared.isEnabled {
-                    switch reviewerOutcome {
-                    case nil:
-                        reviewRow(L("Reviewer"), text: L("asking…"), symbol: "person.crop.circle.badge.questionmark")
-                    case .opinion(let opinion):
-                        reviewRow(L("Reviewer"), text: ReviewerService.line(for: opinion), symbol: "person.crop.circle.badge.checkmark",
-                                  tone: opinion.minimalScope && opinion.necessity >= 3 ? .secondary : .orange)
-                    case .unavailable(let why):
-                        reviewRow(L("Reviewer"), text: L("unavailable: \(why)"), symbol: "person.crop.circle.badge.exclamationmark")
-                    case .disabled:
-                        EmptyView()
-                    }
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .surface(.card)
-            .task {
-                guard ReviewerService.shared.isEnabled, reviewerOutcome == nil else { return }
-                reviewerOutcome = await ReviewerService.shared.review(review.input)
-            }
-        }
-    }
-
-    private func reviewRow(_ label: String, text: String, symbol: String, tone: Color = .secondary, monospacedTail: Bool = false) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: symbol).font(.caption).foregroundColor(tone)
-            Text(label).font(.caption.weight(.semibold)).foregroundColor(tone)
-            Text(verbatim: text)
-                .font(monospacedTail ? .caption.monospaced() : .caption)
-                .foregroundColor(.primary)
-                .lineLimit(3)
-                .truncationMode(.middle)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-        }
-    }
-
-    private var strictDurationPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(L("Grant access for:"))
-                .font(.subheadline.bold())
-
-            Picker(L("Duration"), selection: $selectedDuration) {
-                ForEach(DurationOption.available(hasTerminalSession: prompt.hasTerminalSession,
-                                                 canRemember: callerAssurance.canRemember), id: \.self) { option in
-                    Text(AppL10n.text(option.rawValue)).tag(option)
-                }
-            }
-            .pickerStyle(.radioGroup)
-            .labelsHidden()
-
-            // Who the approval covers, in one line; the full wording is in the folded details.
-            Text(callerAssurance.scopeSummaryLine(caller: callerName))
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var strictButtons: some View {
-        HStack(spacing: 10) {
-            Spacer()
-            Button(L("Deny")) {
-                onDeny()
-            }
-            .keyboardShortcut(.escape)
-
-            Button(action: {
-                authenticate {
-                    try onAuthorizeGrant?(selectedDuration.grantDuration)
-                }
-            }) {
-                HStack(spacing: 4) {
-                    if isAuthenticating {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: authenticationMethod.symbolName)
-                    }
-                    Text(L("Authorize"))
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(isAuthenticating || !canApprove)
-        }
-        .controlSize(.large)
-        .onAppear { startSettleTimer() }
-    }
-
-    // MARK: - Service Mode
-
-    private var serviceHeader: some View {
-        HStack(spacing: 14) {
+        HStack(alignment: .top, spacing: 14) {
             ZStack(alignment: .bottomTrailing) {
                 Image(nsImage: NSApp.applicationIconImage)
                     .resizable()
@@ -603,14 +340,30 @@ struct AuthorizationView: View {
                     .background(Circle().fill(.background))
                     .offset(x: 4, y: 4)
             }
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(L("\(callerName) wants to use \(prompt.credentialLabel)"))
                     .font(.system(size: 17, weight: .bold))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(prompt.title)
-                    .font(.callout)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 6) {
+                    Image(systemName: callerAssurance.symbolName)
+                        .foregroundColor(callerAssurance.isReassuring ? .secondary : .orange)
+                    Text(callerAssurance.label)
+                    Text("·")
+                    Text(prompt.fieldNames.joined(separator: ", "))
+                        .font(.caption.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if prompt.credentialId != prompt.credentialLabel {
+                        Text("·")
+                        Text(prompt.credentialId)
+                            .font(.caption.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
             }
         }
     }
@@ -647,34 +400,177 @@ struct AuthorizationView: View {
         }
     }
 
-    private var serviceRequestCard: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            infoRow(L("Credential"), value: prompt.credentialLabel, bold: true)
-            infoRow(L("Keys"), value: prompt.fieldNames.joined(separator: ", "), monospaced: true)
-            infoRow(L("Caller"), value: callerName)
-            callerAssuranceRow(callerAssurance)
+    /// What the caller wrote — the thing the person actually decides on, so it gets the room.
+    /// Plain text, one label saying whose words these are and that nobody checked them; the
+    /// command line under it in small type when the caller reported one.
+    @ViewBuilder
+    private var statedReasonSection: some View {
+        if prompt.statedReason != nil || review?.input.command != nil {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "quote.bubble")
+                    Text(L("\(callerName) says"))
+                    Text(L("not verified"))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+                if let reason = prompt.statedReason {
+                    Text(verbatim: reason.text)
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                        .lineLimit(5)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                if let command = review?.input.command {
+                    Text(verbatim: "$ " + command)
+                        .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .surface(.card)
         }
-        .padding(14)
-        .glassCard()
+    }
+
+    /// KeyKeeper's own line (offline rules), and the reviewer's when the person turned it on.
+    /// Nothing here when neither has anything to say.
+    @ViewBuilder
+    private var adviceSection: some View {
+        if let review, review.keykeeperSuggestsLine != nil || review.agentAsksLine != nil || review.intentLine != nil || ReviewerService.shared.isEnabled {
+            VStack(alignment: .leading, spacing: 6) {
+                if let suggests = review.keykeeperSuggestsLine {
+                    adviceRow("KeyKeeper", text: suggests, symbol: "checkmark.shield",
+                              tone: review.rules.verdict == .inflated ? .orange : .secondary)
+                } else if let asks = review.agentAsksLine {
+                    adviceRow(L("Asks for"), text: asks, symbol: "hand.raised")
+                }
+                if let intent = review.intentLine {
+                    adviceRow(L("Declared use"), text: intent, symbol: "text.book.closed")
+                }
+                if ReviewerService.shared.isEnabled {
+                    switch reviewerOutcome {
+                    case nil:
+                        adviceRow(L("Reviewer"), text: L("asking…"), symbol: "person.crop.circle.badge.questionmark")
+                    case .opinion(let opinion):
+                        adviceRow(L("Reviewer"), text: ReviewerService.line(for: opinion), symbol: "person.crop.circle.badge.checkmark",
+                                  tone: opinion.minimalScope && opinion.necessity >= 3 ? .secondary : .orange)
+                    case .unavailable(let why):
+                        adviceRow(L("Reviewer"), text: L("unavailable: \(why)"), symbol: "person.crop.circle.badge.exclamationmark")
+                    case .disabled:
+                        EmptyView()
+                    }
+                }
+            }
+            .task {
+                guard ReviewerService.shared.isEnabled, reviewerOutcome == nil else { return }
+                reviewerOutcome = await ReviewerService.shared.review(review.input)
+            }
+        }
+    }
+
+    private func adviceRow(_ label: String, text: String, symbol: String, tone: Color = .secondary) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: symbol).font(.caption).foregroundColor(tone)
+            Text(label).font(.caption.weight(.semibold)).foregroundColor(tone)
+            Text(verbatim: text)
+                .font(.caption)
+                .foregroundColor(.primary)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
+    }
+
+    /// Deny on the left; the answers on the right, the recommended one prominent. One line
+    /// under them says what "don't ask again" would cover for this caller.
+    private var choiceButtons: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: DS.Spacing.sm) {
+                Button(role: .destructive) { onDeny() } label: { Text(L("Deny")) }
+                    .buttonStyle(.bordered)
+                    .keyboardShortcut(.escape)
+                Spacer()
+                ForEach(choices, id: \.self) { choice in
+                    choiceButton(choice)
+                }
+            }
+            .controlSize(.large)
+            Text(choiceScopeLine)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var choiceScopeLine: String {
+        guard callerAssurance.canRemember else { return callerAssurance.scopeSummaryLine(caller: callerName) }
+        var parts: [String] = []
+        if choices.contains(.thisRun) {
+            parts.append(prompt.hasTerminalSession
+                         ? L("\u{201C}While it runs\u{201D} ends with this terminal session.")
+                         : L("\u{201C}While it runs\u{201D} ends when \(callerName) quits."))
+        }
+        parts.append(L("\u{201C}Don't ask again\u{201D} lasts until you revoke it."))
+        parts.append(callerAssurance.scopeSummaryLine(caller: callerName))
+        return parts.joined(separator: " ")
     }
 
     @ViewBuilder
-    private var callerDetailsSection: some View {
-        if let caller = prompt.callerIdentity {
-            DisclosureGroup(isExpanded: $showCallerDetails) {
-                VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-                    // The wording that used to fill the window: still here, one click away.
-                    Text(callerAssurance.explanation)
-                        .font(.caption2).foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(callerAssurance.scopeLine(caller: callerName, wholeCredential: prompt.isStrict))
-                        .font(.caption2).foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if prompt.isStrict, !prompt.hasTerminalSession {
-                        Text(L("This caller has no terminal session (cron, IDE or SDK), so a per-session grant isn't available."))
-                            .font(.caption2).foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+    private func choiceButton(_ choice: DurationChoice) -> some View {
+        let prominent = choice == recommended
+        let button = Button {
+            authenticate { try onAuthorize(choice) }
+        } label: {
+            HStack(spacing: 4) {
+                if prominent {
+                    if isAuthenticating {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: authenticationMethod.symbolName)
                     }
+                }
+                Text(AppL10n.text(choice.rawValue))
+            }
+        }
+        .disabled(isAuthenticating || !canApprove)
+        if prominent { button.buttonStyle(.borderedProminent) } else { button }
+    }
+
+    /// Everything that used to fill the window: the facts, the wording about what the tier
+    /// means, the diagnostics. One click away.
+    @ViewBuilder
+    private var callerDetailsSection: some View {
+        DisclosureGroup(isExpanded: $showCallerDetails) {
+            VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                detailRow(L("Credential"), value: prompt.credentialId == prompt.credentialLabel ? prompt.credentialLabel : "\(prompt.credentialLabel) · \(prompt.credentialId)")
+                detailRow(L("Keys"), value: prompt.fieldNames.joined(separator: ", "))
+                // "From" only when there is a terminal session to name; "no terminal session" is noise.
+                if prompt.hasTerminalSession, let sessionLabel = prompt.sessionLabel {
+                    detailRow(L("From"), value: CallerStatedReason.printableLine(AppL10n.text(sessionLabel), limit: 80))
+                }
+                Divider()
+                // The wording that used to fill the window: still here, one click away.
+                Text(callerAssurance.explanation)
+                    .font(.caption2).foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(callerAssurance.scopeLine(caller: callerName, wholeCredential: prompt.isStrict))
+                    .font(.caption2).foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if prompt.isStrict, !prompt.hasTerminalSession, !canBindToRun {
+                    Text(L("This caller has no terminal session (cron, IDE or SDK), so a per-session grant isn't available."))
+                        .font(.caption2).foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let caller = prompt.callerIdentity {
                     Divider()
                     if let path = caller.executablePath {
                         detailRow(L("Path"), value: path)
@@ -703,13 +599,13 @@ struct AuthorizationView: View {
                         }
                     }
                 }
-                .padding(.top, DS.Spacing.xs)
-            } label: {
-                Label(L("Details"), systemImage: "info.circle")
             }
-            .font(.caption)
-            .foregroundColor(.secondary)
+            .padding(.top, DS.Spacing.xs)
+        } label: {
+            Label(L("Details"), systemImage: "info.circle")
         }
+        .font(.caption)
+        .foregroundColor(.secondary)
     }
 
     /// Every one of these values comes from the caller's own process — paths, bundle ids, the
@@ -719,71 +615,13 @@ struct AuthorizationView: View {
             Text(label)
                 .font(.caption2)
                 .foregroundColor(.secondary.opacity(0.8))
-                .frame(width: 52, alignment: .trailing)
+            Spacer(minLength: 12)
             Text(CallerStatedReason.printableLine(value, limit: 200))
                 .font(.caption.monospaced())
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
         }
-    }
-
-    private var serviceButtons: some View {
-        VStack(spacing: DS.Spacing.md) {
-            Text(L("Grant this caller access for:"))
-                .font(.subheadline.bold())
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(callerAssurance.scopeSummaryLine(caller: callerName))
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack {
-                Button(role: .destructive) {
-                    onDeny()
-                } label: {
-                    Text(L("Deny"))
-                }
-                .buttonStyle(.bordered)
-                .keyboardShortcut(.escape)
-
-                Spacer()
-
-                HStack(spacing: DS.Spacing.sm) {
-                    serviceButton(L("Once"), .once) { .once }
-                    if callerAssurance.canRemember {
-                        serviceButton(L("1 Hour"), .oneHour) { .timed(Date().addingTimeInterval(3600)) }
-                        serviceButton(L("Always"), .always) { .always }
-                    }
-                }
-            }
-        }
-        .onAppear { startSettleTimer() }
-    }
-
-    /// One of the three service answers. The recommended one is drawn prominent and carries the
-    /// authentication symbol; an unidentified caller only ever sees "Once", which is then the one.
-    @ViewBuilder
-    private func serviceButton(_ title: String, _ kind: RequestedDuration, duration: @escaping () -> ApprovalDuration) -> some View {
-        let prominent = kind == recommendedServiceDuration || (!callerAssurance.canRemember && kind == .once)
-        let button = Button {
-            authenticate { try onAuthorizeService?(duration()) }
-        } label: {
-            HStack(spacing: 4) {
-                if prominent {
-                    if isAuthenticating {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: authenticationMethod.symbolName)
-                    }
-                }
-                Text(title)
-            }
-        }
-        .disabled(isAuthenticating || !canApprove)
-        if prominent { button.buttonStyle(.borderedProminent) } else { button }
     }
 
     /// Runs the grant callback and keeps the window open with the reason when it fails.

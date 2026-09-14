@@ -62,10 +62,11 @@ struct RequestReview: Equatable {
 
     static func durationName(_ duration: RequestedDuration) -> String {
         switch duration {
-        case .once: return L("Once")
+        case .once: return L("Just this once")
+        case .thisRun: return L("While it runs")
         case .session: return L("This terminal session")
         case .oneHour: return L("1 hour")
-        case .always: return L("Always")
+        case .always: return L("Don't ask again")
         }
     }
 

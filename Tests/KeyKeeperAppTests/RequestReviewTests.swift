@@ -38,8 +38,8 @@ final class RequestReviewTests: XCTestCase {
         XCTAssertEqual(review.rules.verdict, .inflated)
         XCTAssertEqual(review.rules.suggestedDuration, .once)
         XCTAssertTrue(review.hasContent)
-        XCTAssertTrue(review.keykeeperSuggestsLine!.contains("Once"), review.keykeeperSuggestsLine!)
-        XCTAssertEqual(review.agentAsksLine, "Always")
+        XCTAssertTrue(review.keykeeperSuggestsLine!.contains("Just this once"), review.keykeeperSuggestsLine!)
+        XCTAssertEqual(review.agentAsksLine, "Don't ask again")
         XCTAssertTrue(review.intentLine!.hasPrefix("one deploy ("), review.intentLine!)
     }
 
@@ -50,27 +50,20 @@ final class RequestReviewTests: XCTestCase {
         XCTAssertEqual(review.rules.findings, [])
     }
 
-    func test预选_规则建议优先_其次Agent要求_从不预选没提供的选项() {
-        typealias Option = AuthorizationView.DurationOption
+    func test推荐档_规则建议优先_其次Agent要求_从不推荐没提供的() {
+        typealias Choice = AuthorizationView.DurationChoice
         let cron = credential(intent: .init(purpose: "nightly", frequency: .scheduled, background: true), expires: "2027-01-01")
         let fine = RequestReview.make(prompt: strict(duration: .always), credential: cron, approvals: nil)
         XCTAssertEqual(fine.rules.findings, [])
-        XCTAssertEqual(Option.preselection(hasTerminalSession: true, canRemember: true, review: fine), .always, "规则没意见就顺着 Agent 的要求")
+        XCTAssertEqual(Choice.recommended(canRemember: true, canBindToRun: true, review: fine), .always, "规则没意见就顺着 Agent 的要求")
 
         let inflated = RequestReview.make(prompt: strict(duration: .always), credential: credential(intent: .init(purpose: "once", frequency: .once, background: false)), approvals: nil)
-        XCTAssertEqual(Option.preselection(hasTerminalSession: true, canRemember: true, review: inflated), .once, "规则建议压过 Agent 要求")
+        XCTAssertEqual(Choice.recommended(canRemember: true, canBindToRun: true, review: inflated), .once, "规则建议压过 Agent 要求")
 
-        XCTAssertEqual(Option.preselection(hasTerminalSession: false, canRemember: true, review: RequestReview.make(prompt: strict(duration: .session), credential: nil, approvals: nil)), .oneHour, "没有终端会话就不预选「本会话」")
-        XCTAssertEqual(Option.preselection(hasTerminalSession: true, canRemember: false, review: fine), .once, "认不出的调用方只有一次")
-        XCTAssertEqual(Option.preselection(hasTerminalSession: true, canRemember: true, review: nil), .session)
-    }
-
-    func test服务弹窗的高亮按钮跟着建议走() {
-        XCTAssertEqual(AuthorizationView.recommendedService(review: nil), .always)
         let asksHour = RequestReview.make(prompt: strict(duration: .oneHour), credential: nil, approvals: nil)
-        XCTAssertEqual(AuthorizationView.recommendedService(review: asksHour), .oneHour)
-        let inflated = RequestReview.make(prompt: strict(duration: .always), credential: credential(intent: .init(purpose: "once", frequency: .once, background: false)), approvals: nil)
-        XCTAssertEqual(AuthorizationView.recommendedService(review: inflated), .once)
+        XCTAssertEqual(Choice.recommended(canRemember: true, canBindToRun: true, review: asksHour), .thisRun, "旧的「1 小时」折成这次运行期间")
+        XCTAssertEqual(Choice.recommended(canRemember: true, canBindToRun: false, review: asksHour), .once, "绑不到运行就不推荐中间档")
+        XCTAssertEqual(Choice.recommended(canRemember: false, canBindToRun: true, review: fine), .once, "认不出的调用方只有一次")
     }
 
     func test每条结论都有中文() {
@@ -179,7 +172,7 @@ final class ReviewerServiceTests: XCTestCase {
         XCTAssertEqual(transport.headers["x-api-key"], "sk-ant-TEST")
         XCTAssertFalse(String(decoding: transport.body!, as: UTF8.self).contains("sk-ant-TEST"))
         let line = ReviewerService.line(for: .init(necessity: 2, minimalScope: false, suggestedDuration: .once, comment: "one deploy"))
-        XCTAssertTrue(line.contains("2/5") && line.contains("Once") && line.hasSuffix("one deploy"), line)
+        XCTAssertTrue(line.contains("2/5") && line.contains("Just this once") && line.hasSuffix("one deploy"), line)
     }
 
     /// yyt 2026-09-14：换个服务只要改 Base URL；接口按主机猜，模型从服务列出来的里面挑。

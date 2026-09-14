@@ -24,7 +24,7 @@ struct GetCommand: ParsableCommand {
     @Option(name: .long, help: "One line for the human: why you need this key and what you will do with it. Shown in the approval window, marked as unverified; it never changes what an approval grants.")
     var reason: String?
 
-    @Option(name: .long, help: "How long you ask to be approved for: once, session, 1h or always. A wish the person sees next to KeyKeeper's own suggestion; they decide.")
+    @Option(name: .long, help: "How long you ask to be approved for: once, run (while this process or terminal session lives) or always. A wish the person sees next to KeyKeeper's own suggestion; they decide. session and 1h are accepted as older spellings of run.")
     var duration: RequestedDuration?
 
     @Flag(name: .long, help: "Print the secret even though stdout is a terminal.")

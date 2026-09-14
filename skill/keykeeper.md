@@ -142,13 +142,15 @@ keykeeper get stripe secret-key --reason "Refunding order #1821 at the user's re
 
 ### Asking for a duration, and who checks it
 
-You may add `--duration once|session|1h|always` to `run` or `get`. It is a wish, not a setting:
-the prompt shows it as **Agent asks**, next to **KeyKeeper suggests** — an offline rule check
-that compares your wish and the command line with the use declared when the credential was
-created — and, if the user turned it on, a **Reviewer** line from a second model that is not
-you. The person picks; the prompt starts on KeyKeeper's suggestion when it has one, otherwise on
-yours. Ask for the smallest thing that does the job: `always` only for a use that recurs
-unattended, `1h` for a session of related work, `once` for one call. Overstating is visible,
+You may add `--duration once|run|always` to `run` or `get`. It is a wish, not a setting: the
+prompt shows it next to **KeyKeeper**'s own line — an offline rule check that compares your wish
+and the command line with the use declared when the credential was created — and, if the user
+turned it on, a **Reviewer** line from a second model that is not you. The person answers with
+one of three buttons: *just this once*, *while it runs* (until your process or terminal session
+ends), or *don't ask again* (until revoked); the recommended one is highlighted — KeyKeeper's
+suggestion when it has one, otherwise yours. Ask for the smallest thing that does the job:
+`always` only for a use that recurs unattended, `run` for a session of related work, `once` for
+one call (`session` and `1h` are accepted as older spellings of `run`). Overstating is visible,
 and the command line you ran is recorded with the approval.
 
 ## What an approval covers, exactly

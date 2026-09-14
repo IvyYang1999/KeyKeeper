@@ -218,6 +218,15 @@ extension AppL10n {
         "{0} s ago": "{0} 秒前",
         "{0} min ago": "{0} 分钟前",
         "{0} h ago": "{0} 小时前",
+        // 授权窗三档（2026-09-14 晚）
+        "While it runs": "这次运行期间",
+        "{0} can open it without asking while it runs": "{0} 这次运行期间可以直接打开",
+        "Don't ask again": "以后都不问",
+        "{0} says": "{0} 说",
+        "Asks for": "它要求",
+        "\u{201C}While it runs\u{201D} ends with this terminal session.": "「这次运行期间」到这个终端会话结束为止。",
+        "\u{201C}While it runs\u{201D} ends when {0} quits.": "「这次运行期间」到 {0} 退出为止。",
+        "\u{201C}Don't ask again\u{201D} lasts until you revoke it.": "「以后都不问」一直有效，直到你撤销。",
         // 用途声明 / 规则审 / 审查员（2026-09-14）
         "Declared use": "声明用途",
         "Agent asks": "Agent 要求",

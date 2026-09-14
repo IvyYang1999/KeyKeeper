@@ -411,6 +411,8 @@ enum SessionGrantCopy {
         switch approval.duration {
         case .always:
             return L("\(who) can open it without asking")
+        case .process:
+            return L("\(who) can open it without asking while it runs")
         case .timed(let until):
             let formatter = DateFormatter()
             formatter.locale = AppL10n.locale

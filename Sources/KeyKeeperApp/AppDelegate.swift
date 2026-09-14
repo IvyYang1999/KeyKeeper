@@ -241,9 +241,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Errors propagate to the window, which shows them and stays open so the
         // user can pick another option; the CLI keeps waiting on the same request.
-        let authorize: (ApprovalDuration) throws -> Void = { [weak self] duration in
+        let authorize: (AuthorizationView.DurationChoice) throws -> Void = { [weak self] choice in
                 guard let self else { return }
-                let resolved = try AccessPolicy.resolveIssuedDuration(requested: duration, terminalSession: request.sessionId)
+                let resolved = try DurationResolution.issued(choice, sessionId: request.sessionId, identity: request.callerIdentity)
                 // Scoped to the program that asked: every key of this credential, for that caller.
                 let approval = Approval(
                     subject: ApprovalSubject(fingerprint: request.callerIdentity?.subject.fingerprint ?? "",
@@ -262,7 +262,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // An isolated e2e instance answers itself; the window never appears.
         if let auto = TestInstance.autoApprove {
-            do { try authorize(auto.duration) } catch { deny() }
+            do { try authorize(auto.choice) } catch { deny() }
             clearAuthApproval()
             return
         }
@@ -284,8 +284,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             deny: { [weak self] in self?.ipcServer.denyServiceRequest(pending) }
         )
 
-        let authorize: (ApprovalDuration) throws -> Void = { [weak self] duration in
+        let authorize: (AuthorizationView.DurationChoice) throws -> Void = { [weak self] choice in
                 guard let self else { return }
+                let duration = try DurationResolution.issued(choice, sessionId: pending.request.sessionId, identity: pending.callerIdentity)
                 let approval = Approval(
                     subject: ApprovalSubject(fingerprint: pending.callerIdentity.subjectFingerprint,
                                              displayName: pending.callerIdentity.displayName),
@@ -304,7 +305,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
         }
         if let auto = TestInstance.autoApprove {
-            do { try authorize(auto.duration) } catch { ipcServer.denyServiceRequest(pending) }
+            do { try authorize(auto.choice) } catch { ipcServer.denyServiceRequest(pending) }
             clearAuthApproval()
             return
         }

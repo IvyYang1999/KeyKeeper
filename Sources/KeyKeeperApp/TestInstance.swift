@@ -21,7 +21,7 @@ enum TestInstance {
     enum AutoApprove: String {
         case once, always
 
-        var duration: ApprovalDuration {
+        var choice: AuthorizationView.DurationChoice {
             switch self {
             case .once: return .once
             case .always: return .always
