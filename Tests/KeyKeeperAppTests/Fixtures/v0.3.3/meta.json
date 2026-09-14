@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "storeInitialized": true,
+  "credentials": {
+    "openai": {
+      "label": "OpenAI",
+      "notes": "Evals only",
+      "links": [],
+      "fields": {
+        "api-key": { "secret": true, "displayName": "Project key" },
+        "org": { "secret": false, "value": "org-synthetic" }
+      },
+      "security": "strict",
+      "created": "2026-08-01",
+      "updated": "2026-09-01",
+      "aliases": ["openai-old"]
+    },
+    "vercel": {
+      "label": "Vercel",
+      "notes": "",
+      "links": [],
+      "fields": { "token": { "secret": true, "aliases": ["old-token"] } },
+      "security": "standard",
+      "created": "2026-08-15",
+      "updated": "2026-08-15"
+    }
+  }
+}

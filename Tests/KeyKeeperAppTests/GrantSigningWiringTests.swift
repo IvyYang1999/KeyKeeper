@@ -10,7 +10,7 @@ final class GrantSigningWiringTests: XCTestCase {
     func testApp先配置签名再清理授权() throws {
         let app = try source("Sources/KeyKeeperApp/AppDelegate.swift")
         let configure = try XCTUnwrap(app.range(of: "GrantFileIntegrity.configureAppDefaults"))
-        let prune = try XCTUnwrap(app.range(of: "GrantStore.default.pruneExpired()"))
+        let prune = try XCTUnwrap(app.range(of: "LaunchMaintenance.run("))
         XCTAssertLessThan(configure.lowerBound, prune.lowerBound)
     }
 

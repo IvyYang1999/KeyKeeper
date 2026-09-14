@@ -56,7 +56,8 @@ let package = Package(
         ),
         .testTarget(
             name: "KeyKeeperAppTests",
-            dependencies: ["KeyKeeperApp", "KeyKeeperTestSupport"]
+            dependencies: ["KeyKeeperApp", "KeyKeeperTestSupport"],
+            exclude: ["Fixtures"]
         ),
         .executableTarget(
             name: "VersionGenerator",

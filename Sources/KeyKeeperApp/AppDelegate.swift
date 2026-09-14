@@ -51,16 +51,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Record once that this machine has a Keychain store, so the "never recreate an empty
-        // store" guard survives a vault whose fields are all plain at the moment. After the
-        // duplicate check: a second instance is about to quit and must not touch the store.
-        markStoreInitializedIfNeeded()
-
-        // Both grant stores have always had a prune and nobody ever called it, so expired and
-        // spent approvals piled up in a plaintext file forever. They grant nothing — they just
-        // make it harder to see whether anyone has added a line to that file.
-        try? GrantStore.default.pruneExpired()
-        try? ServiceGrantStore.default.pruneExpired()
+        // After the duplicate check: a second instance is about to quit and must not touch the files.
+        LaunchMaintenance.run(.init(meta: MetaStore.default, inventory: credentialService.inspectValueInventory,
+                                    grants: GrantStore.default, serviceGrants: ServiceGrantStore.default))
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
@@ -343,16 +336,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             activatePopover()
         }
-    }
-
-    private func markStoreInitializedIfNeeded() {
-        let store = MetaStore.default
-        // inspectValueInventory is the non-interactive read: launch must never be able to raise
-        // a Keychain password prompt. The inventory is skipped entirely once the marker is set.
-        guard let meta = try? store.load(),
-              let updated = StoreInitializationMarker.updated(meta, inventory: credentialService.inspectValueInventory)
-        else { return }
-        try? store.save(updated)
     }
 
     // MARK: - Status bar menu (right-click)

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "grants": [
+    { "id": "g-unowned-always", "credentialId": "openai", "duration": { "type": "always" },
+      "createdAt": "2026-08-20T10:00:00Z", "consumed": false },
+    { "id": "g-session-old", "credentialId": "openai", "sessionId": "sess-1",
+      "duration": { "type": "session", "value": "sess-1" }, "createdAt": "2026-08-20T10:00:00Z", "consumed": false },
+    { "id": "g-once-spent", "credentialId": "openai", "duration": { "type": "once" },
+      "createdAt": "2026-09-10T10:00:00Z", "consumed": true }
+  ]
+}
