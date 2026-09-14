@@ -120,10 +120,12 @@ keykeeper edit apple-notary --unset region
 This never touches a secret field: asking to `--set` one is refused, because that would move a
 Keychain value into the clear. Tell the user what you recorded.
 
-## Saying why you need a key
+## Saying why you need a key (required the first time)
 
-When a key is set to ask every time, KeyKeeper shows the user an approval window. You can put
-one line in it:
+Whenever KeyKeeper would have to ask the user — a key set to ask every time, or the first time
+you use a "Background OK" key while the user has background reads set to ask first — the request
+**must** carry `--reason`. Without it KeyKeeper refuses before showing anything and tells you to
+add one. Once the user has approved you, later calls need no reason and show no window.
 
 ```bash
 keykeeper run -c cloudflare-billing --reason "Checking this month's bill; one read-only call, then done" -- python bill.py
@@ -135,7 +137,8 @@ keykeeper get stripe secret-key --reason "Refunding order #1821 at the user's re
   gives the caller every key in that credential, so don't promise a narrower scope than that.
 - Long text is folded to one line and cut at 200 characters. Write for the person, not for the
   machine: what you are doing and why now.
-- Leave it out when the user did not ask for the action; a reason you invented is worse than none.
+- Say what the user asked for and what you are about to do with the key, in one line. A reason
+  you invented is worse than none: the person reads it to decide whether the request is necessary.
 
 ## What an approval covers, exactly
 

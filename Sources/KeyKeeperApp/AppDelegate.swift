@@ -250,7 +250,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                              displayName: request.callerIdentity?.displayName ?? L("Unknown Caller")),
                     target: .credential(id: request.credentialId, fields: nil),
                     duration: resolved,
-                    onceFieldsRemaining: resolved == .once ? request.fieldNames : nil
+                    onceFieldsRemaining: resolved == .once ? request.fieldNames : nil,
+                    reason: request.statedReason?.text
                 )
                 try ApprovalStore.shared.add(approval)
                 self.ipcServer.respond(to: pending, with: AuthResponse(granted: true, grantId: approval.id))
@@ -288,7 +289,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                              displayName: pending.callerIdentity.displayName),
                     target: .credential(id: pending.credentialId, fields: pending.fieldNames),
                     duration: duration,
-                    onceFieldsRemaining: duration == .once ? pending.fieldNames : nil
+                    onceFieldsRemaining: duration == .once ? pending.fieldNames : nil,
+                    reason: pending.request.statedReason?.text
                 )
                 // An unidentified caller gets this one answer and nothing remembered.
                 do {

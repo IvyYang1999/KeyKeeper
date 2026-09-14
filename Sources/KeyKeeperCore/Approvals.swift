@@ -119,10 +119,13 @@ public struct Approval: Codable, Identifiable, Equatable, Sendable {
     /// approval covers that run however many fields it reads — it used to be spent on the first,
     /// so a credential with N secret fields prompted N times. Nil means spent on the first use.
     public var onceFieldsRemaining: [String]?
+    /// What the caller said it needed the key for when the person approved. Its words, kept for
+    /// the record; never a fact KeyKeeper verified.
+    public var reason: String?
 
     public init(id: String = UUID().uuidString, subject: ApprovalSubject, target: ApprovalTarget,
                 duration: ApprovalDuration, createdAt: Date = Date(), lastUsedAt: Date? = nil,
-                consumed: Bool = false, onceFieldsRemaining: [String]? = nil) {
+                consumed: Bool = false, onceFieldsRemaining: [String]? = nil, reason: String? = nil) {
         self.id = id
         self.subject = subject
         self.target = target
@@ -131,6 +134,7 @@ public struct Approval: Codable, Identifiable, Equatable, Sendable {
         self.lastUsedAt = lastUsedAt
         self.consumed = consumed
         self.onceFieldsRemaining = onceFieldsRemaining
+        self.reason = reason
     }
 
     /// How long a "just this once" approval stays open for the rest of the run's fields.
@@ -177,10 +181,12 @@ public struct ServiceAuditEvent: Codable, Sendable, Equatable {
     public var subjectDisplayName: String
     public var mode: ServiceAuthorizationMode
     public var decision: String
+    /// The caller's stated reason, when it gave one.
+    public var reason: String?
 
     public init(timestamp: Date = Date(), credentialId: String, fieldName: String,
                 subjectFingerprint: String, subjectDisplayName: String,
-                mode: ServiceAuthorizationMode, decision: String) {
+                mode: ServiceAuthorizationMode, decision: String, reason: String? = nil) {
         self.timestamp = timestamp
         self.credentialId = credentialId
         self.fieldName = fieldName
@@ -188,6 +194,7 @@ public struct ServiceAuditEvent: Codable, Sendable, Equatable {
         self.subjectDisplayName = subjectDisplayName
         self.mode = mode
         self.decision = decision
+        self.reason = reason
     }
 }
 
@@ -454,7 +461,7 @@ public enum AccessPolicy {
     ///   decides, and either way the access log gets a line.
     public static func decide(credential: Credential, credentialId: String, field: String,
                               caller: CallerIdentity, terminalSession: String?,
-                              store: ApprovalStore, now: Date = Date()) throws -> AccessDecision {
+                              store: ApprovalStore, reason: String? = nil, now: Date = Date()) throws -> AccessDecision {
         if let approval = try store.valid(credentialId: credentialId, field: field,
                                           fingerprint: caller.subject.fingerprint,
                                           terminalSession: terminalSession, now: now) {
@@ -465,7 +472,7 @@ public enum AccessPolicy {
         try store.recordAudit(ServiceAuditEvent(
             timestamp: now, credentialId: credentialId, fieldName: field,
             subjectFingerprint: caller.subject.fingerprint, subjectDisplayName: caller.displayName,
-            mode: mode, decision: mode == .permissive ? "allowed_without_grant" : "prompt_required"))
+            mode: mode, decision: mode == .permissive ? "allowed_without_grant" : "prompt_required", reason: reason))
         return mode == .permissive ? .allowed(nil) : .needsApproval
     }
 
@@ -484,3 +491,19 @@ public enum AccessPolicy {
         return "KeyKeeper could not identify the program asking (it may have exited, or macOS could not attribute it), so it cannot give it keys that need approval. No prompt was shown. Run the command again from a terminal or an app."
     }
 }
+
+/// A first request has to say why.
+///
+/// yyt 2026-09-14: the reason is the one thing in the window the person can judge "is this
+/// necessary" by, so an agent asking for the first time must give one. Callers already approved
+/// never see a prompt and are not asked; cron jobs keep running.
+public enum ReasonPolicy {
+    public static func refusal(statedReason: CallerStatedReason?, callerName: String, credentialLabel: String) -> String? {
+        // 【曾经的 bug】the first draft of this guard was inverted and let every reason-less request through.
+        if let text = statedReason?.text, !text.isEmpty { return nil }
+        do {
+            return "First request from \(callerName) for '\(credentialLabel)': say why in one line with --reason \"…\" and run again. The person approving reads it. Callers already approved never need it."
+        }
+    }
+}
+

@@ -555,6 +555,11 @@ final class IPCServer: ObservableObject {
             send(.auth(AuthResponse(granted: false, error: refusal)), clientFd: clientFd)
             return
         }
+        if let refusal = ReasonPolicy.refusal(statedReason: enrichedRequest.statedReason,
+                                              callerName: callerIdentity.displayName, credentialLabel: credential.label) {
+            send(.auth(AuthResponse(granted: false, error: refusal)), clientFd: clientFd)
+            return
+        }
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -703,7 +708,8 @@ final class IPCServer: ObservableObject {
         do {
             switch try AccessPolicy.decide(credential: cred, credentialId: request.credentialId,
                                            field: request.fieldName, caller: callerIdentity,
-                                           terminalSession: request.sessionId, store: approvals) {
+                                           terminalSession: request.sessionId, store: approvals,
+                                           reason: request.statedReason?.text) {
             case .allowed(let approval):
                 Self.readValueAndRespond(request: request, clientFd: clientFd, session: session,
                                          matched: approval, approvals: approvals)
@@ -713,6 +719,13 @@ final class IPCServer: ObservableObject {
                 Self.writeAndClose(IPCResponse.value(ValueResponse(
                     success: false, error: "No valid grant", errorCode: .noAuthorization)), clientFd: clientFd)
             case .needsApproval:
+                // A first request has to say why before anyone is shown a window.
+                if let refusal = ReasonPolicy.refusal(statedReason: request.statedReason,
+                                                      callerName: callerIdentity.displayName, credentialLabel: cred.label) {
+                    Self.writeAndClose(IPCResponse.value(ValueResponse(
+                        success: false, error: refusal, errorCode: .noAuthorization)), clientFd: clientFd)
+                    return
+                }
                 enqueueServiceRequest(request, credential: cred, clientFd: clientFd, callerIdentity: callerIdentity)
             }
         } catch {

@@ -131,7 +131,8 @@ final class IPCAuthorizationQueueTests: XCTestCase {
             AuthRequest(credentialId: "service-a",
                         credentialLabel: "OpenAI 测试 key",      // 调用方自报，和本地不符
                         fieldNames: ["made-up"],                  // 假字段，真字段是 access
-                        sessionId: nil, sessionLabel: nil, pid: 1),
+                        sessionId: nil, sessionLabel: nil, pid: 1,
+                        statedReason: CallerStatedReason(text: "test: first request")),
             clientFd: descriptors[0],
             callerIdentity: makeCaller("liar"))
         drainMainQueue()
@@ -231,13 +232,15 @@ final class IPCAuthorizationQueueTests: XCTestCase {
     }
 
     /// Sends a value request and returns the client-side descriptor to read the response from.
-    private func sendValueRequest(server: IPCServer, caller: CallerIdentity) throws -> Int32 {
+    private func sendValueRequest(server: IPCServer, caller: CallerIdentity,
+                                  reason: String? = "test: reading the key") throws -> Int32 {
         var descriptors = [Int32](repeating: -1, count: 2)
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
         server.handleValueRequest(
-            ValueRequest(credentialId: "service-a", fieldName: "access", sessionId: nil),
+            ValueRequest(credentialId: "service-a", fieldName: "access", sessionId: nil,
+                         statedReason: CallerStatedReason.sanitize(reason)),
             clientFd: descriptors[0],
             callerIdentity: caller
         )
@@ -281,3 +284,55 @@ private final class QueueSession: SessionControlling, @unchecked Sendable {
     func lock() {}
     func retrieve(credentialId: String, fieldName: String) throws -> String { "opaque-value" }
 }
+
+extension IPCAuthorizationQueueTests {
+    /// yyt 2026-09-14：初次请求授权时「备注」应该是必填项。没有理由的首次请求在弹窗前就被拒，
+    /// 已经批准过的调用方照常不问。
+    func test首次请求没有理由就不弹窗直接拒() throws {
+        let server = makeServer()
+        let fd = try sendValueRequest(server: server, caller: makeCaller("silent"), reason: nil)
+        defer { close(fd) }
+        drainMainQueue()
+        XCTAssertNil(server.pendingServiceRequest, "不该进队列")
+        guard hasResponse(fd) else { return XCTFail("拒绝应当立刻回包，而不是让调用方干等") }
+        let response = try readValueResponse(fd)
+        XCTAssertFalse(response.success)
+        XCTAssertEqual(response.errorCode, .noAuthorization)
+        XCTAssertTrue(response.error?.contains("--reason") == true, response.error ?? "")
+    }
+
+    func test已批准的调用方没有理由也照常放行() throws {
+        let caller = makeCaller("approved")
+        try approvals.add(Approval(subject: .init(fingerprint: caller.subjectFingerprint, displayName: caller.displayName),
+                                   target: .credential(id: "service-a", fields: ["access"]), duration: .always))
+        let server = makeServer()
+        let fd = try sendValueRequest(server: server, caller: caller, reason: nil)
+        defer { close(fd) }
+        drainMainQueue()
+        guard hasResponse(fd) else { return XCTFail("已批准的调用方应当直接拿到值") }
+        XCTAssertTrue(try readValueResponse(fd).success)
+    }
+
+    func teststrict凭据的授权请求没有理由也被拒() throws {
+        try metaStore.save(MetaFile(credentials: [
+            "strict-a": Credential(label: "Strict A", notes: "", links: [], fields: ["key": CredentialField(secret: true)],
+                                   security: .strict, created: "2026-09-03", updated: "2026-09-03"),
+        ]))
+        let server = makeServer()
+        var descriptors = [Int32](repeating: -1, count: 2)
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
+        defer { close(descriptors[1]) }
+        server.handleAuthRequest(AuthRequest(credentialId: "strict-a", credentialLabel: "Strict A", fieldNames: ["key"],
+                                             sessionId: nil, sessionLabel: nil, pid: 1),
+                                 clientFd: descriptors[0], callerIdentity: makeCaller("mute"))
+        drainMainQueue()
+        XCTAssertNil(server.pendingRequest)
+        var pollDescriptor = pollfd(fd: descriptors[1], events: Int16(POLLIN), revents: 0)
+        guard poll(&pollDescriptor, 1, 500) > 0 else { return XCTFail("拒绝应当立刻回包，而不是让调用方干等") }
+        guard let envelope = IPCMessage.readMessage(fd: descriptors[1], as: IPCResponse.self),
+              case .auth(let response) = envelope else { return XCTFail("no auth response") }
+        XCTAssertFalse(response.granted)
+        XCTAssertTrue(response.error?.contains("--reason") == true, response.error ?? "")
+    }
+}
+
