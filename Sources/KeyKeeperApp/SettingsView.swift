@@ -126,6 +126,9 @@ struct SettingsView: View {
     }
 
     /// yyt 2026-09-14: 「应该有一个独立的第三方，检查下模型的需求合不合理」。
+    /// yyt 2026-09-14: "Base URL and API key go together; the first box looked like the key
+    /// box and then I had to go store a credential." Now it reads top to bottom like every
+    /// other API settings page: Base URL, API key, model — and saving the key looks up the models.
     private var reviewerCard: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             SectionLabel(text: L("Independent reviewer"))
@@ -134,73 +137,66 @@ struct SettingsView: View {
                     .font(.callout)
             }
             .onChange(of: reviewerEnabled) { _, value in ReviewerService.shared.isEnabled = value }
-            HStack(spacing: DS.Spacing.sm) {
-                Text(L("API key:")).font(.caption).foregroundColor(.secondary)
-                SecureField(reviewerHasKey ? L("saved · paste to replace") : L("paste the reviewer's key"), text: $reviewerKeyDraft)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption.monospaced())
-                    .frame(maxWidth: 260)
-                    .onSubmit { commitReviewerKey() }
-                Button(L("Save key")) { commitReviewerKey() }
-                    .disabled(reviewerKeyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
-                if reviewerHasKey {
-                    Button(L("Forget")) { ReviewerService.shared.apiKey = ""; reviewerHasKey = false; reviewerModels = [] }
-                }
-            }
-            HStack(spacing: DS.Spacing.sm) {
-                Text(L("Base URL:")).font(.caption).foregroundColor(.secondary)
-                TextField(ReviewerEndpoint.defaultBaseURL, text: $reviewerBaseURL)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption.monospaced())
-                    .onChange(of: reviewerBaseURL) { _, value in ReviewerService.shared.baseURLText = value; reviewerModels = [] }
-                Picker("", selection: $reviewerAPI) {
-                    Text(L("Auto")).tag("auto")
-                    Text("Anthropic").tag(ReviewerEndpoint.API.anthropic.rawValue)
-                    Text(L("OpenAI-compatible")).tag(ReviewerEndpoint.API.openAICompatible.rawValue)
-                }
-                .labelsHidden()
-                .frame(maxWidth: 170)
-                .onChange(of: reviewerAPI) { _, value in ReviewerService.shared.apiOverride = ReviewerEndpoint.API(rawValue: value) }
-            }
-            HStack(spacing: DS.Spacing.sm) {
-                Text(L("Model:")).font(.caption).foregroundColor(.secondary)
-                if reviewerModels.isEmpty {
-                    TextField(ReviewerEndpoint.defaultModel, text: $reviewerModel)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.caption.monospaced())
-                        .frame(maxWidth: 220)
-                        .onChange(of: reviewerModel) { _, value in ReviewerService.shared.model = value }
-                } else {
-                    Picker("", selection: $reviewerModel) {
-                        ForEach(reviewerModels, id: \.self) { Text($0).tag($0) }
+
+            Grid(alignment: .leading, horizontalSpacing: DS.Spacing.sm, verticalSpacing: DS.Spacing.sm) {
+                GridRow {
+                    Text(L("Base URL")).font(.caption).foregroundColor(.secondary)
+                    HStack(spacing: DS.Spacing.sm) {
+                        TextField(ReviewerEndpoint.defaultBaseURL, text: $reviewerBaseURL)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.caption.monospaced())
+                            .onChange(of: reviewerBaseURL) { _, value in ReviewerService.shared.baseURLText = value; reviewerModels = [] }
+                        Picker("", selection: $reviewerAPI) {
+                            Text(L("Auto")).tag("auto")
+                            Text("Anthropic").tag(ReviewerEndpoint.API.anthropic.rawValue)
+                            Text(L("OpenAI-compatible")).tag(ReviewerEndpoint.API.openAICompatible.rawValue)
+                        }
+                        .labelsHidden()
+                        .frame(width: 150)
+                        .onChange(of: reviewerAPI) { _, value in ReviewerService.shared.apiOverride = ReviewerEndpoint.API(rawValue: value) }
                     }
-                    .labelsHidden()
-                    .frame(maxWidth: 260)
-                    .onChange(of: reviewerModel) { _, value in ReviewerService.shared.model = value }
                 }
-                Button {
-                    reviewerListing = true; reviewerStatus = nil
-                    Task {
-                        let result = await ReviewerService.shared.listModels()
-                        reviewerListing = false
-                        switch result {
-                        case .success(let models):
-                            reviewerModels = models
-                            if !models.contains(reviewerModel) { reviewerModel = models[0]; ReviewerService.shared.model = models[0] }
-                            reviewerStatus = L("\(models.count) models available")
-                        case .failure(let error):
-                            reviewerStatus = error.localizedDescription
+                GridRow {
+                    Text(L("API key")).font(.caption).foregroundColor(.secondary)
+                    HStack(spacing: DS.Spacing.sm) {
+                        SecureField(reviewerHasKey ? L("saved · paste a new one to replace") : L("paste the key here"), text: $reviewerKeyDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.caption.monospaced())
+                            .onSubmit { commitReviewerKey() }
+                        Button(reviewerHasKey ? L("Replace") : L("Save")) { commitReviewerKey() }
+                            .disabled(reviewerKeyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                        if reviewerHasKey {
+                            Button(L("Forget")) { ReviewerService.shared.apiKey = ""; reviewerHasKey = false; reviewerModels = []; reviewerStatus = nil }
                         }
                     }
-                } label: {
-                    if reviewerListing { ProgressView().controlSize(.small) } else { Text(L("Find models")) }
                 }
-                .disabled(reviewerListing)
+                GridRow {
+                    Text(L("Model")).font(.caption).foregroundColor(.secondary)
+                    HStack(spacing: DS.Spacing.sm) {
+                        if reviewerModels.isEmpty {
+                            TextField(ReviewerEndpoint.defaultModel, text: $reviewerModel)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.caption.monospaced())
+                                .onChange(of: reviewerModel) { _, value in ReviewerService.shared.model = value }
+                        } else {
+                            Picker("", selection: $reviewerModel) {
+                                ForEach(reviewerModels, id: \.self) { Text($0).tag($0) }
+                            }
+                            .labelsHidden()
+                            .onChange(of: reviewerModel) { _, value in ReviewerService.shared.model = value }
+                        }
+                        Button { findReviewerModels() } label: {
+                            if reviewerListing { ProgressView().controlSize(.small) } else { Text(L("Find models")) }
+                        }
+                        .disabled(reviewerListing || !reviewerHasKey)
+                        .help(reviewerHasKey ? L("Ask the service which models this key can use") : L("Save the key first"))
+                    }
+                }
             }
             if let reviewerStatus {
                 Text(reviewerStatus).font(.caption2).foregroundColor(.secondary)
             }
-            Text(L("Any service that speaks the Anthropic or OpenAI API. Its key is stored in KeyKeeper's own Keychain item, not as a credential. The reviewer sees key names, the caller's stated reason and command, and the declared use — never a value. Its opinion is shown in the approval window; it never approves anything."))
+            Text(L("Any service that speaks the Anthropic or OpenAI API. The key lives in KeyKeeper's own Keychain item — not in your credential list, where a program could rename things around it. The reviewer sees key names, the caller's stated reason and command, and the declared use — never a value. Its opinion is shown in the approval window; it never approves anything."))
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -214,7 +210,24 @@ struct SettingsView: View {
         ReviewerService.shared.apiKey = key
         reviewerKeyDraft = ""
         reviewerHasKey = true
-        reviewerStatus = L("Key saved in KeyKeeper's own Keychain item. It is never a credential and never shown again.")
+        reviewerStatus = L("Key saved. Looking up the models it can use…")
+        findReviewerModels()
+    }
+
+    private func findReviewerModels() {
+        reviewerListing = true
+        Task {
+            let result = await ReviewerService.shared.listModels()
+            reviewerListing = false
+            switch result {
+            case .success(let models):
+                reviewerModels = models
+                if !models.contains(reviewerModel) { reviewerModel = models[0]; ReviewerService.shared.model = models[0] }
+                reviewerStatus = L("\(models.count) models available — pick one above.")
+            case .failure(let error):
+                reviewerStatus = L("Could not list models: \(error.localizedDescription) You can type a model name instead.")
+            }
+        }
     }
 
     private var startupCard: some View {
