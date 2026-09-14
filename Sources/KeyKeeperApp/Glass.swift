@@ -160,12 +160,53 @@ extension View {
     /// edges. Scrolling the overflow keeps the window inside the screen, so the glass corners are
     /// always the window's corners. The height is only a ceiling: short content still hugs.
     func authorizationPanel(width: CGFloat, maxHeight: CGFloat, intensity: Double = 1) -> some View {
-        ScrollView(.vertical) { self.frame(width: width) }
-            .frame(width: width)
-            .frame(maxHeight: maxHeight)
-            .scrollBounceBehavior(.basedOnSize)
-            .glassWindowBackground(intensity: intensity)
+        MeasuredScrollPanel(width: width, maxHeight: maxHeight, intensity: intensity) { self }
     }
+}
+
+/// A panel whose height is the content's height, capped at `maxHeight`; only content taller than
+/// the cap scrolls.
+///
+/// 【曾经的 bug · 2026-09-14】the panel used to be `ScrollView { … }.frame(maxHeight:)`. A ScrollView
+/// answers "as tall as you offer" to any proposal, and NSHostingView re-proposes the window's own
+/// size on every layout, so each pass asked for a little more: the window walked from 558pt of
+/// content up to the 932pt of the screen, 32pt a frame — traced with a backtrace in an isolated
+/// instance (`NSHostingView.windowDidLayout → updateAnimatedWindowSize`). Fixed-size content has
+/// one answer; the ScrollView only appears once the measured content exceeds the cap, and then
+/// with an explicit height.
+private struct MeasuredScrollPanel<Content: View>: View {
+    let width: CGFloat
+    let maxHeight: CGFloat
+    let intensity: Double
+    @ViewBuilder let content: () -> Content
+    @State private var contentHeight: CGFloat = 0
+
+    private var measured: some View {
+        content()
+            .frame(width: width)
+            .background(GeometryReader { proxy in
+                Color.clear.preference(key: ContentHeightKey.self, value: proxy.size.height)
+            })
+    }
+
+    var body: some View {
+        Group {
+            if contentHeight > maxHeight {
+                ScrollView(.vertical) { measured }
+                    .frame(width: width, height: maxHeight)
+                    .scrollBounceBehavior(.basedOnSize)
+            } else {
+                measured.fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
+        .glassWindowBackground(intensity: intensity)
+    }
+}
+
+private struct ContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// Small grey section heading used across the glass surfaces.

@@ -137,8 +137,12 @@ final class AuthorizationPanelHeightTests: XCTestCase {
         for (height, maxHeight) in [(20.0, 900.0), (4000.0, 400.0)] {
             let content = Color.clear.frame(height: height)
             let view = NSHostingView(rootView: content.authorizationPanel(width: 420, maxHeight: maxHeight))
-            view.frame = NSRect(origin: .zero, size: view.fittingSize)
-            view.layoutSubtreeIfNeeded()
+            // Two passes, like the window: size to the content, let it measure, size again.
+            for _ in 0..<2 {
+                view.frame = NSRect(origin: .zero, size: view.fittingSize)
+                view.layoutSubtreeIfNeeded()
+            }
+            XCTAssertLessThanOrEqual(view.bounds.height, maxHeight + 1, "高度 \(height)")
             let glass = try XCTUnwrap(AuthorizationWindowChromeTests.visualEffectViews(in: view).first)
             let rect = glass.convert(glass.bounds, to: view)
             XCTAssertEqual(rect.height, view.bounds.height, accuracy: 1, "高度 \(height)")

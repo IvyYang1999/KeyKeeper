@@ -5,7 +5,7 @@ import KeyKeeperCore
 /// Manages a standalone floating window for authorization prompts.
 @MainActor
 final class AuthorizationWindowController {
-    private var window: NSWindow?
+    private(set) var window: NSWindow?
     private var windowDelegate: WindowCloseDelegate?
     private var isProgrammaticClose = false
 
