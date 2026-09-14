@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.4 - 2026-09-15
+
+- Approvals moved from plain files into a single app-owned Keychain item; the old files are renamed and no longer read. "Always" is scoped to the approved program only, an unsigned app is identified by the file it runs from, and a fresh install enforces background approvals by default. Existing approvals ask once more.
+- Approval window redesigned: the caller's message in the middle, KeyKeeper's own one-line verdict, three answers — just this once, while it runs (bound to the process or terminal session), don't ask again. The credential ID is shown when it differs from the title.
+- A first request must carry `--reason`; `save --create` declares a purpose (`--purpose`, `--frequency`, `--background`); `run`/`get` may ask for a duration. Rules flag inflated requests; an optional second-model reviewer (any Anthropic/OpenAI-style endpoint) adds an opinion.
+- Inject-only credentials: agent-created credentials are served only to `keykeeper run`; `get` and the SDKs are refused unless "Can be read out" is turned on.
+- Plain fields written over the socket are not injected until confirmed in the app.
+- Clipboard saves take what is on the clipboard and show a masked preview with the copy time; the "copy exactly once after the request" rule is gone.
+- Login sessions can be opened inside KeyKeeper and handed to an agent once, for a run, or until revoked; credentials can record an expiry date.
+- Fixes: the CLI no longer times out while an approval window is open; metadata changed outside KeyKeeper is flagged; field names that would become variables like PATH are refused; a tampered Chrome registration can be repaired; a "once" approval hands each field out once.
+
 ## 0.3.3 - 2026-09-13
 
 - Clipboard saves accept only a copy made after the request, exactly once; what was already on the clipboard is refused (`--use-current-clipboard` opts out).
