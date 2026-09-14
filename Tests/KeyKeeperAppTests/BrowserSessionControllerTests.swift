@@ -9,7 +9,7 @@ import KeyKeeperTestSupport
         let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
         var now = Date(); var connected = true; var decide: ((Bool) -> Void)?
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { now },
-            present: { _, reply in decide = reply }, dismiss: {})
+            present: { _, reply in decide = reply }, dismiss: {}, approvals: .inMemory())
         let input = BrowserSessionImport(id: UUID().uuidString, origin: "https://example.com", label: "Synthetic", cookies: [
             .init(name: "fixture", value: "synthetic", domain: "example.com", hostOnly: true,
                   path: "/", secure: true, httpOnly: true, sameSite: "lax", expirationDate: nil)
@@ -30,7 +30,7 @@ import KeyKeeperTestSupport
 
     func testConcurrentAndExternalApprovalBusyRequestsCannotReplacePendingIntent() {
         let controller = BrowserSessionController(store: .init(io: FakeKeychainIO(), marker: SessionControllerMarker()),
-            runtime: TestSessionRuntime(), present: { _, _ in }, dismiss: {})
+            runtime: TestSessionRuntime(), present: { _, _ in }, dismiss: {}, approvals: .inMemory())
         controller.otherApprovalPending = { true }
         var result: BrowserSessionResponse?
         controller.receive(.init(action: .open, id: UUID().uuidString), caller: "Fixture") { result = $0 }
@@ -49,7 +49,7 @@ import KeyKeeperTestSupport
         try store.save(snapshot)
         var approve: ((Bool) -> Void)?; var result: BrowserSessionResponse?
         let controller = BrowserSessionController(store: store, runtime: runtime,
-            present: { _, reply in approve = reply }, dismiss: {})
+            present: { _, reply in approve = reply }, dismiss: {}, approvals: .inMemory())
         controller.receive(.init(action: .open, id: snapshot.id), caller: "Synthetic") { result = $0 }
         XCTAssertTrue(controller.isPending); XCTAssertEqual(runtime.openCount, 0)
         controller.receive(.init(action: .stop, id: snapshot.id), caller: "Synthetic") { XCTAssertTrue($0.success) }
@@ -74,7 +74,7 @@ import KeyKeeperTestSupport
         let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
         var prompts = 0; var decide: ((Bool) -> Void)?
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
-            present: { _, reply in prompts += 1; decide = reply }, dismiss: {})
+            present: { _, reply in prompts += 1; decide = reply }, dismiss: {}, approvals: .inMemory())
         let input = BrowserSessionImport(id: UUID().uuidString, origin: "https://example.com", label: "Synthetic", cookies: [
             .init(name: "fixture", value: "synthetic", domain: "example.com", hostOnly: true,
                   path: "/", secure: true, httpOnly: true, sameSite: "lax", expirationDate: nil)
@@ -139,7 +139,7 @@ private final class SessionControllerMarker: BrowserSessionMarker {
         let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
         var decide: ((Bool) -> Void)?
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
-            present: { _, reply in decide = reply }, dismiss: {})
+            present: { _, reply in decide = reply }, dismiss: {}, approvals: .inMemory())
         let input = BrowserSessionImport(id: UUID().uuidString, origin: "https://example.com", label: "Synthetic", cookies: [
             .init(name: "fixture", value: "synthetic", domain: "example.com", hostOnly: true,
                   path: "/", secure: true, httpOnly: true, sameSite: "lax", expirationDate: nil)
@@ -165,15 +165,16 @@ private final class SessionControllerMarker: BrowserSessionMarker {
         let io = FakeKeychainIO(), runtime = FocusTrackingRuntime()
         let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
         var prompts = 0; var decide: ((Bool) -> Void)?
+        let approvals = ApprovalStore.inMemory()
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
-            present: { _, reply in prompts += 1; decide = reply }, dismiss: {})
+            present: { _, reply in prompts += 1; decide = reply }, dismiss: {}, approvals: approvals)
         let input = BrowserSessionImport(id: UUID().uuidString, origin: "https://example.com", label: "Synthetic", cookies: [
             .init(name: "fixture", value: "synthetic", domain: "example.com", hostOnly: true,
                   path: "/", secure: true, httpOnly: true, sameSite: "lax", expirationDate: nil)
         ])
         _ = try store.save(input)
-        try store.addGrant(.init(sessionId: input.id, subjectFingerprint: "app:bundle=com.example.agent",
-                                 subjectDisplayName: "Agent", duration: .always))
+        try approvals.add(Approval(subject: .init(fingerprint: "app:bundle=com.example.agent", displayName: "Agent"),
+                                   target: .session(id: input.id), duration: .always))
         controller.refresh()
 
         // 有授权的调用方：直接开，不问，而且不抢焦点
@@ -212,7 +213,7 @@ extension BrowserSessionControllerTests {
         let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
         var results: [BrowserSessionResponse] = []
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
-            present: { _, _ in }, dismiss: {})
+            present: { _, _ in }, dismiss: {}, approvals: .inMemory())
         let input = BrowserSessionImport(id: UUID().uuidString, origin: "https://example.com", label: "S", cookies: [
             .init(name: "f", value: "synthetic", domain: "example.com", hostOnly: true,
                   path: "/", secure: true, httpOnly: true, sameSite: "lax", expirationDate: nil)
@@ -252,12 +253,12 @@ extension BrowserSessionControllerTests {
     func test开登录态可以按时长记住这个调用方() throws {
         let runtime = TestSessionRuntime()
         let store = BrowserSessionStore(io: FakeKeychainIO(), marker: SessionControllerMarker())
-        var durationReply: ((ServiceGrantDuration?) -> Void)?
+        var durationReply: ((ApprovalDuration?) -> Void)?
         var offered: Bool?
         var plainPrompts = 0
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
             present: { _, _ in plainPrompts += 1 }, dismiss: {},
-            presentWithDuration: { info, reply in offered = info.offersDurations; durationReply = reply })
+            presentWithDuration: { info, reply in offered = info.offersDurations; durationReply = reply }, approvals: .inMemory())
         let input = try savedSession(store)
         controller.refresh()
         let agent = "unsigned:path=agent"
@@ -267,7 +268,7 @@ extension BrowserSessionControllerTests {
         XCTAssertEqual(offered, true)
         durationReply?(.always)
         XCTAssertEqual(results.last?.success, true)
-        XCTAssertEqual(controller.grants(for: input.id).map(\.subjectFingerprint), [agent])
+        XCTAssertEqual(controller.approvals(for: input.id).map(\.subject.fingerprint), [agent])
 
         runtime.stop(id: input.id)
         durationReply = nil
@@ -280,24 +281,24 @@ extension BrowserSessionControllerTests {
         XCTAssertNotNil(durationReply, "别的调用方照样要问")
         XCTAssertEqual(plainPrompts, 0)
 
-        let grant = try XCTUnwrap(controller.grants(for: input.id).first)
-        controller.revokeGrant(id: grant.id)
-        XCTAssertTrue(controller.grants(for: input.id).isEmpty, "撤销之后就没了")
+        let approval = try XCTUnwrap(controller.approvals(for: input.id).first)
+        controller.revokeApproval(id: approval.id)
+        XCTAssertTrue(controller.approvals(for: input.id).isEmpty, "撤销之后就没了")
     }
 
     func test选仅这一次不留下授权() throws {
         let runtime = TestSessionRuntime()
         let store = BrowserSessionStore(io: FakeKeychainIO(), marker: SessionControllerMarker())
-        var durationReply: ((ServiceGrantDuration?) -> Void)?
+        var durationReply: ((ApprovalDuration?) -> Void)?
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
-            present: { _, _ in }, dismiss: {}, presentWithDuration: { _, reply in durationReply = reply })
+            present: { _, _ in }, dismiss: {}, presentWithDuration: { _, reply in durationReply = reply }, approvals: .inMemory())
         let input = try savedSession(store)
         controller.refresh()
         var result: BrowserSessionResponse?
         controller.receive(.init(action: .open, id: input.id), caller: "Agent", fingerprint: "unsigned:path=agent") { result = $0 }
         durationReply?(.once)
         XCTAssertEqual(result?.success, true)
-        XCTAssertTrue(controller.grants(for: input.id).isEmpty)
+        XCTAssertTrue(controller.approvals(for: input.id).isEmpty)
     }
 
     func test认不出的调用方开登录态只能一次且不记() throws {
@@ -307,7 +308,7 @@ extension BrowserSessionControllerTests {
         var durationAsked = false
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
             present: { _, reply in plainReply = reply }, dismiss: {},
-            presentWithDuration: { _, _ in durationAsked = true })
+            presentWithDuration: { _, _ in durationAsked = true }, approvals: .inMemory())
         let input = try savedSession(store)
         controller.refresh()
         var result: BrowserSessionResponse?
@@ -316,7 +317,7 @@ extension BrowserSessionControllerTests {
         XCTAssertFalse(durationAsked)
         plainReply?(true)
         XCTAssertEqual(result?.success, true)
-        XCTAssertTrue(controller.grants(for: input.id).isEmpty)
+        XCTAssertTrue(controller.approvals(for: input.id).isEmpty)
     }
 }
 
@@ -340,10 +341,10 @@ extension SessionDurationPromptTests {
     func test登录态页列出长期授权并能撤销() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let source = try String(contentsOf: root.appendingPathComponent("Sources/KeyKeeperApp/BrowserSessionViews.swift"), encoding: .utf8)
-        XCTAssertTrue(source.contains("controller.grants(for: item.id)"))
-        XCTAssertTrue(source.contains("controller.revokeGrant(id: grant.id)"))
-        let always = BrowserSessionGrant(sessionId: "s", subjectFingerprint: "unsigned:path=a",
-                                         subjectDisplayName: "codex\u{202E}\nx", duration: .always)
+        XCTAssertTrue(source.contains("controller.approvals(for: item.id)"))
+        XCTAssertTrue(source.contains("controller.revokeApproval(id: approval.id)"))
+        let always = Approval(subject: .init(fingerprint: "unsigned:path=a", displayName: "codex\u{202E}\nx"),
+                              target: .session(id: "s"), duration: .always)
         let line = SessionGrantCopy.line(always)
         XCTAssertTrue(line.contains("codex"), line)
         XCTAssertFalse(line.contains("\u{202E}"), line)

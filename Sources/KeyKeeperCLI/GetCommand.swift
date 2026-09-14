@@ -62,21 +62,10 @@ struct GetCommand: ParsableCommand {
             }
             let session = SessionResolver.resolve()
 
-            // For strict credentials, check/request grant first
-            if cred.security == .strict {
-                let grantStore = GrantStore.default
-                try RunCommand.ensureGrant(
-                    credentialId: credentialId, credential: cred,
-                    grantStore: grantStore, session: session,
-                    statedReason: statedReason()
-                )
-            }
-
-            // Read secret via IPC — App owns the unlocked age session
+            // Read via IPC; the app asks for approval when this caller holds none.
             let value = try RunCommand.readSecret(
                 credentialId: credentialId, credential: cred, fieldName: fieldName,
-                requestedFieldNames: [fieldName], grantStore: GrantStore.default,
-                session: session, statedReason: statedReason())
+                requestedFieldNames: [fieldName], session: session, statedReason: statedReason())
             print(value, terminator: "")
         } else {
             // This value comes straight out of meta.json, so it is only as trustworthy as that file.

@@ -19,9 +19,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         signal(SIGPIPE, SIG_IGN)
-        // Before anything reads or writes an approvals file: from here on the app signs them, and
-        // refuses to act on one it cannot vouch for.
-        GrantFileIntegrity.configureAppDefaults { SecItemBlobIO(service: $0) }
         installTerminationSignalHandlers()
     }
 
@@ -33,8 +30,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
-        ipcServer = IPCServer(session: credentialService,
-            clipboardSaveController: ClipboardSaveController(service: credentialService),
+        ipcServer = IPCServer(session: credentialService, approvals: .shared,
+            clipboardSaveController: ClipboardSaveController(service: credentialService, approvals: .shared),
             browserSessionController: browserSessions.controller)
         switch ipcServer.start() {
         case .started(let disposition):
@@ -53,7 +50,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // After the duplicate check: a second instance is about to quit and must not touch the files.
         LaunchMaintenance.run(.init(meta: MetaStore.default, inventory: credentialService.inspectValueInventory,
-                                    grants: GrantStore.default, serviceGrants: ServiceGrantStore.default))
+                                    approvals: .shared, directory: KeyKeeperPaths.applicationSupportDirectory,
+                                    sessionStore: browserSessions.store))
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
@@ -227,7 +225,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleAuthRequest(_ pending: IPCServer.PendingAuthRequest) {
         let request = pending.request
-        let grantStore = GrantStore.default
         let caller = TrustPromptModel.sanitizedCaller(request.callerIdentity?.displayName ?? L("Unknown Caller"))
         registerAuthApproval(
             title: L("\(caller) wants to use \(request.credentialLabel)"),
@@ -241,37 +238,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Errors propagate to the window, which shows them and stays open so the
         // user can pick another option; the CLI keeps waiting on the same request.
-        let authorize: (GrantDuration) throws -> Void = { [weak self] duration in
+        let authorize: (ApprovalDuration) throws -> Void = { [weak self] duration in
                 guard let self else { return }
-                let resolvedDuration = try GrantAuthorizationPolicy.resolveIssuedDuration(
-                    requestedDuration: duration,
-                    requestSessionId: request.sessionId
+                let resolved = try AccessPolicy.resolveIssuedDuration(requested: duration, terminalSession: request.sessionId)
+                // Scoped to the program that asked: every key of this credential, for that caller.
+                let approval = Approval(
+                    subject: ApprovalSubject(fingerprint: request.callerIdentity?.subject.fingerprint ?? "",
+                                             displayName: request.callerIdentity?.displayName ?? L("Unknown Caller")),
+                    target: .credential(id: request.credentialId, fields: nil),
+                    duration: resolved,
+                    onceFieldsRemaining: resolved == .once ? request.fieldNames : nil
                 )
-                // Scoped to the program that asked. "Always" has always been shown as a
-                // per-caller promise; until now it was not one.
-                let grant = Grant(
-                    credentialId: request.credentialId,
-                    sessionId: request.sessionId,
-                    duration: resolvedDuration,
-                    subjectFingerprint: request.callerIdentity.flatMap {
-                        GrantIssuancePolicy.mayRemember(subjectFingerprint: $0.subject.fingerprint) ? $0.subject.fingerprint : nil
-                    },
-                    subjectDisplayName: request.callerIdentity?.displayName,
-                    onceFieldsRemaining: {
-                        if case .once = resolvedDuration { return request.fieldNames }
-                        return nil
-                    }()
-                )
-                try grantStore.addGrant(grant)
-                let response = AuthResponse(granted: true, grantId: grant.id)
-                self.ipcServer.respond(to: pending, with: response)
+                try ApprovalStore.shared.add(approval)
+                self.ipcServer.respond(to: pending, with: AuthResponse(granted: true, grantId: approval.id))
         }
         let deny: () -> Void = { [weak self] in
             self?.ipcServer.respond(to: pending, with: AuthResponse(granted: false, error: "User denied"))
         }
         // An isolated e2e instance answers itself; the window never appears.
         if let auto = TestInstance.autoApprove {
-            do { try authorize(auto.grantDuration) } catch { deny() }
+            do { try authorize(auto.duration) } catch { deny() }
             clearAuthApproval()
             return
         }
@@ -284,7 +270,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleServiceRequest(_ pending: IPCServer.PendingServiceRequest) {
-        let serviceGrantStore = ServiceGrantStore.default
         let caller = TrustPromptModel.sanitizedCaller(pending.callerIdentity.displayName)
         registerAuthApproval(
             title: L("\(caller) wants to use \(pending.credentialLabel)"),
@@ -293,24 +278,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             deny: { [weak self] in self?.ipcServer.denyServiceRequest(pending) }
         )
 
-        let authorize: (ServiceGrantDuration) throws -> Void = { [weak self] duration in
+        let authorize: (ApprovalDuration) throws -> Void = { [weak self] duration in
                 guard let self else { return }
-                let grant = ServiceGrant(
-                    credentialId: pending.credentialId,
-                    subjectFingerprint: pending.callerIdentity.subjectFingerprint,
-                    subjectDisplayName: pending.callerIdentity.displayName,
-                    fields: pending.fieldNames,
-                    duration: duration
+                let approval = Approval(
+                    subject: ApprovalSubject(fingerprint: pending.callerIdentity.subjectFingerprint,
+                                             displayName: pending.callerIdentity.displayName),
+                    target: .credential(id: pending.credentialId, fields: pending.fieldNames),
+                    duration: duration,
+                    onceFieldsRemaining: duration == .once ? pending.fieldNames : nil
                 )
-                // An unidentified caller gets this one answer and nothing remembered: a stored
-                // approval for a constant fingerprint would be one anybody could fall into.
-                if GrantIssuancePolicy.mayRemember(subjectFingerprint: grant.subjectFingerprint) {
-                    try serviceGrantStore.addGrant(grant)
+                // An unidentified caller gets this one answer and nothing remembered.
+                do {
+                    try ApprovalStore.shared.add(approval)
+                    self.ipcServer.fulfillServiceRequest(pending, approval: approval)
+                } catch ApprovalIssuanceError.unidentifiedCaller {
+                    self.ipcServer.fulfillServiceRequest(pending, approval: nil)
                 }
-                self.ipcServer.fulfillServiceRequest(pending, serviceGrant: grant)
         }
         if let auto = TestInstance.autoApprove {
-            do { try authorize(auto.serviceDuration) } catch { ipcServer.denyServiceRequest(pending) }
+            do { try authorize(auto.duration) } catch { ipcServer.denyServiceRequest(pending) }
             clearAuthApproval()
             return
         }

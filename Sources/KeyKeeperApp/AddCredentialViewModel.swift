@@ -38,9 +38,12 @@ class AddCredentialViewModel: ObservableObject {
     private let session: any CredentialSessionManaging
     private let store: MetaStore
 
-    init(session: any CredentialSessionManaging, store: MetaStore = .default) {
+    private let approvals: ApprovalStore
+
+    init(session: any CredentialSessionManaging, store: MetaStore = .default, approvals: ApprovalStore) {
         self.session = session
         self.store = store
+        self.approvals = approvals
         refreshExistingIds()
     }
 
@@ -194,11 +197,8 @@ class AddCredentialViewModel: ObservableObject {
             guard meta.version == 1 else { throw ClipboardSaveError.storageUnavailable }
             guard meta.credentials[credentialId] == nil else { throw ClipboardSaveError.valueExists }
             guard !label.isEmpty, idFormatProblem == nil else { throw ClipboardSaveError.invalidTarget }
-            let directory = store.fileURL.deletingLastPathComponent()
-            guard try GrantStore(directory: directory).grants(for: credentialId).isEmpty,
-                  try ServiceGrantStore(directory: directory).grants(credentialId: credentialId).isEmpty else {
-                throw ClipboardSaveError.staleGrants
-            }
+            // A new credential under a reused ID must not inherit what was given to the old one.
+            guard try !approvals.hasApprovals(forCredential: credentialId) else { throw ClipboardSaveError.staleGrants }
             let named = fields.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
             let machineNames = named.map { Self.machineFieldName($0.name) }
             guard Set(machineNames).count == machineNames.count else { throw ClipboardSaveError.invalidTarget }

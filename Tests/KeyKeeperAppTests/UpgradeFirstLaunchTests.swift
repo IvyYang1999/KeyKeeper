@@ -11,6 +11,7 @@ import KeyKeeperTestSupport
 final class UpgradeFirstLaunchTests: XCTestCase {
     private var dir: URL!
     private var keychain: FakeKeychain!
+    private let codex = "app:team=unsigned:bundle=com.openai.codex:signing=com.openai.codex"
 
     override func setUpWithError() throws {
         dir = FileManager.default.temporaryDirectory.appendingPathComponent("upgrade-\(UUID())")
@@ -22,22 +23,16 @@ final class UpgradeFirstLaunchTests: XCTestCase {
         keychain = FakeKeychain()
         // The credential values 0.3.3 left in the Keychain.
         keychain[SecItemBlobIO.defaultService] = Data(#"{"version":1,"credentials":{"openai":{"api-key":"synthetic-openai"},"vercel":{"token":"synthetic-vercel"}}}"#.utf8)
-        let chain = keychain!
-        GrantFileIntegrity.configureAppDefaults { chain.io($0) }
     }
 
-    override func tearDownWithError() throws {
-        GrantFileIntegrity.grantsDefault = nil
-        GrantFileIntegrity.serviceGrantsDefault = nil
-        try? FileManager.default.removeItem(at: dir)
-    }
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: dir) }
 
     private func stores() -> LaunchMaintenance.Stores {
         let meta = MetaStore(directory: dir, integrityIO: keychain.io(MetaIntegrityKey.service))
         let service = KeychainCredentialService(store: KeychainBlobStore(io: keychain.io(SecItemBlobIO.defaultService),
                                                                           loadMetadata: { try meta.load() }))
-        return .init(meta: meta, inventory: service.inspectValueInventory,
-                     grants: GrantStore(directory: dir), serviceGrants: ServiceGrantStore(directory: dir))
+        return .init(meta: meta, inventory: service.inspectValueInventory, approvals: .inMemory(keychain),
+                     directory: dir, sessionStore: nil)
     }
 
     func test升级首启什么都不丢() throws {
@@ -52,47 +47,32 @@ final class UpgradeFirstLaunchTests: XCTestCase {
         XCTAssertEqual(meta.meta.credentials["openai"]?.aliases, ["openai-old"])
         XCTAssertEqual(try launch.inventory(), ["openai": ["api-key"], "vercel": ["token"]])
 
-        // Background approvals and their audit trail: intact, mode untouched, only the expired one pruned.
-        XCTAssertEqual(try launch.serviceGrants.authorizationMode(), .permissive)
-        XCTAssertEqual(try launch.serviceGrants.grants().map(\.id), ["s-codex-always"])
-        XCTAssertNotNil(try launch.serviceGrants.findValidGrant(
-            credentialId: "vercel", subjectFingerprint: "app:team=unsigned:bundle=com.openai.codex:signing=com.openai.codex", fieldName: "token"))
-        XCTAssertEqual(try launch.serviceGrants.auditEvents().count, 1)
-
-        // Terminal approvals: the unowned one stays on file (inert), the spent one is pruned.
-        let ids = try launch.grants.grants(for: "openai").map(\.id).sorted()
-        XCTAssertTrue(ids.contains("g-unowned-always"), ids.description)
-        XCTAssertFalse(ids.contains("g-once-spent"), ids.description)
-
-        // Both approvals files are signed from now on, each with its own key.
-        for name in ["grants.json", "service-grants.json"] {
-            XCTAssertTrue(try String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8).contains("\"integrity\""), name)
-        }
-        XCTAssertNotNil(keychain[IntegrityKeyNames.service(GrantFileIntegrity.grantsKeyName)])
-        XCTAssertNotNil(keychain[IntegrityKeyNames.service(GrantFileIntegrity.serviceGrantsKeyName)])
+        // The background approval and its audit trail moved over; the mode is untouched.
+        XCTAssertEqual(try launch.approvals.mode(), .permissive)
+        XCTAssertNotNil(try launch.approvals.valid(credentialId: "vercel", field: "token", fingerprint: codex, terminalSession: nil))
+        XCTAssertEqual(try launch.approvals.auditEvents().count, 1)
+        // Unowned and spent terminal approvals stay behind in the renamed file; nothing else is imported.
+        XCTAssertEqual(try launch.approvals.all().count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("grants.json").path))
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: dir.path).contains { $0.hasPrefix("service-grants.json.migrated-") })
     }
 
     func test第二次启动照样完整() throws {
         LaunchMaintenance.run(stores())
         let second = stores()
         LaunchMaintenance.run(second)
-        XCTAssertEqual(try second.serviceGrants.grants().map(\.id), ["s-codex-always"])
-        XCTAssertEqual(try second.serviceGrants.authorizationMode(), .permissive)
-        XCTAssertTrue(try second.grants.grants(for: "openai").map(\.id).contains("g-unowned-always"))
+        XCTAssertEqual(try second.approvals.mode(), .permissive)
+        XCTAssertNotNil(try second.approvals.valid(credentialId: "vercel", field: "token", fingerprint: codex, terminalSession: nil))
         XCTAssertNotEqual(try second.meta.loadVerified().verdict, .tampered)
     }
 
-    /// 钥匙串暂时打不开（锁着、被拒）时，启动不能碰文件，更不能清空。
+    /// 钥匙串暂时打不开（锁着、被拒）时，启动不能动文件，更不能清空；下次启动再搬。
     func test钥匙串打不开时启动不动文件() throws {
+        keychain.failNextReads(of: "com.keykeeper.test.credentials.approvals", count: 2)   // 首启的两次读：迁移前的探测、清理
         LaunchMaintenance.run(stores())
-        let before = try Data(contentsOf: dir.appendingPathComponent("service-grants.json"))
-        for name in [GrantFileIntegrity.grantsKeyName, GrantFileIntegrity.serviceGrantsKeyName] {
-            keychain.failNextReads(of: IntegrityKeyNames.service(name), count: 5)
-        }
-        let chain = keychain!
-        GrantFileIntegrity.configureAppDefaults { chain.io($0) }   // fresh instances, nothing cached
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("service-grants.json").path), "旧文件原样留着")
         LaunchMaintenance.run(stores())
-        XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent("service-grants.json")), before)
+        XCTAssertNotNil(try stores().approvals.valid(credentialId: "vercel", field: "token", fingerprint: codex, terminalSession: nil))
     }
 
     /// 启动序列和 AppDelegate 里跑的必须是同一段代码。

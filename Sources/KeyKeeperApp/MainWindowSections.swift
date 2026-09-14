@@ -27,8 +27,7 @@ struct ApprovedCallersPage: View {
     @State private var errorMessage: String?
     @State private var permissive = false
 
-    private let grantStore = GrantStore.default
-    private let serviceGrantStore = ServiceGrantStore.default
+    private let approvals = ApprovalStore.shared
 
     var body: some View {
         ScrollView {
@@ -104,10 +103,7 @@ struct ApprovedCallersPage: View {
         permissive = PermissiveModeBanner.isPermissive
         do {
             groups = try credentials.compactMap { item in
-                let entries = AccessEntryBuilder.entries(
-                    grants: try grantStore.grants(for: item.id),
-                    serviceGrants: try serviceGrantStore.grants(credentialId: item.id)
-                )
+                let entries = AccessEntryBuilder.entries(approvals: try approvals.approvals(forCredential: item.id))
                 return entries.isEmpty ? nil : (item.id, item.credential.label, entries)
             }
             .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
@@ -119,11 +115,7 @@ struct ApprovedCallersPage: View {
 
     private func revoke(_ entry: AccessEntry) {
         do {
-            let rawId = String(entry.id.split(separator: ":", maxSplits: 1)[1])
-            switch entry.kind {
-            case .terminalSession: try grantStore.revokeGrant(id: rawId)
-            case .backgroundCaller: try serviceGrantStore.revokeGrant(id: rawId)
-            }
+            try approvals.revoke(id: String(entry.id.split(separator: ":", maxSplits: 1)[1]))
             load()
         } catch {
             errorMessage = error.localizedDescription
@@ -147,11 +139,12 @@ struct AccessLogEntry: Identifiable, Equatable {
 }
 
 enum AccessLogBuilder {
-    static func entries(serviceGrants: [ServiceGrant], auditEvents: [ServiceAuditEvent], limit: Int = 200) -> [AccessLogEntry] {
-        let uses = serviceGrants.compactMap { grant -> AccessLogEntry? in
-            guard let used = grant.lastUsedAt else { return nil }
-            return AccessLogEntry(id: "use:\(grant.id)", date: used, who: grant.subjectDisplayName,
-                                  credentialId: grant.credentialId, detail: grant.fields.joined(separator: ", "),
+    static func entries(approvals: [Approval], auditEvents: [ServiceAuditEvent], limit: Int = 200) -> [AccessLogEntry] {
+        let uses = approvals.compactMap { approval -> AccessLogEntry? in
+            guard let used = approval.lastUsedAt, case .credential(let id, let fields) = approval.target else { return nil }
+            return AccessLogEntry(id: "use:\(approval.id)", date: used,
+                                  who: CallerStatedReason.printableLine(approval.subject.displayName, limit: 80),
+                                  credentialId: id, detail: (fields ?? []).joined(separator: ", "),
                                   kind: .approvedUse)
         }
         let events = auditEvents.enumerated().map { index, event in
@@ -213,7 +206,7 @@ struct PermissiveModeBanner: View {
             HStack(spacing: 10) {
                 Button(L("Ask me first")) {
                     do {
-                        try ServiceGrantStore.default.setAuthorizationMode(.enforced)
+                        try ApprovalStore.shared.setMode(.enforced)
                         errorMessage = nil
                         onEnforce()
                     } catch {
@@ -237,7 +230,7 @@ struct PermissiveModeBanner: View {
     }
 
     static var isPermissive: Bool {
-        (try? ServiceGrantStore.default.authorizationMode()) != .enforced
+        (try? ApprovalStore.shared.mode()) != .enforced
     }
 }
 
@@ -246,7 +239,7 @@ struct AccessLogPage: View {
     @State private var groups: [AccessLogGroup] = []
     @State private var edits: [MetadataChangeRecord] = []
     @State private var permissive = false
-    private let serviceGrantStore = ServiceGrantStore.default
+    private let approvals = ApprovalStore.shared
 
     var body: some View {
         ScrollView {
@@ -316,8 +309,8 @@ struct AccessLogPage: View {
         permissive = PermissiveModeBanner.isPermissive
         edits = Array(((try? MetadataChangeLog.default.records()) ?? []).suffix(20).reversed())
         groups = AccessLogBuilder.groups(AccessLogBuilder.entries(
-            serviceGrants: (try? serviceGrantStore.grants()) ?? [],
-            auditEvents: (try? serviceGrantStore.auditEvents()) ?? [],
+            approvals: (try? approvals.all()) ?? [],
+            auditEvents: (try? approvals.auditEvents()) ?? [],
             limit: .max
         ))
     }

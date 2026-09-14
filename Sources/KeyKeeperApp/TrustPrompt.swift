@@ -183,7 +183,7 @@ struct TrustPromptView: View {
     let onCancel: () -> Void
     let onConfirm: () -> Void
     /// Set when the prompt asks how long; the confirm button then answers with the chosen duration.
-    var onConfirmDuration: ((ServiceGrantDuration) -> Void)? = nil
+    var onConfirmDuration: ((ApprovalDuration) -> Void)? = nil
     @State private var showDetails = false
     @State private var duration: SessionDurationOption = .once
     /// 【独立审计 2026-09-13】saves and website sessions had no settle delay: a click already on its
@@ -311,7 +311,7 @@ struct TrustPromptView: View {
 @MainActor final class TrustPromptPresenter: NSObject, NSWindowDelegate {
     private var panel: NSPanel?
     private var decide: ((Bool) -> Void)?
-    private var decideDuration: ((ServiceGrantDuration?) -> Void)?
+    private var decideDuration: ((ApprovalDuration?) -> Void)?
     private var approvalID: UUID?
     private let center: ApprovalCenter
 
@@ -325,12 +325,12 @@ struct TrustPromptView: View {
 
     /// A prompt that also asks how long. Its entry in the menu-bar list can only bring the window
     /// forward: approving from the list would mean picking a duration on the person's behalf.
-    func show(_ model: TrustPromptModel, symbol: String, decideDuration: @escaping (ServiceGrantDuration?) -> Void) {
+    func show(_ model: TrustPromptModel, symbol: String, decideDuration: @escaping (ApprovalDuration?) -> Void) {
         present(model, symbol: symbol, decide: nil, decideDuration: decideDuration)
     }
 
     private func present(_ model: TrustPromptModel, symbol: String,
-                         decide: ((Bool) -> Void)?, decideDuration: ((ServiceGrantDuration?) -> Void)?) {
+                         decide: ((Bool) -> Void)?, decideDuration: ((ApprovalDuration?) -> Void)?) {
         dismiss()
         self.decide = decide
         self.decideDuration = decideDuration
@@ -399,7 +399,7 @@ struct TrustPromptView: View {
         if let durationReply { durationReply(approved ? .once : nil) } else { reply?(approved) }
     }
 
-    private func resolveDuration(_ duration: ServiceGrantDuration) {
+    private func resolveDuration(_ duration: ApprovalDuration) {
         let durationReply = decideDuration
         decide = nil
         decideDuration = nil
@@ -418,7 +418,7 @@ enum SessionDurationOption: String, CaseIterable {
     case oneHour = "1 hour"
     case always = "Always"
 
-    var grantDuration: ServiceGrantDuration {
+    var grantDuration: ApprovalDuration {
         switch self {
         case .once: return .once
         case .oneHour: return .timed(Date().addingTimeInterval(3600))

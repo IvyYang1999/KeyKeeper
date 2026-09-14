@@ -42,7 +42,7 @@ struct MainView: View {
         self.openMainWindow = openMainWindow
         self.reopenPopover = reopenPopover
         _viewModel = StateObject(wrappedValue: CredentialListViewModel(session: session))
-        _addVM = StateObject(wrappedValue: AddCredentialViewModel(session: session))
+        _addVM = StateObject(wrappedValue: AddCredentialViewModel(session: session, approvals: .shared))
     }
 
     var body: some View {
@@ -482,7 +482,7 @@ struct PopoverKeyDetail: View {
         self.credentialId = credentialId
         self.valueAvailability = valueAvailability
         self.onCheckValues = onCheckValues
-        _vm = StateObject(wrappedValue: CredentialDetailViewModel(credentialId: credentialId, credential: credential, session: session))
+        _vm = StateObject(wrappedValue: CredentialDetailViewModel(credentialId: credentialId, credential: credential, session: session, approvals: .shared))
         self.onBack = onBack
         self.onOpenWindow = onOpenWindow
     }

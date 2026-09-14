@@ -22,7 +22,7 @@ import KeyKeeperTestSupport
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         meta = MetaStore(directory: directory); io = FakeKeychainIO()
         service = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.meta.load() }))
-        controller = ClipboardSaveController(service: service, metaStore: meta, now: { self.clock },
+        controller = ClipboardSaveController(service: service, metaStore: meta, approvals: .inMemory(), now: { self.clock },
             present: { _, decide in self.decision = decide }, dismiss: {})
         bridge = BrowserImportBridge(controller: controller)
         connected = true; results = []; decision = nil; clock = Date()

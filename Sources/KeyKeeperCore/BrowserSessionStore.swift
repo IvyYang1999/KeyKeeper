@@ -36,11 +36,16 @@ public final class BrowserSessionStore {
         var security: SecurityLevel?
         var level: SecurityLevel { security ?? .strict }
     }
+    /// What 0.3.4 development builds stored here before approvals moved to their own item.
+    /// Kept only so migration can carry them over; nothing reads them for decisions.
+    struct LegacyGrant: Codable {
+        var id: String; var sessionId: String; var subjectFingerprint: String; var subjectDisplayName: String
+        var duration: ApprovalDuration; var createdAt: Date; var lastUsedAt: Date?; var consumed: Bool
+    }
     private struct Document: Codable {
         var version = 1
         var records: [String: Record] = [:]
-        /// Absent in documents written before 0.3.4: no grants, which is the safe reading.
-        var grants: [BrowserSessionGrant]? = nil
+        var grants: [LegacyGrant]? = nil
     }
     private let io: KeychainBlobIO
     private let marker: BrowserSessionMarker
@@ -113,55 +118,22 @@ public final class BrowserSessionStore {
         lock.lock(); defer { lock.unlock() }
         var document = try load()
         guard document.records.removeValue(forKey: id) != nil else { throw BrowserSessionError.notFound }
-        // Grants go with it. Otherwise saving a new snapshot under the same id would inherit
-        // permission somebody gave to the old one.
-        document.grants = (document.grants ?? []).filter { $0.sessionId != id }
         try write(document)
     }
 
-    // MARK: Grants
+    // MARK: Migration
 
-    public func addGrant(_ grant: BrowserSessionGrant) throws {
+    /// The approvals an earlier build kept in this document, as JSON, and clears them. Nil when
+    /// there are none. Called once by ApprovalMigration.
+    public func takeLegacyGrants() throws -> Data? {
         lock.lock(); defer { lock.unlock() }
         var document = try load()
-        guard document.records[grant.sessionId] != nil else { throw BrowserSessionError.notFound }
-        var grants = (document.grants ?? []).filter { $0.id != grant.id }
-        guard grants.count < 64 else { throw BrowserSessionError.capacity }
-        grants.append(grant)
-        document.grants = grants
+        guard let grants = document.grants, !grants.isEmpty else { return nil }
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(grants)
+        document.grants = nil
         try write(document)
-    }
-
-    /// The permission that covers this caller opening this login right now, if any.
-    public func validGrant(sessionId: String, fingerprint: String, now: Date = Date()) throws -> BrowserSessionGrant? {
-        lock.lock(); defer { lock.unlock() }
-        guard GrantIssuancePolicy.mayRemember(subjectFingerprint: fingerprint) else { return nil }
-        return (try load().grants ?? []).first {
-            $0.sessionId == sessionId && $0.subjectFingerprint == fingerprint && $0.isValid(now: now)
-        }
-    }
-
-    public func consumeGrant(id: String, now: Date = Date()) throws {
-        lock.lock(); defer { lock.unlock() }
-        var document = try load()
-        var grants = document.grants ?? []
-        guard let index = grants.firstIndex(where: { $0.id == id }) else { return }
-        grants[index].consumed = true
-        grants[index].lastUsedAt = now
-        document.grants = grants
-        try write(document)
-    }
-
-    public func grants(for sessionId: String) throws -> [BrowserSessionGrant] {
-        lock.lock(); defer { lock.unlock() }
-        return (try load().grants ?? []).filter { $0.sessionId == sessionId }
-    }
-
-    public func revokeGrant(id: String) throws {
-        lock.lock(); defer { lock.unlock() }
-        var document = try load()
-        document.grants = (document.grants ?? []).filter { $0.id != id }
-        try write(document)
+        return data
     }
 
     private func load() throws -> Document {

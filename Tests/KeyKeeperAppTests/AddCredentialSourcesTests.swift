@@ -9,7 +9,7 @@ final class AddCredentialSourcesTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return AddCredentialViewModel(session: KeychainCredentialService(store: KeychainBlobStore(io: FakeKeychainIO())),
-                                      store: MetaStore(directory: dir))
+                                      store: MetaStore(directory: dir), approvals: .inMemory())
     }
 
     func test从剪贴板只差一个名字() throws {

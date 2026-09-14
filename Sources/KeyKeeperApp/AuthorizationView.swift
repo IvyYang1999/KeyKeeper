@@ -103,8 +103,8 @@ struct AuthorizationView: View {
     let prompt: AuthorizationPrompt
     /// Throwing lets the window show what went wrong and stay open, instead of
     /// closing as if the grant succeeded while the CLI receives a denial.
-    let onAuthorizeGrant: ((GrantDuration) throws -> Void)?
-    let onAuthorizeService: ((ServiceGrantDuration) throws -> Void)?
+    let onAuthorizeGrant: ((ApprovalDuration) throws -> Void)?
+    let onAuthorizeService: ((ApprovalDuration) throws -> Void)?
     let onDeny: () -> Void
 
     @State private var selectedDuration: DurationOption
@@ -223,8 +223,8 @@ struct AuthorizationView: View {
     }
 
     init(prompt: AuthorizationPrompt,
-         onAuthorizeGrant: ((GrantDuration) throws -> Void)?,
-         onAuthorizeService: ((ServiceGrantDuration) throws -> Void)?,
+         onAuthorizeGrant: ((ApprovalDuration) throws -> Void)?,
+         onAuthorizeService: ((ApprovalDuration) throws -> Void)?,
          onDeny: @escaping () -> Void) {
         self.prompt = prompt
         self.onAuthorizeGrant = onAuthorizeGrant
@@ -243,10 +243,10 @@ struct AuthorizationView: View {
         case oneHour = "1 hour"
         case always = "Always"
 
-        var grantDuration: GrantDuration {
+        var grantDuration: ApprovalDuration {
             switch self {
             case .once: return .once
-            case .session: return .session("")  // session ID filled by caller
+            case .session: return .terminalSession("")  // session ID filled by caller
             case .oneHour: return .timed(Date().addingTimeInterval(3600))
             case .always: return .always
             }

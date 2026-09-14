@@ -29,13 +29,15 @@ enum BrowserSessionCopy {
 
 @MainActor final class BrowserSessionFeature {
     let controller: BrowserSessionController?
+    let store: BrowserSessionStore?
     private let approval = BrowserSessionApprovalWindow()
     init() {
         let approval = self.approval
-        if let store = try? BrowserSessionStore.production() {
+        store = try? BrowserSessionStore.production()
+        if let store {
             controller = BrowserSessionController(store: store, runtime: SessionBrowserRuntime(),
                 present: { approval.show($0, decide: $1) }, dismiss: { approval.dismiss() },
-                presentWithDuration: { approval.show($0, decideDuration: $1) })
+                presentWithDuration: { approval.show($0, decideDuration: $1) }, approvals: .shared)
         } else { controller = nil }
     }
 }
@@ -90,14 +92,14 @@ struct BrowserSessionManagerView: View {
                                     .textSelection(.enabled)
                                 // Anyone given more than "once" is listed here, with the way to take it back:
                                 // an approval nobody can see or revoke is not one anybody really gave.
-                                ForEach(controller.grants(for: item.id)) { grant in
+                                ForEach(controller.approvals(for: item.id)) { approval in
                                     HStack(spacing: 6) {
                                         Image(systemName: "checkmark.shield").foregroundColor(.secondary)
-                                        Text(SessionGrantCopy.line(grant))
+                                        Text(SessionGrantCopy.line(approval))
                                             .font(.caption).foregroundColor(.secondary)
                                             .fixedSize(horizontal: false, vertical: true)
                                         Spacer()
-                                        Button(L("Revoke")) { controller.revokeGrant(id: grant.id) }
+                                        Button(L("Revoke")) { controller.revokeApproval(id: approval.id) }
                                             .buttonStyle(.link).font(.caption)
                                     }
                                 }
@@ -201,7 +203,7 @@ struct BrowserSessionManagerView: View {
                        symbol: "globe", decide: decide)
     }
 
-    func show(_ info: BrowserSessionPresentation, decideDuration: @escaping (ServiceGrantDuration?) -> Void) {
+    func show(_ info: BrowserSessionPresentation, decideDuration: @escaping (ApprovalDuration?) -> Void) {
         presenter.show(.browserSession(info, expiresAt: Date().addingTimeInterval(90)),
                        symbol: "globe", decideDuration: decideDuration)
     }
@@ -393,9 +395,9 @@ struct BrowserExtensionSetupCard: View {
 
 /// One line per standing approval on the sessions page.
 enum SessionGrantCopy {
-    static func line(_ grant: BrowserSessionGrant) -> String {
-        let who = CallerStatedReason.printableLine(grant.subjectDisplayName, limit: 80)
-        switch grant.duration {
+    static func line(_ approval: Approval) -> String {
+        let who = CallerStatedReason.printableLine(approval.subject.displayName, limit: 80)
+        switch approval.duration {
         case .always:
             return L("\(who) can open it without asking")
         case .timed(let until):
@@ -406,6 +408,8 @@ enum SessionGrantCopy {
             return L("\(who) can open it without asking until \(formatter.string(from: until))")
         case .once:
             return L("\(who) can open it once more without asking")
+        case .terminalSession:
+            return L("\(who) can open it without asking")
         }
     }
 }

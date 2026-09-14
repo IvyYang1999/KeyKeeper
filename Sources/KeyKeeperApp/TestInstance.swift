@@ -21,14 +21,7 @@ enum TestInstance {
     enum AutoApprove: String {
         case once, always
 
-        var grantDuration: GrantDuration {
-            switch self {
-            case .once: return .once
-            case .always: return .always
-            }
-        }
-
-        var serviceDuration: ServiceGrantDuration {
+        var duration: ApprovalDuration {
             switch self {
             case .once: return .once
             case .always: return .always
@@ -52,9 +45,8 @@ enum TestInstance {
         var services: [String] = []
         if let credentials = try? SecItemBlobIO.serviceName(environment: environment) { services.append(credentials) }
         if let sessions = try? BrowserSessionStore.serviceName(environment: environment) { services.append(sessions) }
-        for key in ["metadata-mac", GrantFileIntegrity.grantsKeyName, GrantFileIntegrity.serviceGrantsKeyName] {
-            services.append(IntegrityKeyNames.service(key, environment: environment))
-        }
+        if let approvals = try? ApprovalStore.serviceName(environment: environment) { services.append(approvals) }
+        services.append(IntegrityKeyNames.service("metadata-mac", environment: environment))
         return services.filter { $0.hasPrefix("com.keykeeper.test.") }
     }
 

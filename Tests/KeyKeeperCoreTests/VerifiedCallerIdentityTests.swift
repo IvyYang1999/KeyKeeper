@@ -1,5 +1,6 @@
 import XCTest
 @testable import KeyKeeperCore
+import KeyKeeperTestSupport
 
 /// 【安全审计 2026-09-13】同 UID 进程可以：connect → fork 一个兄弟进程持有连接 → 自己
 /// exec 成某个受信任 App 里的二进制。服务端是在 accept **之后**才用 proc_pidpath 解析身份
@@ -23,17 +24,10 @@ final class VerifiedCallerIdentityTests: XCTestCase {
 
     /// 没核实的身份不能匹配任何授权——否则「未核实」就成了一个人人可用的通配符。
     func test未核实的身份匹配不到授权() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("verified-\(UUID())")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let store = GrantStore(directory: dir)
-
-        // 就算有人想办法把一条授权记成未核实的指纹，也不能凭它放行
-        try store.addGrant(.init(credentialId: "openai", duration: .always,
-                                 subjectFingerprint: "unverified:pid=123", subjectDisplayName: "?"))
-        XCTAssertNil(try store.findValidGrant(credentialId: "openai", sessionId: nil,
-                                              fingerprint: "unverified:pid=123"))
-        XCTAssertFalse(try store.hasLikelyValidGrant(credentialId: "openai", sessionId: nil))
+        let store = ApprovalStore.inMemory()
+        XCTAssertThrowsError(try store.add(Approval(subject: .init(fingerprint: "unverified:pid=123", displayName: "?"),
+                                                    target: .credential(id: "openai", fields: nil), duration: .always)))
+        XCTAssertNil(try store.valid(credentialId: "openai", field: "k", fingerprint: "unverified:pid=123", terminalSession: nil))
     }
 
     /// 三档，不是两档。yyt 的 Agent 大多是未签名的本地程序（那个 Electron 控制台就是），

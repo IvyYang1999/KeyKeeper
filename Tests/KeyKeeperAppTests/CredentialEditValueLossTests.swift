@@ -1,6 +1,7 @@
 import XCTest
 @testable import KeyKeeperApp
 import KeyKeeperCore
+import KeyKeeperTestSupport
 
 /// 【曾经的 bug】2026-09-11 yyt：编辑一个条目时，如果没先点小眼睛，原密钥值会丢。
 /// 两条路径：改字段名后保存会删掉值；编辑态的小眼睛只切换显示、不去取值，看起来是空的。
@@ -15,7 +16,7 @@ final class CredentialEditValueLossTests: XCTestCase {
                                     security: .standard, created: "2026-09-01", updated: "2026-09-01")
         try store.save(MetaFile(credentials: ["stripe": credential]))
         let session = EditLossSession(values: values)
-        let vm = CredentialDetailViewModel(credentialId: "stripe", credential: credential, session: session, store: store)
+        let vm = CredentialDetailViewModel(credentialId: "stripe", credential: credential, session: session, store: store, approvals: .inMemory())
         return (vm, session, store)
     }
 

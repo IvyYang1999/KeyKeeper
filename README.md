@@ -123,7 +123,7 @@ The moat is the fourth row. Token-based tools hand out a reusable secret that an
 | `keykeeper meta <id>` | one credential as JSON, no values |
 | `keykeeper run -c <id> [-c <id2>] [--prefix PREFIX_] [--verbose] [--tty] -- <command>` | run a command with the keys injected |
 | `keykeeper status` | is the app reachable (it starts on demand anyway) |
-| `keykeeper grants list` / `grants revoke <id>` | approved background callers |
+| `keykeeper grants list` / `grants revoke <id>` | approvals: which callers may use which keys or logins, for how long |
 | `keykeeper requests list` | approval windows currently waiting |
 | `keykeeper get <id> <field>` | used by the SDKs; refuses to print to a terminal unless `--reveal` |
 

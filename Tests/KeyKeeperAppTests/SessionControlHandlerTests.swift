@@ -2,12 +2,13 @@ import Foundation
 import XCTest
 @testable import KeyKeeperApp
 import KeyKeeperCore
+import KeyKeeperTestSupport
 
 @MainActor
 final class SessionControlHandlerTests: XCTestCase {
     func testUnlockSuccessAndRepeatedUnlockAreIdempotent() {
         let session = FakeSessionController()
-        let server = IPCServer(session: session)
+        let server = IPCServer(session: session, approvals: .inMemory())
         let request = SessionControlRequest(
             action: .unlock,
             passphrase: "test phrase placeholder"
@@ -27,7 +28,7 @@ final class SessionControlHandlerTests: XCTestCase {
         let rejectedPhrase = "rejected phrase placeholder"
         let session = FakeSessionController()
         session.rejectedPassphrase = rejectedPhrase
-        let server = IPCServer(session: session)
+        let server = IPCServer(session: session, approvals: .inMemory())
 
         let response = server.handleSessionControl(SessionControlRequest(
             action: .unlock,
@@ -41,7 +42,7 @@ final class SessionControlHandlerTests: XCTestCase {
 
     func testLockIsIdempotent() {
         let session = FakeSessionController()
-        let server = IPCServer(session: session)
+        let server = IPCServer(session: session, approvals: .inMemory())
 
         let first = server.handleSessionControl(SessionControlRequest(action: .lock))
         let second = server.handleSessionControl(SessionControlRequest(action: .lock))
@@ -55,7 +56,7 @@ final class SessionControlHandlerTests: XCTestCase {
 
     func testStatusReportsLockedManualAndTimedStates() {
         let session = FakeSessionController()
-        let server = IPCServer(session: session)
+        let server = IPCServer(session: session, approvals: .inMemory())
 
         session.currentStatus = .locked
         XCTAssertEqual(
@@ -78,7 +79,7 @@ final class SessionControlHandlerTests: XCTestCase {
 
     func testInvalidSessionPayloadIsRejectedWithoutChangingSession() {
         let session = FakeSessionController()
-        let server = IPCServer(session: session)
+        let server = IPCServer(session: session, approvals: .inMemory())
 
         let missingPhrase = server.handleSessionControl(SessionControlRequest(action: .unlock))
         let phraseOnStatus = server.handleSessionControl(SessionControlRequest(
@@ -142,7 +143,7 @@ extension SessionControlHandlerTests {
         let session = FakeSessionController()
         session.isVaultInitialized = false
         session.rejectedPassphrase = "any phrase placeholder"
-        let server = IPCServer(session: session)
+        let server = IPCServer(session: session, approvals: .inMemory())
 
         let response = server.handleSessionControl(SessionControlRequest(
             action: .unlock, passphrase: "any phrase placeholder"

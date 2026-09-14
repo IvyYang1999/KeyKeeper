@@ -8,6 +8,7 @@ struct AccessEntry: Identifiable, Equatable {
     enum Kind: Equatable {
         case terminalSession
         case backgroundCaller
+        case websiteLogin
     }
 
     let id: String
@@ -22,45 +23,42 @@ struct AccessEntry: Identifiable, Equatable {
         switch kind {
         case .terminalSession: return "terminal"
         case .backgroundCaller: return "gearshape.2"
+        case .websiteLogin: return "globe"
         }
     }
 }
 
 enum AccessEntryBuilder {
-    static func entries(grants: [Grant], serviceGrants: [ServiceGrant], now: Date = Date()) -> [AccessEntry] {
-        let sessionEntries = grants.map { grant in
+    static func entries(approvals: [Approval], now: Date = Date()) -> [AccessEntry] {
+        approvals.map { approval in
             AccessEntry(
-                id: "grant:\(grant.id)",
-                kind: .terminalSession,
-                who: who(grant),
-                scope: scopeLabel(grant.duration, now: now),
-                activity: L("Approved \(relative(grant.createdAt, now: now))"),
-                isActive: isActive(grant, now: now),
-                sortDate: grant.createdAt
+                id: "approval:\(approval.id)",
+                kind: kind(approval),
+                who: who(approval),
+                scope: scopeLabel(approval, now: now),
+                activity: approval.lastUsedAt.map { L("Used \(relative($0, now: now))") }
+                    ?? L("Approved \(relative(approval.createdAt, now: now))"),
+                isActive: isActive(approval, now: now),
+                sortDate: approval.lastUsedAt ?? approval.createdAt
             )
         }
-        let callerEntries = serviceGrants.map { grant in
-            AccessEntry(
-                id: "service:\(grant.id)",
-                kind: .backgroundCaller,
-                who: displayName(grant.subjectDisplayName) ?? L("Unknown Caller"),
-                scope: scopeLabel(grant.duration, fields: grant.fields, now: now),
-                activity: grant.lastUsedAt.map { L("Used \(relative($0, now: now))") }
-                    ?? L("Approved \(relative(grant.createdAt, now: now))"),
-                isActive: isActive(grant, now: now),
-                sortDate: grant.lastUsedAt ?? grant.createdAt
-            )
-        }
-        return (sessionEntries + callerEntries).sorted { $0.sortDate > $1.sortDate }
+        .sorted { $0.sortDate > $1.sortDate }
+    }
+
+    static func kind(_ approval: Approval) -> AccessEntry.Kind {
+        if case .session = approval.target { return .websiteLogin }
+        if case .terminalSession = approval.duration { return .terminalSession }
+        return .backgroundCaller
     }
 
     /// Who holds this approval. Display names are the caller's own words — sanitised like every
-    /// other caller-supplied string, which this list used to draw straight through.
-    static func who(_ grant: Grant) -> String {
-        let place = sessionLabel(grant)
-        guard let name = displayName(grant.subjectDisplayName) else { return place }
-        if grant.sessionId == nil, case .always = grant.duration { return name }
-        return name + " · " + place
+    /// other caller-supplied string.
+    static func who(_ approval: Approval) -> String {
+        let name = displayName(approval.subject.displayName) ?? L("Unknown Caller")
+        if case .terminalSession(let id) = approval.duration, !id.isEmpty {
+            return name + " · " + L("Terminal session \(id.prefix(8))")
+        }
+        return name
     }
 
     static func displayName(_ raw: String?) -> String? {
@@ -69,51 +67,25 @@ enum AccessEntryBuilder {
         return line.isEmpty ? nil : line
     }
 
-    static func sessionLabel(_ grant: Grant) -> String {
-        if case .session(let id) = grant.duration, !id.isEmpty {
-            return L("Terminal session \(id.prefix(8))")
-        }
-        if let sessionId = grant.sessionId, !sessionId.isEmpty {
-            return L("Terminal session \(sessionId.prefix(8))")
-        }
-        return L("Any terminal")
-    }
-
-    static func scopeLabel(_ duration: GrantDuration, now: Date) -> String {
-        switch duration {
-        case .once: return L("Once")
-        case .session: return L("While that session is open")
-        case .timed(let date): return date > now ? L("Until \(relative(date, now: now))") : L("Expired")
-        case .always: return L("Always")
-        }
-    }
-
-    static func scopeLabel(_ duration: ServiceGrantDuration, fields: [String], now: Date) -> String {
+    static func scopeLabel(_ approval: Approval, now: Date) -> String {
         let base: String
-        switch duration {
+        switch approval.duration {
         case .once: base = L("Once")
+        case .terminalSession: base = L("While that session is open")
         case .timed(let date): base = date > now ? L("Until \(relative(date, now: now))") : L("Expired")
         case .always: base = L("Always")
         }
-        return fields.isEmpty ? base : "\(base) · \(fields.joined(separator: ", "))"
-    }
-
-    static func isActive(_ grant: Grant, now: Date) -> Bool {
-        // An approval with no owner, or an unidentified one, matches nobody any more. Drawing it
-        // as an active "Always" would be the list lying about who can read what.
-        guard GrantIssuancePolicy.mayRemember(subjectFingerprint: grant.subjectFingerprint) else { return false }
-        switch grant.duration {
-        case .once: return !grant.consumed
-        case .session: return true
-        case .timed(let date): return now < date
-        case .always: return true
+        if case .credential(_, let fields?) = approval.target, !fields.isEmpty {
+            return "\(base) · \(fields.joined(separator: ", "))"
         }
+        return base
     }
 
-    static func isActive(_ grant: ServiceGrant, now: Date) -> Bool {
-        guard GrantIssuancePolicy.mayRemember(subjectFingerprint: grant.subjectFingerprint) else { return false }
-        if case .timed(let date) = grant.duration { return now < date }
-        return true
+    /// Drawn as active only when it can still let somebody in. An unidentified owner matches
+    /// nobody; a spent or expired one grants nothing.
+    static func isActive(_ approval: Approval, now: Date) -> Bool {
+        GrantIssuancePolicy.mayRemember(subjectFingerprint: approval.subject.fingerprint)
+            && approval.isValid(now: now, ignoringTerminalSession: true)
     }
 
     private static func relative(_ date: Date, now: Date) -> String {
@@ -130,8 +102,7 @@ struct AccessSection: View {
     @State private var entries: [AccessEntry] = []
     @State private var errorMessage: String?
 
-    private let grantStore = GrantStore.default
-    private let serviceGrantStore = ServiceGrantStore.default
+    private let approvals = ApprovalStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -197,10 +168,7 @@ struct AccessSection: View {
 
     private func load() {
         do {
-            entries = AccessEntryBuilder.entries(
-                grants: try grantStore.grants(for: credentialId),
-                serviceGrants: try serviceGrantStore.grants(credentialId: credentialId)
-            )
+            entries = AccessEntryBuilder.entries(approvals: try approvals.approvals(forCredential: credentialId))
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -209,11 +177,7 @@ struct AccessSection: View {
 
     private func revoke(_ entry: AccessEntry) {
         do {
-            let rawId = String(entry.id.split(separator: ":", maxSplits: 1)[1])
-            switch entry.kind {
-            case .terminalSession: try grantStore.revokeGrant(id: rawId)
-            case .backgroundCaller: try serviceGrantStore.revokeGrant(id: rawId)
-            }
+            try approvals.revoke(id: String(entry.id.split(separator: ":", maxSplits: 1)[1]))
             load()
         } catch {
             errorMessage = error.localizedDescription

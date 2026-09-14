@@ -41,11 +41,11 @@ final class StorageProtectionTests: XCTestCase {
             let metadataBefore = try Data(contentsOf: metaStore.fileURL)
             let valuesBefore = io.blob
 
-            let add = AddCredentialViewModel(session: session, store: metaStore)
+            let add = AddCredentialViewModel(session: session, store: metaStore, approvals: .inMemory())
             add.label = "New fixture"
             add.credentialId = "new"
             add.fields = [FieldEntry(name: "field", value: "synthetic")]
-            let detail = CredentialDetailViewModel(credentialId: "fixture", credential: credential(), session: session, store: metaStore)
+            let detail = CredentialDetailViewModel(credentialId: "fixture", credential: credential(), session: session, store: metaStore, approvals: .inMemory())
             detail.credential.notes = "metadata-only change"
             XCTAssertFalse(detail.saveChanges())
             XCTAssertTrue(detail.errorMessage?.contains("blocked") == true)
@@ -70,13 +70,13 @@ final class StorageProtectionTests: XCTestCase {
     }
 
     func testFirstUseAndMultiFieldReplacementStillWork() throws {
-        let add = AddCredentialViewModel(session: session, store: metaStore)
+        let add = AddCredentialViewModel(session: session, store: metaStore, approvals: .inMemory())
         add.label = "Synthetic fixture"
         add.credentialId = "fixture"
         add.fields = [FieldEntry(name: "one", value: "synthetic-one"), FieldEntry(name: "two", value: "synthetic-two")]
         XCTAssertTrue(add.save())
         let saved = try XCTUnwrap(metaStore.load().credentials["fixture"])
-        let detail = CredentialDetailViewModel(credentialId: "fixture", credential: saved, session: session, store: metaStore)
+        let detail = CredentialDetailViewModel(credentialId: "fixture", credential: saved, session: session, store: metaStore, approvals: .inMemory())
         detail.fields = [FieldEntry(name: "replacement", value: "synthetic-replacement")]
         XCTAssertTrue(detail.saveChanges())
         XCTAssertEqual(try session.retrieve(credentialId: "fixture", fieldName: "replacement"), "synthetic-replacement")
@@ -112,7 +112,7 @@ extension StorageProtectionTests {
 extension StorageProtectionTests {
     /// 【独立审计 2026-09-13】保留变量名只在 metadata 改名路径上拦，App 里新建凭据绕过去了。
     func test界面新建不接受执行控制变量名() throws {
-        let add = AddCredentialViewModel(session: session, store: metaStore)
+        let add = AddCredentialViewModel(session: session, store: metaStore, approvals: .inMemory())
         add.label = "Synthetic fixture"
         add.credentialId = "fixture"
         add.fields = [FieldEntry(name: "path", value: "synthetic")]
@@ -127,7 +127,7 @@ extension StorageProtectionTests {
         var existing = credential()
         existing.fields = ["one": .init(secret: true)]
         try metaStore.save(MetaFile(credentials: ["fixture": existing]))
-        let detail = CredentialDetailViewModel(credentialId: "fixture", credential: existing, session: session, store: metaStore)
+        let detail = CredentialDetailViewModel(credentialId: "fixture", credential: existing, session: session, store: metaStore, approvals: .inMemory())
         detail.fields.append(FieldEntry(name: "node_options", value: "synthetic"))
         XCTAssertFalse(detail.saveChanges())
         XCTAssertNil(try metaStore.load().credentials["fixture"]?.fields["node_options"])

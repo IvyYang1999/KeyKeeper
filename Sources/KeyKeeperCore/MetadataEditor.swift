@@ -12,15 +12,12 @@ import Foundation
 public struct MetadataEditor {
     let session: any CredentialSessionManaging
     let metaStore: any MetaStoring
-    let grantStore: GrantStore
-    let serviceGrantStore: ServiceGrantStore
+    let approvals: ApprovalStore
 
-    public init(session: any CredentialSessionManaging, metaStore: any MetaStoring,
-                grantStore: GrantStore, serviceGrantStore: ServiceGrantStore) {
+    public init(session: any CredentialSessionManaging, metaStore: any MetaStoring, approvals: ApprovalStore) {
         self.session = session
         self.metaStore = metaStore
-        self.grantStore = grantStore
-        self.serviceGrantStore = serviceGrantStore
+        self.approvals = approvals
     }
 
     public func apply(_ edit: MetadataEdit, groupId: String) throws -> MetadataEditResult {
@@ -42,8 +39,7 @@ public struct MetadataEditor {
         try metaStore.save(result.meta)
 
         // Metadata is committed; what follows only tidies up and must not undo it.
-        try? grantStore.moveGrants(from: oldId, to: newId)
-        try? serviceGrantStore.moveGrants(from: oldId, to: newId, fieldMap: result.fieldMap)
+        try? approvals.moveCredential(from: oldId, to: newId, fieldMap: result.fieldMap)
         if movesValues {
             let stale = oldId != newId ? secretFields : secretFields.filter { result.fieldMap[$0] != nil }
             try? session.dropValues(credentialId: oldId, fieldNames: stale)

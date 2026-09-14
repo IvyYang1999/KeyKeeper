@@ -3,21 +3,20 @@ import Foundation
 import XCTest
 @testable import KeyKeeperApp
 import KeyKeeperCore
+import KeyKeeperTestSupport
 
 @MainActor
 final class IPCAuthorizationQueueTests: XCTestCase {
     private var directory: URL!
     private var metaStore: MetaStore!
-    private var grantStore: GrantStore!
-    private var serviceGrantStore: ServiceGrantStore!
+    private var approvals: ApprovalStore!
 
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("keykeeper-ipc-queue-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         metaStore = MetaStore(directory: directory)
-        grantStore = GrantStore(directory: directory)
-        serviceGrantStore = ServiceGrantStore(directory: directory)
+        approvals = ApprovalStore.inMemory()
         try metaStore.save(MetaFile(credentials: [
             "service-a": Credential(
                 label: "Service A", notes: "", links: [],
@@ -25,7 +24,7 @@ final class IPCAuthorizationQueueTests: XCTestCase {
                 security: .standard, created: "2026-09-03", updated: "2026-09-03"
             ),
         ]))
-        try serviceGrantStore.setAuthorizationMode(.enforced)
+        try approvals.setMode(.enforced)
     }
 
     override func tearDownWithError() throws {
@@ -228,12 +227,7 @@ final class IPCAuthorizationQueueTests: XCTestCase {
     }
 
     private func makeServer() -> IPCServer {
-        IPCServer(
-            session: QueueSession(),
-            metaStore: metaStore,
-            grantStore: grantStore,
-            serviceGrantStore: serviceGrantStore
-        )
+        IPCServer(session: QueueSession(), metaStore: metaStore, approvals: approvals)
     }
 
     /// Sends a value request and returns the client-side descriptor to read the response from.

@@ -13,7 +13,7 @@ enum IPCLaunchPolicy {
     static func shouldLaunchApp(for request: IPCRequest) -> Bool {
         switch request {
         case .value, .auth, .clipboardSave, .browserImport, .fileImport, .sourceImport, .browserSession, .metadataEdit,
-             .metadataIntegrity, .serviceGrantRevoke:
+             .metadataIntegrity, .approvalRevoke, .approvalsList:
             return true
         case .sessionControl, .serviceRequests:
             return false
@@ -210,17 +210,30 @@ enum IPCClient {
         return answer.verdict
     }
 
-    /// The app re-signs the approvals file; the CLI cannot, so it asks.
-    static func revokeServiceGrant(id: String) throws {
-        let request = IPCRequest.serviceGrantRevoke(ServiceGrantRevokeRequest(id: id))
+    /// Approvals live in a Keychain item only the app can open, so the CLI asks.
+    static func revokeApproval(id: String) throws {
+        let request = IPCRequest.approvalRevoke(ApprovalRevokeRequest(id: id))
         let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: request))
         defer { close(fd) }
         var timeout = timeval(tv_sec: 10, tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         try IPCMessage.writeMessage(fd: fd, message: request)
-        guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self),
-              case .serviceGrantRevoke(let answer) = response else { throw IPCError.readFailed }
-        guard answer.success else { throw CommandFailure(answer.error ?? "KeyKeeper could not revoke that grant.") }
+        guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else { throw IPCError.readFailed }
+        // An app from before this request existed answers with a generic value error.
+        guard case .approvalRevoke(let answer) = response else { throw IPCError.appVersionTooOld }
+        guard answer.success else { throw CommandFailure(answer.error ?? "KeyKeeper could not revoke that approval.") }
+    }
+
+    static func listApprovals(credentialId: String?) throws -> ApprovalsListResponse {
+        let request = IPCRequest.approvalsList(ApprovalsListRequest(credentialId: credentialId))
+        let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: request))
+        defer { close(fd) }
+        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        try IPCMessage.writeMessage(fd: fd, message: request)
+        guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else { throw IPCError.readFailed }
+        guard case .approvalsList(let answer) = response else { throw IPCError.appVersionTooOld }
+        return answer
     }
 
     static func requestSessionControl(

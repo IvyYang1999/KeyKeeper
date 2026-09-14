@@ -150,7 +150,6 @@ struct RunCommand: ParsableCommand {
     func run() throws {
         let store = MetaStore.default
         let meta = try store.load()
-        let grantStore = GrantStore.default
         let session = SessionResolver.resolve()
         let credentialIds = try Self.resolveCredentialIds(credential, in: meta)
         let filePlan = try FileInjectionPlan(credentials: credentialIds, mappings: file, prefix: prefix, meta: meta)
@@ -181,15 +180,6 @@ struct RunCommand: ParsableCommand {
                 FileHandle.standardError.write(Data((warning + "\n").utf8))
             }
 
-            // Only ask when something secret will actually be read.
-            if Self.requiresAuthorization(for: cred) {
-                try Self.ensureGrant(
-                    credentialId: credId, credential: cred,
-                    grantStore: grantStore, session: session,
-                    statedReason: statedReason()
-                )
-            }
-
             // Plain metadata values (an account id, a region): straight from meta.json.
             try Self.mergePlainFields(of: cred, prefix: prefix, into: &injectedEnv, aliases: &aliasEnv)
 
@@ -212,8 +202,7 @@ struct RunCommand: ParsableCommand {
                 // Read secret via IPC — App owns the unlocked age session
                 let value = try Self.readSecret(
                     credentialId: credId, credential: cred, fieldName: fieldName,
-                    requestedFieldNames: secretFieldNames, grantStore: grantStore,
-                    session: session, statedReason: statedReason()
+                    requestedFieldNames: secretFieldNames, session: session, statedReason: statedReason()
                 )
                 if let format = cred.fields[fieldName]?.fileFormat {
                     _ = try format.validate(Data(value.utf8))
@@ -336,18 +325,18 @@ struct RunCommand: ParsableCommand {
 
     /// Ensure a valid grant exists for a strict credential.
     /// If no valid grant, request authorization via IPC to the app.
-    /// The CLI's pre-check is looser than the app's (it cannot compute its own identity), so the
-    /// app can refuse a request the pre-check waved through. Then the honest move is to ask once.
+    /// The CLI keeps no approvals of its own — they live in a Keychain item only the app can open —
+    /// so it reads first and asks only when the app says this caller holds no approval.
     static func shouldRequestAuthorizationAfterRefusal(_ error: Error, security: SecurityLevel,
                                                        alreadyRetried: Bool) -> Bool {
         guard !alreadyRetried, security == .strict, case IPCError.noAuthorization = error else { return false }
         return true
     }
 
-    /// Reads a secret, and if the app says this caller holds no approval after all, asks for one
-    /// and tries exactly once more.
+    /// Reads a secret, and if the app says this caller holds no approval, asks for one and tries
+    /// exactly once more.
     static func readSecret(credentialId: String, credential: Credential, fieldName: String,
-                           requestedFieldNames: [String], grantStore: GrantStore,
+                           requestedFieldNames: [String],
                            session: SessionInfo, statedReason: CallerStatedReason?) throws -> String {
         func read() throws -> String {
             try IPCClient.requestValue(credentialId: credentialId, fieldName: fieldName,
@@ -360,24 +349,14 @@ struct RunCommand: ParsableCommand {
             guard shouldRequestAuthorizationAfterRefusal(error, security: credential.security, alreadyRetried: false) else {
                 throw error
             }
-            try ensureGrant(credentialId: credentialId, credential: credential, grantStore: grantStore,
-                            session: session, statedReason: statedReason, skipPrecheck: true)
+            try requestApproval(credentialId: credentialId, credential: credential, session: session, statedReason: statedReason)
             return try read()
         }
     }
 
-    static func ensureGrant(credentialId: String, credential: Credential,
-                            grantStore: GrantStore, session: SessionInfo,
-                            statedReason: CallerStatedReason? = nil,
-                            skipPrecheck: Bool = false) throws {
-        // Only deciding whether to raise a window; the App checks properly before any value
-        // moves. It must not ask for a fingerprint here — the CLI cannot compute its own, and
-        // demanding one made every call prompt again even with a standing approval.
-        if !skipPrecheck, try grantStore.hasLikelyValidGrant(credentialId: credentialId, sessionId: session.id) {
-            return
-        }
-
-        // No valid grant — request authorization from the app
+    /// Ask the app to put the authorization window up for this credential.
+    static func requestApproval(credentialId: String, credential: Credential, session: SessionInfo,
+                                statedReason: CallerStatedReason? = nil) throws {
         let fieldNames = credential.fields.filter(\.value.secret).map(\.key).sorted()
         let request = AuthRequest(
             credentialId: credentialId,

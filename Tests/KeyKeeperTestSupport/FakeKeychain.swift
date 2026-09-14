@@ -156,3 +156,10 @@ public final class FakeKeychainIO: KeychainBlobIO, @unchecked Sendable {
         try afterWrite?()
     }
 }
+
+extension ApprovalStore {
+    /// An approvals store over a simulated Keychain item, for tests. Never the real one.
+    public static func inMemory(_ keychain: FakeKeychain = FakeKeychain()) -> ApprovalStore {
+        ApprovalStore(io: keychain.io("com.keykeeper.test.credentials.approvals"))
+    }
+}

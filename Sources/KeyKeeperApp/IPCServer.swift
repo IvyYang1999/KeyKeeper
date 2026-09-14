@@ -65,8 +65,7 @@ final class IPCServer: ObservableObject {
     private let queue = DispatchQueue(label: "keykeeper.ipc", qos: .userInitiated)
     private let session: SessionControlling
     private let metaStore: MetaStore
-    private let grantStore: GrantStore
-    private let serviceGrantStore: ServiceGrantStore
+    private let approvals: ApprovalStore
     private let clipboardSaveController: ClipboardSaveController?
     private let browserSessionController: BrowserSessionController?
     private var browserImportBridge: BrowserImportBridge?
@@ -108,15 +107,13 @@ final class IPCServer: ObservableObject {
     init(
         session: SessionControlling,
         metaStore: MetaStore = .default,
-        grantStore: GrantStore = .default,
-        serviceGrantStore: ServiceGrantStore = .default,
+        approvals: ApprovalStore,
         clipboardSaveController: ClipboardSaveController? = nil,
         browserSessionController: BrowserSessionController? = nil
     ) {
         self.session = session
         self.metaStore = metaStore
-        self.grantStore = grantStore
-        self.serviceGrantStore = serviceGrantStore
+        self.approvals = approvals
         self.clipboardSaveController = clipboardSaveController
         self.browserSessionController = browserSessionController
         browserSessionController?.otherApprovalPending = { [weak self] in
@@ -235,25 +232,18 @@ final class IPCServer: ObservableObject {
         promoteNextWaiting()
     }
 
-    func fulfillServiceRequest(_ pending: PendingServiceRequest, serviceGrant: ServiceGrant) {
+    /// `approval` is what the person's answer was stored as — nil when it could not be stored
+    /// (an unidentified caller gets this one answer and nothing remembered).
+    func fulfillServiceRequest(_ pending: PendingServiceRequest, approval: Approval?) {
         expirePendingIfNeeded()
         guard pendingServiceRequest?.id == pending.id else { return }
         pendingServiceRequest = nil
         defer { promoteNextWaiting() }
         let session = self.session
-        let grantStore = self.grantStore
-        let serviceGrantStore = self.serviceGrantStore
+        let approvals = self.approvals
         queue.async {
-            Self.readValueAndRespond(
-                request: pending.request,
-                clientFd: pending.clientFd,
-                session: session,
-                matchedStrictGrant: nil,
-                matchedServiceGrant: serviceGrant,
-                caller: nil,
-                grantStore: grantStore,
-                serviceGrantStore: serviceGrantStore
-            )
+            Self.readValueAndRespond(request: pending.request, clientFd: pending.clientFd,
+                                     session: session, matched: approval, approvals: approvals)
         }
     }
 
@@ -400,15 +390,25 @@ final class IPCServer: ObservableObject {
             handleValueRequest(request, clientFd: clientFd, callerIdentity: callerIdentity)
         case .serviceRequests:
             handleServiceRequestsList(clientFd: clientFd)
-        case .serviceGrantRevoke(let request):
-            let response: ServiceGrantRevokeResponse
+        case .approvalRevoke(let request):
+            let response: ApprovalRevokeResponse
             do {
-                try serviceGrantStore.revokeGrant(id: request.id)
-                response = .init(success: true)
+                response = try approvals.revoke(id: request.id)
+                    ? .init(success: true)
+                    : .init(success: false, error: "No approval has that ID. Run keykeeper grants list to see the IDs.")
             } catch {
                 response = .init(success: false, error: error.localizedDescription)
             }
-            send(.serviceGrantRevoke(response), clientFd: clientFd)
+            send(.approvalRevoke(response), clientFd: clientFd)
+        case .approvalsList(let request):
+            let response: ApprovalsListResponse
+            do {
+                let all = try request.credentialId.map { try approvals.approvals(forCredential: $0) } ?? approvals.all()
+                response = ApprovalsListResponse(mode: try approvals.mode(), approvals: all)
+            } catch {
+                response = ApprovalsListResponse(mode: .enforced, approvals: [])
+            }
+            send(.approvalsList(response), clientFd: clientFd)
         case .metadataIntegrity:
             let verdict = (try? metaStore.loadVerified().verdict) ?? .tampered
             send(.metadataIntegrity(MetadataIntegrityResponse(verdict)), clientFd: clientFd)
@@ -435,8 +435,7 @@ final class IPCServer: ObservableObject {
         guard let manager = session as? any CredentialSessionManaging else {
             return .init(success: false, error: "Storage cannot be safely updated.")
         }
-        let editor = MetadataEditor(session: manager, metaStore: metaStore,
-                                    grantStore: grantStore, serviceGrantStore: serviceGrantStore)
+        let editor = MetadataEditor(session: manager, metaStore: metaStore, approvals: approvals)
         do {
             let result = try editor.apply(request.edit, groupId: request.groupId)
             let label = result.meta.credentials[result.groupId]?.label ?? result.groupId
@@ -552,7 +551,7 @@ final class IPCServer: ObservableObject {
         enrichedRequest.credentialLabel = credential.label
         enrichedRequest.fieldNames = credential.fields.filter { $0.value.secret }.keys.sorted()
 
-        if let refusal = StrictAuthorizationPolicy.refusal(for: callerIdentity.subject.fingerprint) {
+        if let refusal = AccessPolicy.strictRefusal(for: callerIdentity.subject.fingerprint) {
             send(.auth(AuthResponse(granted: false, error: refusal)), clientFd: clientFd)
             return
         }
@@ -701,55 +700,20 @@ final class IPCServer: ObservableObject {
             return
         }
 
-        // For strict credentials, verify the existing session grant path.
-        var matchedStrictGrant: Grant?
-        if cred.security == .strict {
-            guard let grant = try? GrantAuthorizationPolicy.validGrantForValueAccess(
-                credentialId: request.credentialId,
-                sessionId: request.sessionId,
-                fingerprint: callerIdentity.subject.fingerprint,
-                grantStore: grantStore
-            ) else {
-                let resp = IPCResponse.value(ValueResponse(
-                    success: false,
-                    error: "No valid grant",
-                    errorCode: .noAuthorization
-                ))
-                Self.writeAndClose(resp, clientFd: clientFd)
-                return
-            }
-            matchedStrictGrant = grant
-        }
-
         do {
-            let serviceDecision = try ServiceAuthorizationPolicy.decisionForValueAccess(
-                credential: cred,
-                credentialId: request.credentialId,
-                fieldName: request.fieldName,
-                caller: callerIdentity,
-                serviceGrantStore: serviceGrantStore
-            )
-
-            switch serviceDecision {
-            case .allowed(let serviceGrant):
-                Self.readValueAndRespond(
-                    request: request,
-                    clientFd: clientFd,
-                    session: session,
-                    matchedStrictGrant: matchedStrictGrant,
-                    matchedServiceGrant: serviceGrant,
-                    caller: callerIdentity,
-                    grantStore: grantStore,
-                    serviceGrantStore: serviceGrantStore
-                )
-
-            case .promptRequired:
-                enqueueServiceRequest(
-                    request,
-                    credential: cred,
-                    clientFd: clientFd,
-                    callerIdentity: callerIdentity
-                )
+            switch try AccessPolicy.decide(credential: cred, credentialId: request.credentialId,
+                                           field: request.fieldName, caller: callerIdentity,
+                                           terminalSession: request.sessionId, store: approvals) {
+            case .allowed(let approval):
+                Self.readValueAndRespond(request: request, clientFd: clientFd, session: session,
+                                         matched: approval, approvals: approvals)
+            case .needsApproval where cred.security == .strict:
+                // A strict credential is approved through the auth request, which the CLI sends
+                // on seeing this; the prompt is not raised from a value read.
+                Self.writeAndClose(IPCResponse.value(ValueResponse(
+                    success: false, error: "No valid grant", errorCode: .noAuthorization)), clientFd: clientFd)
+            case .needsApproval:
+                enqueueServiceRequest(request, credential: cred, clientFd: clientFd, callerIdentity: callerIdentity)
             }
         } catch {
             let resp = IPCResponse.value(ValueResponse(
@@ -821,33 +785,17 @@ final class IPCServer: ObservableObject {
         }
     }
 
-    private nonisolated static func readValueAndRespond(request: ValueRequest,
-                                                        clientFd: Int32,
+    private nonisolated static func readValueAndRespond(request: ValueRequest, clientFd: Int32,
                                                         session: SessionControlling,
-                                                        matchedStrictGrant: Grant?,
-                                                        matchedServiceGrant: ServiceGrant?,
-                                                        caller: CallerIdentity?,
-                                                        grantStore: GrantStore,
-                                                        serviceGrantStore: ServiceGrantStore) {
+                                                        matched: Approval?, approvals: ApprovalStore) {
         let response = retrieveSessionValue(
             session: session,
             credentialId: request.credentialId,
             fieldName: request.fieldName
         )
-
-        if response.success {
-            try? GrantAuthorizationPolicy.consumeOnceGrantAfterSuccessfulValueIfNeeded(
-                matchedStrictGrant,
-                fieldName: request.fieldName,
-                grantStore: grantStore
-            )
-
-            if let matchedServiceGrant {
-                try? serviceGrantStore.noteSuccessfulUse(
-                    grantId: matchedServiceGrant.id,
-                    fieldName: request.fieldName
-                )
-            }
+        // Only a value that was actually handed out spends a "once" approval.
+        if response.success, let matched {
+            try? approvals.noteUse(id: matched.id, field: request.fieldName)
         }
 
         Self.writeAndClose(IPCResponse.value(response), clientFd: clientFd)

@@ -4,17 +4,17 @@ import KeyKeeperCore
 
 final class AccessLogBuilderTests: XCTestCase {
     func test合并授权使用与审计事件并按时间倒序() {
-        let used = ServiceGrant(credentialId: "openai", subjectFingerprint: "fp", subjectDisplayName: "claude",
-                                fields: ["api-key"], duration: .always, lastUsedAt: Date(timeIntervalSince1970: 300))
-        let neverUsed = ServiceGrant(credentialId: "stripe", subjectFingerprint: "fp2", subjectDisplayName: "cron",
-                                     fields: ["secret-key"], duration: .always)
+        let used = Approval(subject: .init(fingerprint: "fp", displayName: "claude"), target: .credential(id: "openai", fields: ["api-key"]),
+                            duration: .always, lastUsedAt: Date(timeIntervalSince1970: 300))
+        let neverUsed = Approval(subject: .init(fingerprint: "fp2", displayName: "cron"), target: .credential(id: "stripe", fields: ["secret-key"]),
+                                 duration: .always)
         let events = [
             ServiceAuditEvent(timestamp: Date(timeIntervalSince1970: 100), credentialId: "neon", fieldName: "url",
                               subjectFingerprint: "x", subjectDisplayName: "python", mode: .permissive, decision: "allowed_without_grant"),
             ServiceAuditEvent(timestamp: Date(timeIntervalSince1970: 200), credentialId: "neon", fieldName: "url",
                               subjectFingerprint: "y", subjectDisplayName: "node", mode: .enforced, decision: "prompt_required"),
         ]
-        let entries = AccessLogBuilder.entries(serviceGrants: [used, neverUsed], auditEvents: events)
+        let entries = AccessLogBuilder.entries(approvals: [used, neverUsed], auditEvents: events)
         XCTAssertEqual(entries.map(\.who), ["claude", "node", "python"])
         XCTAssertEqual(entries.map(\.kind), [.approvedUse, .approvalRequired, .readWithoutApproval])
     }
@@ -32,7 +32,7 @@ final class AccessLogBuilderTests: XCTestCase {
             read(300, "console", "feisou-admin", "ADMIN_KEY"),
             read(350, "python3", "glm", "base-url"),
         ]
-        let groups = AccessLogBuilder.groups(AccessLogBuilder.entries(serviceGrants: [], auditEvents: events))
+        let groups = AccessLogBuilder.groups(AccessLogBuilder.entries(approvals: [], auditEvents: events))
         XCTAssertEqual(groups.map(\.who), ["python3", "python3", "console"])
         XCTAssertEqual(groups.map(\.detail), ["api-key", "base-url", "ADMIN_KEY"])
         XCTAssertEqual(groups.map(\.count), [3, 1, 1])

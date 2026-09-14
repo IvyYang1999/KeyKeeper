@@ -26,6 +26,7 @@ import KeyKeeperTestSupport
     private var service: KeychainCredentialService!
     private var clipboard: SaveTestClipboard!
     private var controller: ClipboardSaveController!
+    private var approvals: ApprovalStore!
     private var results: [ClipboardSaveResponse] = []
     private var clock = Date()
     private var connected = true
@@ -37,7 +38,8 @@ import KeyKeeperTestSupport
         io = FakeKeychainIO()
         service = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.meta.load() }))
         clipboard = SaveTestClipboard()
-        controller = ClipboardSaveController(service: service, metaStore: meta, clipboard: clipboard,
+        approvals = ApprovalStore.inMemory()
+        controller = ClipboardSaveController(service: service, metaStore: meta, approvals: approvals, clipboard: clipboard,
             now: { self.clock }, present: { _, _ in }, dismiss: {})
         results = []; connected = true
     }
@@ -98,9 +100,9 @@ import KeyKeeperTestSupport
         for failure in ["cancel", "expired", "disconnected", "twice", "write"] {
             try prepareReplacement()
             let original = io.blob
-            let grantStore = GrantStore(directory: directory)
-            try grantStore.addGrant(Grant(credentialId: "fixture", duration: .always))
-            let grants = try grantStore.grants(for: "fixture").map(\.id)
+            try approvals.add(Approval(subject: .init(fingerprint: "unsigned:path=a", displayName: "a"),
+                                       target: .credential(id: "fixture", fields: nil), duration: .always))
+            let grants = try approvals.approvals(forCredential: "fixture").map(\.id)
             copyToClipboard("synthetic-import")
             if failure == "expired" { clock = clock.addingTimeInterval(91) }
             if failure == "disconnected" { connected = false }
@@ -109,7 +111,7 @@ import KeyKeeperTestSupport
             controller.resolve(approved: failure != "cancel")
             XCTAssertEqual(results.last?.success, false, failure)
             XCTAssertEqual(io.blob, original, failure)
-            XCTAssertEqual(try grantStore.grants(for: "fixture").map(\.id), grants)
+            XCTAssertEqual(try approvals.approvals(forCredential: "fixture").map(\.id), grants)
             connected = true; io.failWrites = false
         }
     }
@@ -146,14 +148,13 @@ import KeyKeeperTestSupport
     func testReplacementWireToServerToStoreRoundTrip() throws {
         try service.save(credentialId: "fixture", fieldName: "key", value: "old-fixture", security: .standard)
         try meta.save(.init(credentials: ["fixture": credential()]))
-        controller = ClipboardSaveController(service: service, metaStore: meta, clipboard: clipboard,
+        controller = ClipboardSaveController(service: service, metaStore: meta, approvals: .inMemory(), clipboard: clipboard,
             present: { info, approve in
                 XCTAssertTrue(info.request.isReplacement)
                 self.copyToClipboard("synthetic-import")
                 approve(true)
             }, dismiss: {})
-        let server = IPCServer(session: service, metaStore: meta, grantStore: GrantStore(directory: directory),
-            serviceGrantStore: ServiceGrantStore(directory: directory), clipboardSaveController: controller)
+        let server = IPCServer(session: service, metaStore: meta, approvals: approvals, clipboardSaveController: controller)
         var sockets: [Int32] = [0, 0]
         XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &sockets), 0)
         defer { close(sockets[1]) }
@@ -193,7 +194,7 @@ import KeyKeeperTestSupport
         try bytes.write(to: file)
         let source = try CredentialFileSource(filePath: file.path, pythonSymbol: "ADMIN_KEY")
         var shown: ClipboardSaveController.Presentation?
-        controller = ClipboardSaveController(service: service, metaStore: meta, present: { info, _ in shown = info }, dismiss: {})
+        controller = ClipboardSaveController(service: service, metaStore: meta, approvals: .inMemory(), present: { info, _ in shown = info }, dismiss: {})
         let request = ClipboardSaveRequest(credentialId: "fixture", fieldName: "key", create: true)
         controller.receive(request, callerName: "Test", isConnected: { true }, source: source,
                            completion: { self.results.append($0) })
@@ -205,7 +206,7 @@ import KeyKeeperTestSupport
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "synthetic-value")
         XCTAssertNil(try meta.load().credentials["fixture"]?.fields["key"]?.fileFormat)
         XCTAssertEqual(try meta.load().credentials["fixture"]?.security, .strict)
-        XCTAssertTrue(try GrantStore(directory: directory).grants(for: "fixture").isEmpty)
+        XCTAssertTrue(try approvals.approvals(forCredential: "fixture").isEmpty)
         XCTAssertEqual(try Data(contentsOf: file), bytes)
         for create in [true, false] {
             controller.receive(.init(credentialId: "fixture", fieldName: "key", create: create), callerName: "Test",
@@ -261,7 +262,7 @@ import KeyKeeperTestSupport
 
     func testBrowserSourceReservesTargetWithoutShowingOrReadingUntilPaste() throws {
         var presentations = 0
-        controller = ClipboardSaveController(service: service, metaStore: meta, clipboard: clipboard,
+        controller = ClipboardSaveController(service: service, metaStore: meta, approvals: .inMemory(), clipboard: clipboard,
             now: { self.clock }, present: { info, _ in
                 XCTAssertTrue(info.fromBrowser); presentations += 1
             }, dismiss: {})
@@ -344,7 +345,7 @@ import KeyKeeperTestSupport
 
     func testOldConfirmationCannotApproveNextRequest() {
         var callbacks: [(Bool) -> Void] = []
-        controller = ClipboardSaveController(service: service, metaStore: meta, clipboard: clipboard,
+        controller = ClipboardSaveController(service: service, metaStore: meta, approvals: .inMemory(), clipboard: clipboard,
             now: { self.clock }, present: { _, callback in callbacks.append(callback) }, dismiss: {})
         request(); controller.cancel(); request()
         callbacks[0](true)
@@ -355,7 +356,8 @@ import KeyKeeperTestSupport
     }
 
     func testNewCredentialDoesNotInheritStaleReadGrants() throws {
-        try GrantStore(directory: directory).addGrant(.init(credentialId: "fixture", duration: .always))
+        try approvals.add(Approval(subject: .init(fingerprint: "unsigned:path=old", displayName: "old"),
+                                   target: .credential(id: "fixture", fields: nil), duration: .always))
         request(); controller.resolve(approved: true)
         XCTAssertEqual(io.writes, 0)
         XCTAssertEqual(clipboard.reads, 0)

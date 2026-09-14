@@ -51,6 +51,7 @@ extension ClipboardSaveSource {
     }
     private let service: KeychainCredentialService
     private let metaStore: MetaStore
+    private let approvals: ApprovalStore
     private let clipboard: ClipboardSaveSource
     private let now: () -> Date
     private let present: (Presentation, @escaping (Bool) -> Void) -> Void
@@ -60,11 +61,11 @@ extension ClipboardSaveSource {
     private var isPresented = false
     var isPending: Bool { pending != nil }
 
-    init(service: KeychainCredentialService, metaStore: MetaStore = .default,
+    init(service: KeychainCredentialService, metaStore: MetaStore = .default, approvals: ApprovalStore,
          clipboard: ClipboardSaveSource? = nil, now: @escaping () -> Date = Date.init,
          present: ((Presentation, @escaping (Bool) -> Void) -> Void)? = nil,
          dismiss: (() -> Void)? = nil) {
-        self.service = service; self.metaStore = metaStore
+        self.service = service; self.metaStore = metaStore; self.approvals = approvals
         self.clipboard = clipboard ?? SystemClipboardSaveSource(); self.now = now
         let window = ClipboardSaveWindow()
         self.present = present ?? { info, decide in
@@ -234,9 +235,8 @@ extension ClipboardSaveSource {
         }
         if request.create {
             guard metadata.credentials[request.credentialId] == nil else { throw ClipboardSaveError.valueExists }
-            let directory = metaStore.fileURL.deletingLastPathComponent()
-            guard try GrantStore(directory: directory).grants(for: request.credentialId).isEmpty,
-                  try ServiceGrantStore(directory: directory).grants(credentialId: request.credentialId).isEmpty else {
+            // A new credential under a reused ID must not inherit what was given to the old one.
+            guard try !approvals.hasApprovals(forCredential: request.credentialId) else {
                 throw ClipboardSaveError.staleGrants
             }
         } else {

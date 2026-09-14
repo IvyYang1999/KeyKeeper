@@ -17,7 +17,7 @@ struct SettingsView: View {
     @State private var cliState: CLIInstallState = .missing
     @State private var cliError: String?
 
-    private let serviceGrantStore = ServiceGrantStore.default
+    private let approvals = ApprovalStore.shared
     @Environment(\.panelLayout) private var layout
 
     var body: some View {
@@ -257,8 +257,8 @@ struct SettingsView: View {
 
     private func load() {
         do {
-            enforceServiceGrants = try serviceGrantStore.authorizationMode() == .enforced
-            serviceGrantCount = try serviceGrantStore.grants().count
+            enforceServiceGrants = try approvals.mode() == .enforced
+            serviceGrantCount = try approvals.all().count
             serviceModeError = nil
         } catch {
             serviceModeError = error.localizedDescription
@@ -270,7 +270,7 @@ struct SettingsView: View {
 
     private func save(_ enforced: Bool) {
         do {
-            try serviceGrantStore.setAuthorizationMode(enforced ? .enforced : .permissive)
+            try approvals.setMode(enforced ? .enforced : .permissive)
             serviceModeError = nil
         } catch {
             serviceModeError = error.localizedDescription

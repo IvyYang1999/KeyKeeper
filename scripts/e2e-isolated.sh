@@ -72,10 +72,13 @@ start_app
 echo "==> fresh vault, upgraded approvals files"
 OUT="$("$KK" status)"; expect_contains "status ready" "ready" "$OUT"
 OUT="$("$KK" list)"; expect_contains "list is empty" "No credentials stored" "$OUT"
-OUT="$(python3 -c "import json;d=json.load(open('$KEYKEEPER_DATA_DIR/service-grants.json'));print(d['mode'],len(d['grants']),'integrity' in d)")"
-expect_contains "upgrade kept background approvals and mode" "permissive 1 True" "$OUT"
-OUT="$(python3 -c "import json;d=json.load(open('$KEYKEEPER_DATA_DIR/grants.json'));print(any(g['id']=='g-unowned-always' for g in d['grants']),'integrity' in d)")"
-expect_contains "upgrade kept terminal approvals and signed the file" "True True" "$OUT"
+OUT="$("$KK" grants list 2>&1)"
+expect_contains "upgrade kept the background mode" "allowed (permissive)" "$OUT"
+expect_contains "upgrade moved the background approval into the Keychain" "com.openai.codex" "$OUT"
+expect_not_contains "unowned old approvals are not carried over" "g-unowned-always" "$OUT"
+OUT="$(ls "$KEYKEEPER_DATA_DIR" | tr '\n' ' ')"
+expect_contains "old approvals files kept as a record" "service-grants.json.migrated-" "$OUT"
+expect_not_contains "old approvals files no longer live" " grants.json " "$OUT"
 
 echo "==> save without any clipboard, with the agent's suggestions"
 OUT="$("$KK" save -c svc --field token --from-source "$TMP/config.py" --python-symbol TOKEN --create --security standard --expires 2027-01-31 2>&1)"
@@ -100,12 +103,16 @@ OUT="$("$KK" run -c strict1 -- sh -c 'test "$KEY" = synthetic-strict-e2e && echo
 expect_contains "strict run after approval" "MATCH" "$OUT"
 OUT="$("$KK" run -c strict1 -- sh -c 'test "$KEY" = synthetic-strict-e2e && echo MATCH' 2>&1)"
 expect_contains "strict run asks again (once was spent)" "MATCH" "$OUT"
-OUT="$(python3 -c "import json;d=json.load(open('$KEYKEEPER_DATA_DIR/grants.json'));print(sum(1 for g in d['grants'] if g['credentialId']=='strict1' and not g['consumed']))")"
-expect_contains "no live once-approval left behind" "0" "$OUT"
+OUT="$("$KK" grants list --credential strict1 2>&1)"
+expect_contains "once-approvals are spent after use" "spent" "$OUT"
+# A new once-approval for the same caller and target replaces the spent one, so one line is listed.
+LISTED="$(printf '%s' "$OUT" | grep -c 'credential: strict1')"; SPENT="$(printf '%s' "$OUT" | grep -c '^  spent')"
+if [ "$LISTED" -ge 1 ] && [ "$LISTED" = "$SPENT" ]; then pass "every once-approval for strict1 is spent"; else fail "every once-approval for strict1 is spent" "listed $LISTED, spent $SPENT"; fi
+OUT="$("$KK" grants revoke no-such-id 2>&1 || true)"; expect_contains "revoking a wrong id says so" "No approval has that ID" "$OUT"
 
-echo "==> files are signed, and a forged line is not honored"
-OUT="$(grep -c '"integrity"' "$KEYKEEPER_DATA_DIR/meta.json" "$KEYKEEPER_DATA_DIR/grants.json" "$KEYKEEPER_DATA_DIR/service-grants.json" | tr '\n' ' ')"
-expect_contains "meta/grants/service-grants signed" "meta.json:1 " "$OUT"
+echo "==> meta.json is signed, and a forged line is not honored"
+OUT="$(grep -c '"integrity"' "$KEYKEEPER_DATA_DIR/meta.json")"
+expect_contains "meta.json signed" "1" "$OUT"
 python3 - "$KEYKEEPER_DATA_DIR/meta.json" <<'PY'
 import json,sys
 p=sys.argv[1]; d=json.load(open(p)); d['credentials']['svc']['fields']['region']['value']='attacker'
@@ -123,7 +130,7 @@ echo "==> quit with cleanup: no Keychain item left behind"
 stop_app; start_app 1; stop_app
 LEFT=0
 for svc in "$KEYKEEPER_KEYCHAIN_SERVICE" "$KEYKEEPER_KEYCHAIN_SERVICE.browser-sessions" \
-           "$KEYKEEPER_KEYCHAIN_SERVICE.metadata-mac" "$KEYKEEPER_KEYCHAIN_SERVICE.grants-mac" "$KEYKEEPER_KEYCHAIN_SERVICE.service-grants-mac"; do
+           "$KEYKEEPER_KEYCHAIN_SERVICE.approvals" "$KEYKEEPER_KEYCHAIN_SERVICE.metadata-mac"; do
     if security find-generic-password -s "$svc" >/dev/null 2>&1; then LEFT=$((LEFT+1)); echo "       left behind: $svc"; fi
 done
 if [ "$LEFT" = 0 ]; then pass "keychain clean"; else fail "keychain clean" "$LEFT item(s) remain"; fi

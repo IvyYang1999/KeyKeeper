@@ -24,7 +24,7 @@ final class CredentialGUIDataTests: XCTestCase {
 
     func test新增保存只调用注入Session并写Metadata() throws {
         let session = FakeCredentialSession()
-        let vm = AddCredentialViewModel(session: session, store: store)
+        let vm = AddCredentialViewModel(session: session, store: store, approvals: .inMemory())
         vm.label = "Service"
         vm.credentialId = "service"
         vm.fields = [FieldEntry(name: "token", value: "opaque-value")]
@@ -45,7 +45,7 @@ final class CredentialGUIDataTests: XCTestCase {
         let session = FakeCredentialSession(values: [
             "service.old-token": "opaque-old-value"
         ])
-        let vm = AddCredentialViewModel(session: session, store: store)
+        let vm = AddCredentialViewModel(session: session, store: store, approvals: .inMemory())
         vm.label = "Replacement Service"
         vm.credentialId = "service"
         vm.fields = [FieldEntry(name: "new-token", value: "opaque-new-value")]
@@ -66,7 +66,7 @@ final class CredentialGUIDataTests: XCTestCase {
         try store.save(MetaFile(credentials: ["service": existing]))
         let session = FakeCredentialSession()
         session.errorForDelete = TestError.injectedFailure
-        let vm = AddCredentialViewModel(session: session, store: store)
+        let vm = AddCredentialViewModel(session: session, store: store, approvals: .inMemory())
         vm.label = "Replacement Service"
         vm.credentialId = "service"
         vm.fields = [FieldEntry(name: "new-token", value: "opaque-new-value")]
@@ -87,7 +87,7 @@ final class CredentialGUIDataTests: XCTestCase {
             credential: credential,
             session: session,
             store: store
-        )
+        , approvals: .inMemory())
 
         vm.toggleFieldVisibility(at: 0)
         XCTAssertEqual(vm.fields[0].value, "opaque-value")
@@ -106,7 +106,7 @@ final class CredentialGUIDataTests: XCTestCase {
         let session = FakeCredentialSession(values: ["service.json": "synthetic-file"])
         let credential = makeCredential(fields: ["json": .init(secret: true, fileFormat: .serviceAccountJSON)])
         try store.save(.init(credentials: ["service": credential]))
-        let vm = CredentialDetailViewModel(credentialId: "service", credential: credential, session: session, store: store)
+        let vm = CredentialDetailViewModel(credentialId: "service", credential: credential, session: session, store: store, approvals: .inMemory())
         vm.toggleFieldVisibility(at: 0)
         XCTAssertNil(vm.copyFieldValue("json"))
         XCTAssertTrue(session.operations.isEmpty)
@@ -126,7 +126,7 @@ final class CredentialGUIDataTests: XCTestCase {
         try store.save(MetaFile(credentials: ["existing": existing]))
         let session = FakeCredentialSession(status: .locked)
 
-        let addVM = AddCredentialViewModel(session: session, store: store)
+        let addVM = AddCredentialViewModel(session: session, store: store, approvals: .inMemory())
         addVM.label = "New"
         addVM.credentialId = "new"
         addVM.fields = [FieldEntry(name: "token", value: "opaque-new-value")]
@@ -138,7 +138,7 @@ final class CredentialGUIDataTests: XCTestCase {
             credential: existing,
             session: session,
             store: store
-        )
+        , approvals: .inMemory())
         detailVM.toggleFieldVisibility(at: 0)
         XCTAssertTrue(detailVM.errorMessage?.localizedCaseInsensitiveContains("unlock") == true)
         XCTAssertNil(detailVM.copyFieldValue("token"))
@@ -177,7 +177,7 @@ final class CredentialGUIDataTests: XCTestCase {
             credential: existing,
             session: session,
             store: store
-        )
+        , approvals: .inMemory())
         vm.fields.removeAll { $0.name == "removed" }
 
         XCTAssertTrue(vm.saveChanges())
@@ -231,7 +231,7 @@ final class CredentialGUIDataTests: XCTestCase {
             "token": .init(secret: true),
         ])
         try store.save(.init(credentials: ["service": credential]))
-        let vm = CredentialDetailViewModel(credentialId: "service", credential: credential, session: session, store: store)
+        let vm = CredentialDetailViewModel(credentialId: "service", credential: credential, session: session, store: store, approvals: .inMemory())
         XCTAssertTrue(session.operations.isEmpty)
 
         let summary = vm.serviceAccountSummary(fieldName: "json")
@@ -246,7 +246,7 @@ final class CredentialGUIDataTests: XCTestCase {
     /// 新增时字段名随手起（"API Key "），存成机器名 api-key，原样的写法记成显示名。
     func test新增时随手起的字段名变机器名并记成显示名() throws {
         let session = FakeCredentialSession()
-        let vm = AddCredentialViewModel(session: session, store: store)
+        let vm = AddCredentialViewModel(session: session, store: store, approvals: .inMemory())
         vm.label = "百度千帆"
         vm.autoGenerateId()
         XCTAssertEqual(vm.credentialId, "bai-du-qian-fan")
@@ -258,7 +258,7 @@ final class CredentialGUIDataTests: XCTestCase {
         XCTAssertNil(credential.fields["region"]?.displayName)
         XCTAssertEqual(session.values["bai-du-qian-fan.api-key"], "v1")
 
-        let clash = AddCredentialViewModel(session: session, store: store)
+        let clash = AddCredentialViewModel(session: session, store: store, approvals: .inMemory())
         clash.label = "Clash"
         clash.autoGenerateId()
         clash.fields = [FieldEntry(name: "API Key", value: "a"), FieldEntry(name: "api-key", value: "b")]
@@ -270,7 +270,7 @@ final class CredentialGUIDataTests: XCTestCase {
         let session = FakeCredentialSession(values: ["svc.token": "opaque"])
         let credential = makeCredential(fields: ["token": CredentialField(secret: true)])
         try store.save(.init(credentials: ["svc": credential]))
-        let vm = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store)
+        let vm = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store, approvals: .inMemory())
         vm.isEditing = true
         vm.fields[0].displayName = "Deploy token"
         vm.groupIdDraft = "service"
@@ -283,7 +283,7 @@ final class CredentialGUIDataTests: XCTestCase {
         XCTAssertEqual(session.values["service.token"], "opaque")
         XCTAssertNil(try store.load().credentials["svc"])
 
-        let bad = CredentialDetailViewModel(credentialId: "service", credential: saved, session: session, store: store)
+        let bad = CredentialDetailViewModel(credentialId: "service", credential: saved, session: session, store: store, approvals: .inMemory())
         bad.isEditing = true
         bad.groupIdDraft = "Not Valid"
         XCTAssertFalse(bad.saveChanges())
@@ -295,21 +295,20 @@ final class CredentialGUIDataTests: XCTestCase {
         let session = FakeCredentialSession(values: ["svc.token": "opaque"])
         let credential = makeCredential(fields: ["token": CredentialField(secret: true)])
         try store.save(.init(credentials: ["svc": credential]))
-        let grants = ServiceGrantStore(directory: directory)
-        try grants.addGrant(ServiceGrant(credentialId: "svc", subjectFingerprint: "fp", subjectDisplayName: "cron",
-                                         fields: ["token"], duration: .always))
+        let approvals = ApprovalStore.inMemory()
+        try approvals.add(Approval(subject: .init(fingerprint: "fp", displayName: "cron"), target: .credential(id: "svc", fields: ["token"]), duration: .always))
 
-        let invalid = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store)
+        let invalid = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store, approvals: approvals)
         invalid.isEditing = true
         invalid.fields[0].name = "deploy token"
         XCTAssertFalse(invalid.saveChanges())
 
-        let vm = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store)
+        let vm = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store, approvals: approvals)
         vm.isEditing = true
         vm.fields[0].name = "deploy-token"
         XCTAssertTrue(vm.saveChanges(), vm.errorMessage ?? "")
         XCTAssertEqual(try store.load().credentials["svc"]?.fields["deploy-token"]?.aliases, ["token"])
-        XCTAssertEqual(try grants.grants(credentialId: "svc").map(\.fields), [["deploy-token"]])
+        XCTAssertEqual(try approvals.approvals(forCredential: "svc").map(\.target), [.credential(id: "svc", fields: ["deploy-token"])])
     }
 
     /// 【曾经的 bug】库里只要有一条凭据缺值（yyt 有 49 条），编辑页对**任何**凭据都拒绝保存，
@@ -322,7 +321,7 @@ final class CredentialGUIDataTests: XCTestCase {
             "svc": credential,
             "broken": makeCredential(fields: ["lost": CredentialField(secret: true)]),   // 钥匙串里没有它的值
         ]))
-        let vm = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store)
+        let vm = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store, approvals: .inMemory())
         vm.isEditing = true
         vm.credential.notes = "改个备注"
 
@@ -336,12 +335,12 @@ final class CredentialGUIDataTests: XCTestCase {
         let credential = makeCredential(fields: ["token": CredentialField(secret: true)])
         try store.save(.init(credentials: ["svc": credential]))
 
-        let rename = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store)
+        let rename = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store, approvals: .inMemory())
         rename.isEditing = true
         rename.fields[0].name = "renamed"
         XCTAssertFalse(rename.saveChanges(), "值不在，改名会把缺口固化")
 
-        let refill = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store)
+        let refill = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store, approvals: .inMemory())
         refill.isEditing = true
         refill.fields[0].value = "re-entered"
         XCTAssertTrue(refill.saveChanges(), refill.errorMessage ?? "")
@@ -367,7 +366,7 @@ final class CredentialGUIDataTests: XCTestCase {
         let io = FakeKeychainIO()
         io.blob = Data(#"{"version":1,"credentials":{"old":{"kept":"synthetic-kept","orphan":"synthetic-orphan"}}}"#.utf8)
         let session = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.store.load() }))
-        let vm = AddCredentialViewModel(session: session, store: store)
+        let vm = AddCredentialViewModel(session: session, store: store, approvals: .inMemory())
         vm.label = "New"; vm.credentialId = "new"
         vm.fields = [.init(name: "a", value: "synthetic-a"), .init(name: "b", value: "synthetic-b")]
         XCTAssertTrue(vm.save())
@@ -391,7 +390,7 @@ extension CredentialGUIDataTests {
         for original in originals {
             let io = FakeKeychainIO(); io.blob = original
             let service = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.store.load() }))
-            let vm = AddCredentialViewModel(session: service, store: store)
+            let vm = AddCredentialViewModel(session: service, store: store, approvals: .inMemory())
             vm.label = "New"; vm.credentialId = "new"; vm.fields = [.init(name: "fixture", value: "synthetic")]
             XCTAssertFalse(vm.save())
             XCTAssertEqual(io.blob, original); XCTAssertEqual(io.writeCount, 0)
@@ -401,7 +400,8 @@ extension CredentialGUIDataTests {
 
     func testCreateRechecksFreshMetadataAndRejectsDuplicateFieldsAndOldReadGrants() throws {
         let service = FakeCredentialSession()
-        let vm = AddCredentialViewModel(session: service, store: store)
+        let approvals = ApprovalStore.inMemory()
+        let vm = AddCredentialViewModel(session: service, store: store, approvals: approvals)
         vm.label = "New"; vm.credentialId = "new"; vm.fields = [.init(name: "fixture", value: "synthetic")]
         try store.save(.init(credentials: ["new": makeCredential(fields: [:])]))
         XCTAssertFalse(vm.save()); XCTAssertTrue(service.operations.isEmpty)
@@ -409,7 +409,8 @@ extension CredentialGUIDataTests {
         vm.fields.append(.init(name: "fixture", value: "other"))
         XCTAssertFalse(vm.save()); XCTAssertTrue(service.operations.isEmpty)
         vm.fields.removeLast()
-        try GrantStore(directory: directory).addGrant(.init(credentialId: "new", duration: .always))
+        try approvals.add(Approval(subject: .init(fingerprint: "unsigned:path=old", displayName: "old"),
+                                   target: .credential(id: "new", fields: nil), duration: .always))
         XCTAssertFalse(vm.save()); XCTAssertTrue(service.operations.isEmpty)
         XCTAssertNil(try store.load().credentials["new"])
     }
@@ -418,7 +419,7 @@ extension CredentialGUIDataTests {
         let io = FakeKeychainIO()
         let service = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.store.load() }))
         io.onWrite = { try FileManager.default.createDirectory(at: self.store.fileURL, withIntermediateDirectories: false) }
-        let vm = AddCredentialViewModel(session: service, store: store)
+        let vm = AddCredentialViewModel(session: service, store: store, approvals: .inMemory())
         vm.label = "New"; vm.credentialId = "new"; vm.fields = [.init(name: "fixture", value: "synthetic")]
         XCTAssertFalse(vm.save())
         XCTAssertTrue(vm.errorMessage?.contains("Do not retry") == true)
@@ -519,7 +520,7 @@ extension CredentialGUIDataTests {
         try store.save(MetaFile(credentials: [
             "stripe": makeCredential(fields: ["token": CredentialField(secret: true)])
         ]))
-        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
         vm.label = "Stripe"
         vm.autoGenerateId()
         vm.fields = [FieldEntry(name: "token", value: "new-value")]
@@ -535,7 +536,7 @@ extension CredentialGUIDataTests {
     }
 
     func test符号或空格名字生成空ID时不可保存() {
-        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
         vm.label = "!!! ???"
         vm.autoGenerateId()
         vm.fields = [FieldEntry(name: "token", value: "value")]
@@ -545,7 +546,7 @@ extension CredentialGUIDataTests {
     }
 
     func test手动输入ID会被规整为小写连字符() {
-        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
         vm.userEditedId("My Service 2")
         XCTAssertEqual(vm.credentialId, "my-service-2")
         // 组 ID 给机器用：中文转拼音，只留 ASCII（yyt 2026-09-11）。
@@ -553,7 +554,7 @@ extension CredentialGUIDataTests {
     }
 
     func test草稿标题在未填名字时给出占位() {
-        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
         XCTAssertEqual(vm.draftTitle, "(untitled)")
         vm.label = "OpenAI"
         XCTAssertEqual(vm.draftTitle, "OpenAI")
@@ -562,7 +563,7 @@ extension CredentialGUIDataTests {
 
 extension CredentialGUIDataTests {
     func test深链预填名字字段并生成ID() {
-        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
         vm.label = "old draft"
         vm.prefill(label: "Feishu Bot", fields: ["app-id", "app-secret"], notes: "from agent")
 
@@ -575,7 +576,7 @@ extension CredentialGUIDataTests {
     }
 
     func test深链没有字段时保留一个空行() {
-        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
         vm.prefill(label: nil, fields: [], notes: nil)
         XCTAssertEqual(vm.fields.count, 1)
         XCTAssertEqual(vm.label, "")
@@ -584,7 +585,7 @@ extension CredentialGUIDataTests {
 
 extension CredentialGUIDataTests {
     func test新表单预填默认字段名且不算草稿() {
-        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
         XCTAssertEqual(vm.fields.map(\.name), [AddCredentialViewModel.defaultFieldName])
         XCTAssertFalse(vm.hasDraft, "预填的默认字段名不该让列表显示草稿提示")
 
@@ -596,21 +597,21 @@ extension CredentialGUIDataTests {
     }
 
     func test改字段名或填值都算草稿() {
-        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
         vm.fields = [FieldEntry(name: AddCredentialViewModel.defaultFieldName, value: "v")]
         XCTAssertTrue(vm.hasDraft)
 
-        let renamed = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        let renamed = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
         renamed.fields = [FieldEntry(name: "token")]
         XCTAssertTrue(renamed.hasDraft)
 
-        let extra = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        let extra = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
         extra.fields = [FieldEntry(name: AddCredentialViewModel.defaultFieldName), FieldEntry()]
         XCTAssertTrue(extra.hasDraft)
     }
 
     func testID摘要给出用户真正要敲的命令() {
-        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
         XCTAssertEqual(vm.idSummary, "The ID is created from the name")
         vm.label = "OpenAI"
         vm.autoGenerateId()
@@ -621,7 +622,7 @@ extension CredentialGUIDataTests {
         try store.save(MetaFile(credentials: [
             "stripe": makeCredential(fields: ["token": CredentialField(secret: true)])
         ]))
-        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
         vm.label = "Stripe"
         vm.autoGenerateId()
         vm.fields = [FieldEntry(name: "token", value: "v")]
@@ -637,7 +638,7 @@ extension CredentialGUIDataTests {
     }
 
     func test格式问题与冲突分开报告() {
-        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store)
+        let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
         vm.label = "!!! ???"
         vm.autoGenerateId()
         XCTAssertEqual(vm.credentialId, "")

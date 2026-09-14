@@ -9,8 +9,7 @@ final class MetadataEditorTests: XCTestCase {
     private var io: FakeKeychainIO!
     private var blobStore: KeychainBlobStore!
     private var service: KeychainCredentialService!
-    private var grants: GrantStore!
-    private var serviceGrants: ServiceGrantStore!
+    private var approvals: ApprovalStore!
 
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("kk-meta-edit-\(UUID().uuidString)")
@@ -20,8 +19,7 @@ final class MetadataEditorTests: XCTestCase {
         let store = metaStore!
         blobStore = KeychainBlobStore(io: io, loadMetadata: { try store.load() })
         service = KeychainCredentialService(store: blobStore)
-        grants = GrantStore(directory: directory)
-        serviceGrants = ServiceGrantStore(directory: directory)
+        approvals = ApprovalStore.inMemory()
         // The store must exist before metadata names a secret, as in the real Add flow.
         try service.createCredential(credentialId: "百度千帆", values: ["cc": "synthetic-value"], security: .standard)
         try metaStore.save(MetaFile(credentials: [
@@ -29,9 +27,8 @@ final class MetadataEditorTests: XCTestCase {
                                fields: ["cc": CredentialField(secret: true), "region": CredentialField(value: "bj", secret: false)],
                                security: .standard, created: "2026-03-02", updated: "2026-03-02"),
         ]))
-        try grants.addGrant(Grant(credentialId: "百度千帆", duration: .always, subjectFingerprint: "fp", subjectDisplayName: "python3"))
-        try serviceGrants.addGrant(ServiceGrant(credentialId: "百度千帆", subjectFingerprint: "fp", subjectDisplayName: "python3",
-                                                fields: ["cc"], duration: .always))
+        try approvals.add(Approval(subject: .init(fingerprint: "fp", displayName: "python3"), target: .credential(id: "百度千帆", fields: nil), duration: .always))
+        try approvals.add(Approval(subject: .init(fingerprint: "fp", displayName: "python3"), target: .credential(id: "百度千帆", fields: ["cc"]), duration: .always))
     }
 
     override func tearDownWithError() throws {
@@ -39,7 +36,7 @@ final class MetadataEditorTests: XCTestCase {
     }
 
     private func editor() -> MetadataEditor {
-        MetadataEditor(session: service, metaStore: metaStore, grantStore: grants, serviceGrantStore: serviceGrants)
+        MetadataEditor(session: service, metaStore: metaStore, approvals: approvals)
     }
 
     func test改组ID和字段名后值还在授权跟着走旧值键被清掉() throws {
@@ -50,10 +47,9 @@ final class MetadataEditorTests: XCTestCase {
         XCTAssertThrowsError(try service.retrieve(credentialId: "百度千帆", fieldName: "cc"))
         XCTAssertEqual(try blobStore.fieldNamesByCredential(), ["baidu-qianfan": ["api-key"]])
         XCTAssertNoThrow(try service.validateStorage())
-        XCTAssertNotNil(try grants.findValidGrant(credentialId: "baidu-qianfan", sessionId: nil, fingerprint: "fp"))
-        XCTAssertTrue(try grants.grants(for: "百度千帆").isEmpty)
-        let moved = try serviceGrants.grants(credentialId: "baidu-qianfan")
-        XCTAssertEqual(moved.map(\.fields), [["api-key"]])
+        XCTAssertNotNil(try approvals.valid(credentialId: "baidu-qianfan", field: "api-key", fingerprint: "fp", terminalSession: nil))
+        XCTAssertTrue(try approvals.approvals(forCredential: "百度千帆").isEmpty)
+        XCTAssertTrue(try approvals.approvals(forCredential: "baidu-qianfan").contains { $0.target == .credential(id: "baidu-qianfan", fields: ["api-key"]) })
         XCTAssertEqual(try metaStore.load().credentials["baidu-qianfan"]?.fields["region"]?.value, "bj", "非密字段原样搬过去")
     }
 
@@ -93,13 +89,12 @@ final class MetadataEditorTests: XCTestCase {
         // A store that refuses to save stands in for a crash between the value copy and the metadata write.
         let metaURL = directory.appendingPathComponent("meta.json")
         let saved = try Data(contentsOf: metaURL)
-        let failing = MetadataEditor(session: service, metaStore: FailingSaveMetaStore(base: metaStore), grantStore: grants,
-                                     serviceGrantStore: serviceGrants)
+        let failing = MetadataEditor(session: service, metaStore: FailingSaveMetaStore(base: metaStore), approvals: approvals)
         XCTAssertThrowsError(try failing.apply(MetadataEdit(newGroupId: "baidu-qianfan"), groupId: "百度千帆"))
         XCTAssertEqual(try Data(contentsOf: metaURL), saved)
         XCTAssertEqual(try service.retrieve(credentialId: "百度千帆", fieldName: "cc"), "synthetic-value")
         XCTAssertNoThrow(try service.validateStorage())
-        XCTAssertNotNil(try grants.findValidGrant(credentialId: "百度千帆", sessionId: nil, fingerprint: "fp"), "元数据没写成，授权也不动")
+        XCTAssertNotNil(try approvals.valid(credentialId: "百度千帆", field: "cc", fingerprint: "fp", terminalSession: nil), "元数据没写成，授权也不动")
     }
 
     func test复制值时目标已有不同的值就拒绝() throws {

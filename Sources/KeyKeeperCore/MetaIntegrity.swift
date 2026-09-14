@@ -76,3 +76,17 @@ public enum MetaIntegrityKey {
         return bytes
     }
 }
+
+/// The integrity key follows the credential store's Keychain namespace, so an isolated instance
+/// (KEYKEEPER_KEYCHAIN_SERVICE=com.keykeeper.test.…) never creates or reads the production key.
+public enum IntegrityKeyNames {
+    public static func service(_ name: String,
+                               environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        if let test = environment["KEYKEEPER_KEYCHAIN_SERVICE"], test.hasPrefix("com.keykeeper.test."),
+           environment["KEYKEEPER_DATA_DIR"]?.isEmpty == false {
+            return test + "." + name
+        }
+        return "com.keykeeper." + name
+    }
+}
+

@@ -43,6 +43,6 @@ extension CallerNameAndTierTests {
         XCTAssertTrue(en.contains("anything started inside it"), en)
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let server = try String(contentsOf: root.appendingPathComponent("Sources/KeyKeeperApp/IPCServer.swift"), encoding: .utf8)
-        XCTAssertTrue(server.contains("StrictAuthorizationPolicy.refusal("), "认不出的调用方在弹窗前就拒绝")
+        XCTAssertTrue(server.contains("AccessPolicy.strictRefusal("), "认不出的调用方在弹窗前就拒绝")
     }
 }

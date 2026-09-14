@@ -133,7 +133,7 @@ struct MainWindowView: View {
         self.importFile = importFile
         self.onShowSetup = onShowSetup
         _listVM = StateObject(wrappedValue: CredentialListViewModel(session: session))
-        _addVM = StateObject(wrappedValue: AddCredentialViewModel(session: session))
+        _addVM = StateObject(wrappedValue: AddCredentialViewModel(session: session, approvals: .shared))
     }
 
     var body: some View {

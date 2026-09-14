@@ -24,7 +24,8 @@ final class TestInstanceTests: XCTestCase {
         XCTAssertNil(TestInstance.autoApprove(environment: triple), "没要求自动批准就不批")
         XCTAssertEqual(TestInstance.autoApprove(environment: triple.merging(["KEYKEEPER_TEST_AUTO_APPROVE": "once"]) { $1 }), .once)
         let owned = TestInstance.ownedKeychainServices(environment: triple)
-        XCTAssertEqual(owned.count, 5, owned.description)
+        XCTAssertEqual(owned.count, 4, owned.description)
+        XCTAssertTrue(owned.contains("com.keykeeper.test.e2e.approvals"), owned.description)
         XCTAssertTrue(owned.allSatisfy { $0.hasPrefix("com.keykeeper.test.e2e") }, owned.description)
         XCTAssertFalse(owned.contains(SecItemBlobIO.defaultService))
     }

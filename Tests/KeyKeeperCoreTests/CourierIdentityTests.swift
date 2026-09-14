@@ -62,8 +62,8 @@ extension CourierIdentityTests {
 
     /// 【独立审计第二轮】认不出的调用方要 strict 凭据：以前照样弹窗，批准后又对不上，CLI 重试再弹一次，最后报错。
     func test认不出的调用方直接拒绝不弹窗() {
-        XCTAssertNotNil(StrictAuthorizationPolicy.refusal(for: CallerSubject.unverifiedPrefix + "no-code-object"))
-        XCTAssertNil(StrictAuthorizationPolicy.refusal(for: "unsigned:path=abc"))
-        XCTAssertNil(StrictAuthorizationPolicy.refusal(for: CallerSubject.relayedPrefix + "app:team=A:bundle=b:signing=c"))
+        XCTAssertNotNil(AccessPolicy.strictRefusal(for: CallerSubject.unverifiedPrefix + "no-code-object"))
+        XCTAssertNil(AccessPolicy.strictRefusal(for: "unsigned:path=abc"))
+        XCTAssertNil(AccessPolicy.strictRefusal(for: CallerSubject.relayedPrefix + "app:team=A:bundle=b:signing=c"))
     }
 }

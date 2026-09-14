@@ -17,18 +17,21 @@ final class CredentialDetailViewModel: ObservableObject {
 
     private let session: any CredentialSessionManaging
     private let store: MetaStore
+    private let approvals: ApprovalStore
     private var originalLabel: String
 
     init(
         credentialId: String,
         credential: Credential,
         session: any CredentialSessionManaging,
-        store: MetaStore = .default
+        store: MetaStore = .default,
+        approvals: ApprovalStore
     ) {
         self.credentialId = credentialId
         self.credential = credential
         self.session = session
         self.store = store
+        self.approvals = approvals
         security = credential.security
         originalLabel = credential.label
         fields = Self.fieldEntries(for: credential)
@@ -255,15 +258,12 @@ final class CredentialDetailViewModel: ObservableObject {
                 }
             }
 
-            let directory = store.fileURL.deletingLastPathComponent()
             if !plan.fieldRenames.isEmpty {
-                // Background approvals list field names; without this a rename silently voided them.
-                try? ServiceGrantStore(directory: directory).moveGrants(from: credentialId, to: credentialId, fieldMap: plan.fieldRenames)
+                // Approvals name fields; without this a rename silently voided them.
+                try? approvals.moveCredential(from: credentialId, to: credentialId, fieldMap: plan.fieldRenames)
             }
             if newGroupId != credentialId {
-                let editor = MetadataEditor(session: session, metaStore: store,
-                                            grantStore: GrantStore(directory: directory),
-                                            serviceGrantStore: ServiceGrantStore(directory: directory))
+                let editor = MetadataEditor(session: session, metaStore: store, approvals: approvals)
                 let result = try editor.apply(MetadataEdit(newGroupId: newGroupId), groupId: credentialId)
                 renamedGroupId = result.groupId
             }

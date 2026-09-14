@@ -52,14 +52,18 @@ struct BrowserSessionPresentation {
     /// Who asked for the pending request, so an approval can be remembered for them alone.
     private var pendingFingerprint: String?
     /// The prompt that also asks how long. Nil keeps every approval single-use.
-    private let presentWithDuration: ((BrowserSessionPresentation, @escaping (ServiceGrantDuration?) -> Void) -> Void)?
+    private let presentWithDuration: ((BrowserSessionPresentation, @escaping (ApprovalDuration?) -> Void) -> Void)?
+    /// Standing permissions to open a login, kept with every other approval.
+    private let approvals: ApprovalStore
     var activeIDs: [String] { runtime.activeIDs }
 
     init(store: BrowserSessionStore, runtime: BrowserSessionRuntime, now: @escaping () -> Date = Date.init,
          present: @escaping (BrowserSessionPresentation, @escaping (Bool) -> Void) -> Void,
          dismiss: @escaping () -> Void,
-         presentWithDuration: ((BrowserSessionPresentation, @escaping (ServiceGrantDuration?) -> Void) -> Void)? = nil) {
+         presentWithDuration: ((BrowserSessionPresentation, @escaping (ApprovalDuration?) -> Void) -> Void)? = nil,
+         approvals: ApprovalStore) {
         self.store = store; self.runtime = runtime; self.now = now; self.present = present; self.dismiss = dismiss
+        self.approvals = approvals
         self.presentWithDuration = presentWithDuration
         // The protocol is @MainActor, so this already runs there: answering synchronously keeps
         // "Background OK" invisible — the veil goes up and comes down without a frame in between.
@@ -86,20 +90,20 @@ struct BrowserSessionPresentation {
 
     /// "Just this once" stores nothing: it is this request. Longer answers become a grant for this
     /// caller and this login only.
-    private func remember(_ duration: ServiceGrantDuration, sessionId: String, fingerprint: String, caller: String) {
+    private func remember(_ duration: ApprovalDuration, sessionId: String, fingerprint: String, caller: String) {
         if case .once = duration { return }
-        try? store.addGrant(.init(sessionId: sessionId, subjectFingerprint: fingerprint,
-                                  subjectDisplayName: caller, duration: duration, createdAt: now()))
+        try? approvals.add(Approval(subject: ApprovalSubject(fingerprint: fingerprint, displayName: caller),
+                                    target: .session(id: sessionId), duration: duration, createdAt: now()))
         objectWillChange.send()
     }
 
     /// Who may open this login without asking, for the sessions page.
-    func grants(for sessionId: String) -> [BrowserSessionGrant] {
-        ((try? store.grants(for: sessionId)) ?? []).filter { $0.isValid(now: now()) }
+    func approvals(for sessionId: String) -> [Approval] {
+        ((try? approvals.approvals(forSession: sessionId)) ?? []).filter { $0.isValid(now: now()) }
     }
 
-    func revokeGrant(id: String) {
-        try? store.revokeGrant(id: id)
+    func revokeApproval(id: String) {
+        try? approvals.revoke(id: id)
         objectWillChange.send()
     }
 
@@ -157,8 +161,8 @@ struct BrowserSessionPresentation {
             }
             // A standing permission this caller was already given, for this login only.
             if request.action == .open, let fingerprint,
-               let grant = try? store.validGrant(sessionId: summary.id, fingerprint: fingerprint, now: now()) {
-                if case .once = grant.duration { try? store.consumeGrant(id: grant.id, now: now()) }
+               let approval = try? approvals.valid(sessionId: summary.id, fingerprint: fingerprint, now: now()) {
+                try? approvals.noteUse(id: approval.id, field: nil, now: now())
                 humanApprovedOpen = false
                 resolve(approved: true)
                 return
@@ -218,6 +222,8 @@ struct BrowserSessionPresentation {
             case .delete:
                 runtime.stop(id: pending.request.id!)
                 try store.delete(id: pending.request.id!)
+                // What was given to it goes with it: a new snapshot under the same id inherits nothing.
+                try? approvals.revokeAll(forSession: pending.request.id!)
                 finish(.init(success: true))
             case .open:
                 let id = pending.request.id!

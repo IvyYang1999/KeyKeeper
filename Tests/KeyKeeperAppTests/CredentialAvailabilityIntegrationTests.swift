@@ -11,7 +11,7 @@ final class CredentialAvailabilityIntegrationTests: XCTestCase {
         let io = FakeKeychainIO()
         io.blob = Data(#"{"version":1,"credentials":{"fixture":{"field":"synthetic"}}}"#.utf8)
         let session = KeychainCredentialService(store: KeychainBlobStore(io: io))
-        let server = IPCServer(session: session)
+        let server = IPCServer(session: session, approvals: .inMemory())
         XCTAssertNil(server.handleSessionControl(.init(action: .status)).valueInventory)
         let reply = server.handleSessionControl(.init(action: .status, inspectValues: true))
         XCTAssertEqual(reply.valueInventory, ["fixture": ["field"]])

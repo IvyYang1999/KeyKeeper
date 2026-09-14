@@ -33,7 +33,7 @@ final class ExpiryPresentationTests: XCTestCase {
     }
 
     func test新建和编辑都能记过期日() throws {
-        let add = AddCredentialViewModel(session: session, store: store)
+        let add = AddCredentialViewModel(session: session, store: store, approvals: .inMemory())
         add.label = "Synthetic"
         add.credentialId = "fixture"
         add.fields = [FieldEntry(name: "one", value: "synthetic")]
@@ -42,7 +42,7 @@ final class ExpiryPresentationTests: XCTestCase {
         let saved = try XCTUnwrap(store.load().credentials["fixture"])
         XCTAssertEqual(saved.expires, "2026-12-31")
 
-        let detail = CredentialDetailViewModel(credentialId: "fixture", credential: saved, session: session, store: store)
+        let detail = CredentialDetailViewModel(credentialId: "fixture", credential: saved, session: session, store: store, approvals: .inMemory())
         detail.credential.expires = "2027-01-31"
         XCTAssertTrue(detail.saveChanges(), detail.errorMessage ?? "")
         XCTAssertEqual(try store.load().credentials["fixture"]?.expires, "2027-01-31")

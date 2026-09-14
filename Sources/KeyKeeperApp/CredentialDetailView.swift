@@ -39,7 +39,8 @@ struct CredentialDetailView: View {
         _vm = StateObject(wrappedValue: CredentialDetailViewModel(
             credentialId: credentialId,
             credential: credential,
-            session: session
+            session: session,
+            approvals: .shared
         ))
         self.onBack = onBack
         self.onUpdate = onUpdate

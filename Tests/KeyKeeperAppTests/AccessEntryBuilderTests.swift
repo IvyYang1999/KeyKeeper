@@ -4,34 +4,33 @@ import KeyKeeperCore
 
 final class AccessEntryBuilderTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private let cron = ApprovalSubject(fingerprint: "unsigned:path=cron", displayName: "cron quota-board")
 
-    func test两种授权合并成一张表并按最近活动排序() {
-        let older = Grant(id: "g1", credentialId: "c", sessionId: "w0t1p0:AAAA", duration: .session("w0t1p0:AAAA"), createdAt: now.addingTimeInterval(-3600))
-        let newer = ServiceGrant(id: "s1", credentialId: "c", subjectFingerprint: "fp", subjectDisplayName: "cron quota-board", fields: ["token"], duration: .always, createdAt: now.addingTimeInterval(-7200), lastUsedAt: now.addingTimeInterval(-60))
+    func test各种授权合成一张表并按最近活动排序() {
+        let older = Approval(id: "g1", subject: cron, target: .credential(id: "c", fields: nil),
+                             duration: .terminalSession("w0t1p0:AAAA"), createdAt: now.addingTimeInterval(-3600))
+        let newer = Approval(id: "s1", subject: cron, target: .credential(id: "c", fields: ["token"]), duration: .always,
+                             createdAt: now.addingTimeInterval(-7200), lastUsedAt: now.addingTimeInterval(-60))
+        let login = Approval(id: "l1", subject: cron, target: .session(id: "sess"), duration: .always, createdAt: now.addingTimeInterval(-10))
 
-        let entries = AccessEntryBuilder.entries(grants: [older], serviceGrants: [newer], now: now)
+        let entries = AccessEntryBuilder.entries(approvals: [older, newer, login], now: now)
 
-        XCTAssertEqual(entries.map(\.id), ["service:s1", "grant:g1"])
-        XCTAssertEqual(entries[0].who, "cron quota-board")
-        XCTAssertEqual(entries[0].kind, .backgroundCaller)
-        XCTAssertTrue(entries[0].scope.hasPrefix("Always"))
-        XCTAssertTrue(entries[0].activity.hasPrefix("Used"))
-        XCTAssertEqual(entries[1].who, "Terminal session w0t1p0:A")
-        XCTAssertEqual(entries[1].kind, .terminalSession)
+        XCTAssertEqual(entries.map(\.id), ["approval:l1", "approval:s1", "approval:g1"])
+        XCTAssertEqual(entries[0].kind, .websiteLogin)
+        XCTAssertEqual(entries[1].who, "cron quota-board")
+        XCTAssertEqual(entries[1].kind, .backgroundCaller)
+        XCTAssertTrue(entries[1].scope.hasPrefix("Always"))
+        XCTAssertTrue(entries[1].scope.contains("token"))
+        XCTAssertTrue(entries[1].activity.hasPrefix("Used"))
+        XCTAssertEqual(entries[2].who, "cron quota-board · Terminal session w0t1p0:A")
+        XCTAssertEqual(entries[2].kind, .terminalSession)
     }
 
     func test过期与已消费的授权不再标为活跃() {
-        let expired = Grant(id: "g", credentialId: "c", duration: .timed(now.addingTimeInterval(-1)))
-        let consumed = Grant(id: "g2", credentialId: "c", duration: .once, consumed: true)
-        let expiredService = ServiceGrant(id: "s", credentialId: "c", subjectFingerprint: "f", subjectDisplayName: "x", fields: [], duration: .timed(now.addingTimeInterval(-1)))
-
-        let entries = AccessEntryBuilder.entries(grants: [expired, consumed], serviceGrants: [expiredService], now: now)
+        let expired = Approval(id: "g", subject: cron, target: .credential(id: "c", fields: nil), duration: .timed(now.addingTimeInterval(-1)))
+        let consumed = Approval(id: "g2", subject: cron, target: .credential(id: "c", fields: nil), duration: .once, consumed: true)
+        let entries = AccessEntryBuilder.entries(approvals: [expired, consumed], now: now)
         XCTAssertTrue(entries.allSatisfy { !$0.isActive })
-        XCTAssertEqual(AccessEntryBuilder.scopeLabel(expired.duration, now: now), "Expired")
-    }
-
-    func test没有会话ID的授权显示AnyTerminal() {
-        let grant = Grant(id: "g", credentialId: "c", sessionId: nil, duration: .always)
-        XCTAssertEqual(AccessEntryBuilder.sessionLabel(grant), "Any terminal")
+        XCTAssertEqual(AccessEntryBuilder.scopeLabel(expired, now: now), "Expired")
     }
 }

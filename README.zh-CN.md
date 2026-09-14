@@ -123,7 +123,7 @@ sequenceDiagram
 | `keykeeper meta <id>` | 一条凭据的 JSON，不含值 |
 | `keykeeper run -c <id> [-c <id2>] [--prefix PREFIX_] [--verbose] [--tty] -- <命令>` | 带着 key 运行命令 |
 | `keykeeper status` | 应用是否可达（反正它会按需启动） |
-| `keykeeper grants list` / `grants revoke <id>` | 已批准的后台调用方 |
+| `keykeeper grants list` / `grants revoke <id>` | 授权：哪些调用方可以用哪些 key 或登录态、多久 |
 | `keykeeper requests list` | 正在等待的授权窗口 |
 | `keykeeper get <id> <field>` | 给 SDK 用；除非加 `--reveal`，否则拒绝打印到终端 |
 

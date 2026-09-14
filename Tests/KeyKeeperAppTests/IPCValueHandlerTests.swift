@@ -9,16 +9,14 @@ import KeyKeeperTestSupport
 final class IPCValueHandlerTests: XCTestCase {
     private var directory: URL!
     private var metaStore: MetaStore!
-    private var grantStore: GrantStore!
-    private var serviceGrantStore: ServiceGrantStore!
+    private var approvals: ApprovalStore!
 
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("keykeeper-ipc-value-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         metaStore = MetaStore(directory: directory)
-        grantStore = GrantStore(directory: directory)
-        serviceGrantStore = ServiceGrantStore(directory: directory)
+        approvals = ApprovalStore.inMemory()
     }
 
     override func tearDownWithError() throws {
@@ -29,7 +27,7 @@ final class IPCValueHandlerTests: XCTestCase {
 
     func testLockedValueRequestRejectsBeforeGrantOrPendingAuthorization() throws {
         try saveMetadata(security: .standard)
-        try serviceGrantStore.setAuthorizationMode(.enforced)
+        try approvals.setMode(.enforced)
         let session = FakeValueSession(status: .locked, result: .success("unused"))
         let server = makeServer(session: session)
 
@@ -41,7 +39,7 @@ final class IPCValueHandlerTests: XCTestCase {
         XCTAssertEqual(session.retrieveCount, 0)
         XCTAssertNil(server.pendingRequest)
         XCTAssertNil(server.pendingServiceRequest)
-        XCTAssertTrue(try serviceGrantStore.auditEvents().isEmpty)
+        XCTAssertTrue(try approvals.auditEvents().isEmpty)
     }
 
     func testLockedStrictValueRequestRejectsBeforeGrantValidation() throws {
@@ -136,14 +134,9 @@ final class IPCValueHandlerTests: XCTestCase {
 
     func testStrictOnceGrantIsConsumedOnlyAfterSuccessfulVaultRead() throws {
         try saveMetadata(security: .strict)
-        let grant = Grant(
-            id: "strict-once",
-            credentialId: "service-a",
-            duration: .once,
-            subjectFingerprint: "test:ipc-value-caller",
-            subjectDisplayName: "IPC value test"
-        )
-        try grantStore.addGrant(grant)
+        let approval = Approval(id: "strict-once", subject: .init(fingerprint: "test:ipc-value-caller", displayName: "IPC value test"),
+                                target: .credential(id: "service-a", fields: nil), duration: .once)
+        try approvals.add(approval)
         let session = FakeValueSession(
             status: .unlocked(expiresAt: nil),
             result: .failure(StorageTestError.timedOut)
@@ -152,26 +145,19 @@ final class IPCValueHandlerTests: XCTestCase {
 
         let failed = try requestValue(server: server)
         XCTAssertFalse(failed.success)
-        XCTAssertFalse(try XCTUnwrap(grantStore.grants(for: "service-a").first).consumed)
+        XCTAssertFalse(try XCTUnwrap(approvals.approvals(forCredential: "service-a").first).consumed)
 
         session.result = .success("opaque-success-value")
         let succeeded = try requestValue(server: server)
         XCTAssertTrue(succeeded.success)
-        XCTAssertTrue(try XCTUnwrap(grantStore.grants(for: "service-a").first).consumed)
+        XCTAssertTrue(try XCTUnwrap(approvals.approvals(forCredential: "service-a").first).consumed)
     }
 
     func testServiceOnceGrantRecordsUseOnlyAfterSuccessfulVaultRead() throws {
         try saveMetadata(security: .standard)
         let caller = makeCaller()
-        let serviceGrant = ServiceGrant(
-            id: "service-once",
-            credentialId: "service-a",
-            subjectFingerprint: caller.subjectFingerprint,
-            subjectDisplayName: caller.displayName,
-            fields: ["access"],
-            duration: .once
-        )
-        try serviceGrantStore.addGrant(serviceGrant)
+        try approvals.add(Approval(id: "service-once", subject: .init(fingerprint: caller.subjectFingerprint, displayName: caller.displayName),
+                                   target: .credential(id: "service-a", fields: ["access"]), duration: .once, onceFieldsRemaining: ["access"]))
         let session = FakeValueSession(
             status: .unlocked(expiresAt: nil),
             result: .failure(StorageTestError.timedOut)
@@ -180,12 +166,12 @@ final class IPCValueHandlerTests: XCTestCase {
 
         let failed = try requestValue(server: server, caller: caller)
         XCTAssertFalse(failed.success)
-        XCTAssertEqual(try serviceGrantStore.grants().map(\.id), ["service-once"])
+        XCTAssertEqual(try approvals.all().filter { !$0.consumed }.map(\.id), ["service-once"])
 
         session.result = .success("opaque-success-value")
         let succeeded = try requestValue(server: server, caller: caller)
         XCTAssertTrue(succeeded.success)
-        XCTAssertTrue(try serviceGrantStore.grants().isEmpty)
+        XCTAssertTrue(try approvals.all().allSatisfy(\.consumed))
     }
 
     func testLockWinningBetweenPrecheckAndRetrieveReturnsOnlyVaultLocked() throws {
@@ -204,12 +190,7 @@ final class IPCValueHandlerTests: XCTestCase {
     }
 
     private func makeServer(session: SessionControlling) -> IPCServer {
-        IPCServer(
-            session: session,
-            metaStore: metaStore,
-            grantStore: grantStore,
-            serviceGrantStore: serviceGrantStore
-        )
+        IPCServer(session: session, metaStore: metaStore, approvals: approvals)
     }
 
     private func saveMetadata(security: SecurityLevel) throws {

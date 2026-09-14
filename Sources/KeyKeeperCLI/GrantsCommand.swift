@@ -2,45 +2,44 @@ import ArgumentParser
 import Foundation
 import KeyKeeperCore
 
+/// Approvals live in a Keychain item only the app can open; this asks the app.
 struct GrantsCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "grants",
-        abstract: "List or revoke service caller grants",
+        abstract: "List or revoke approvals (which callers may use which keys)",
         subcommands: [List.self, Revoke.self]
     )
 
     struct List: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "list",
-            abstract: "List service caller grants"
+            abstract: "List approvals"
         )
 
         @Option(name: .long, help: "Filter by credential ID.")
         var credential: String?
 
         func run() throws {
-            let store = ServiceGrantStore.default
-            let grants = try store.grants(credentialId: credential)
-                .sorted { lhs, rhs in
-                    lhs.createdAt > rhs.createdAt
+            let reply = try IPCClient.listApprovals(credentialId: credential)
+            print("Background reads by callers nobody approved yet: \(reply.mode == .permissive ? "allowed (permissive)" : "ask first (enforced)")")
+            let approvals = reply.approvals.sorted { $0.createdAt > $1.createdAt }
+            guard !approvals.isEmpty else { print("No approvals."); return }
+            print()
+            for approval in approvals {
+                print(approval.id)
+                switch approval.target {
+                case .credential(let id, let fields):
+                    print("  credential: \(id)")
+                    print("  fields: \(fields?.joined(separator: ", ") ?? "all secret fields")")
+                case .session(let id):
+                    print("  website login: \(id)")
                 }
-
-            if grants.isEmpty {
-                print("No service grants.")
-                return
-            }
-
-            for grant in grants {
-                print("\(grant.id)")
-                print("  credential: \(grant.credentialId)")
-                print("  caller: \(grant.subjectDisplayName)")
-                print("  fingerprint: \(grant.subjectFingerprint)")
-                print("  fields: \(grant.fields.joined(separator: ", "))")
-                print("  duration: \(durationLabel(grant.duration))")
-                print("  created: \(formatDate(grant.createdAt))")
-                if let lastUsedAt = grant.lastUsedAt {
-                    print("  last used: \(formatDate(lastUsedAt))")
-                }
+                print("  caller: \(CallerStatedReason.printableLine(approval.subject.displayName, limit: 80))")
+                print("  fingerprint: \(approval.subject.fingerprint)")
+                print("  duration: \(durationLabel(approval.duration))")
+                print("  created: \(formatDate(approval.createdAt))")
+                if let lastUsedAt = approval.lastUsedAt { print("  last used: \(formatDate(lastUsedAt))") }
+                if approval.consumed { print("  spent") }
                 print()
             }
         }
@@ -49,27 +48,25 @@ struct GrantsCommand: ParsableCommand {
     struct Revoke: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "revoke",
-            abstract: "Revoke a service caller grant"
+            abstract: "Revoke an approval"
         )
 
-        @Argument(help: "Service grant ID.")
+        @Argument(help: "Approval ID (from grants list).")
         var id: String
 
         func run() throws {
-            try IPCClient.revokeServiceGrant(id: id)
-            print("Revoked service grant \(id)")
+            try IPCClient.revokeApproval(id: id)
+            print("Revoked approval \(id)")
         }
     }
 }
 
-private func durationLabel(_ duration: ServiceGrantDuration) -> String {
+private func durationLabel(_ duration: ApprovalDuration) -> String {
     switch duration {
-    case .once:
-        return "once"
-    case .timed(let expiration):
-        return "until \(formatDate(expiration))"
-    case .always:
-        return "always"
+    case .once: return "once"
+    case .terminalSession(let id): return "terminal session \(id.prefix(8))"
+    case .timed(let expiration): return "until \(formatDate(expiration))"
+    case .always: return "always"
     }
 }
 

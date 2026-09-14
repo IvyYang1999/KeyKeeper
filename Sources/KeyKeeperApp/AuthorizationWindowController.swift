@@ -11,7 +11,7 @@ final class AuthorizationWindowController {
 
     func show(request: AuthRequest,
               waiting: Int = 0,
-              onAuthorize: @escaping (GrantDuration) throws -> Void,
+              onAuthorize: @escaping (ApprovalDuration) throws -> Void,
               onDeny: @escaping () -> Void) {
         show(
             prompt: .strict(request),
@@ -24,7 +24,7 @@ final class AuthorizationWindowController {
 
     func show(serviceRequest: IPCServer.PendingServiceRequest,
               waiting: Int = 0,
-              onAuthorize: @escaping (ServiceGrantDuration) throws -> Void,
+              onAuthorize: @escaping (ApprovalDuration) throws -> Void,
               onDeny: @escaping () -> Void) {
         show(
             prompt: .service(serviceRequest),
@@ -65,8 +65,8 @@ final class AuthorizationWindowController {
 
     private func show(prompt: AuthorizationPrompt,
                       waiting: Int,
-                      onAuthorizeGrant: ((GrantDuration) throws -> Void)?,
-                      onAuthorizeService: ((ServiceGrantDuration) throws -> Void)?,
+                      onAuthorizeGrant: ((ApprovalDuration) throws -> Void)?,
+                      onAuthorizeService: ((ApprovalDuration) throws -> Void)?,
                       onDeny: @escaping () -> Void) {
         // Close existing window if any
         dismiss()
