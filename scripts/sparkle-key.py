@@ -61,8 +61,8 @@ def sign_feed(value, generator, arguments, env):
         raise KeyMismatch()
     result = subprocess.run(
         [generator, "--ed-key-file", "-"] + arguments, input=value + b"\n",
-        env=child_environment(env), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        timeout=300)
+        env=child_environment(env), stdout=subprocess.DEVNULL, stderr=sys.stderr,
+        timeout=300)   # generate_appcast's stderr never carries the key; its errors are needed
     if result.returncode:
         raise VerifierUnavailable()
 
