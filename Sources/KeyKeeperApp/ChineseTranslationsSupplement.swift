@@ -218,6 +218,9 @@ extension AppL10n {
         "{0} s ago": "{0} 秒前",
         "{0} min ago": "{0} 分钟前",
         "{0} h ago": "{0} 小时前",
+        // 服务商模板（2026-09-15）
+        "Provider": "服务商",
+        "Checked after saving with a read-only request to {0}.": "保存后会向 {0} 发一个只读请求验证。",
         // 只能注入、不能读出（2026-09-14 深夜）
         "Can be read out (keykeeper get, SDKs)": "允许读出（keykeeper get、SDK）",
         "Off: values only go into a command's environment through keykeeper run and are never printed or returned. An agent cannot get the value into its context.": "关：值只通过 keykeeper run 进入命令的环境变量，不打印、不返回。Agent 没法把值弄进自己的上下文。",

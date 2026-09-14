@@ -30,12 +30,16 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
     public var expires: String?
     /// What the new credential is for, declared by the caller. Only with `create`.
     public var intent: UsageIntent?
+    /// A `ProviderCatalog` id: the value is checked against the provider's key shape before
+    /// anything is written, and verified with the provider's read-only request after saving.
+    public var provider: String?
     public var isReplacement: Bool { replaceExisting == true }
 
     public init(credentialId: String, fieldName: String, create: Bool = false,
                 expect: String? = nil, useCurrentClipboard: Bool = false,
                 replaceExisting: Bool = false, expectedEd25519PublicKey: String? = nil,
-                security: SecurityLevel? = nil, expires: String? = nil, intent: UsageIntent? = nil) {
+                security: SecurityLevel? = nil, expires: String? = nil, intent: UsageIntent? = nil,
+                provider: String? = nil) {
         self.credentialId = credentialId
         self.fieldName = fieldName
         self.create = create
@@ -46,6 +50,7 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
         self.security = security
         self.expires = expires
         self.intent = intent
+        self.provider = provider
     }
 
     public func validate() throws {
@@ -131,9 +136,17 @@ public struct ClipboardSaveResponse: Codable, Sendable, Equatable {
     /// buys the thing that was missing when a wrong paste went through unnoticed: the caller
     /// can check what it actually stored.
     public var shape: ValueShape?
-    public init(success: Bool, errorCode: ClipboardSaveError? = nil, shape: ValueShape? = nil) {
+    /// After a save with a provider template: what the provider said about the key.
+    public var validation: CredentialValidation?
+    /// One sentence on a refusal, when the error code alone does not say enough ("OpenAI keys
+    /// start with sk-; this value does not"). Never contains any part of the value.
+    public var detail: String?
+    public init(success: Bool, errorCode: ClipboardSaveError? = nil, shape: ValueShape? = nil,
+                validation: CredentialValidation? = nil, detail: String? = nil) {
         self.success = success
         self.errorCode = errorCode
         self.shape = shape
+        self.validation = validation
+        self.detail = detail
     }
 }

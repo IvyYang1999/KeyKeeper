@@ -5,9 +5,11 @@ import Darwin
 struct SaveCommand: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "save", abstract:
         "Save without printing a key. Existing values are protected unless --replace is explicitly requested and confirmed.")
-    @Option(name: [.customShort("c"), .long], help: "Exact credential ID.")
-    var credential: String
-    @Option(help: "Secret field name.") var field: String
+    @Option(name: [.customShort("c"), .long], help: "Exact credential ID. Optional with --provider (defaults to the template's id).")
+    var credential: String?
+    @Option(help: "Secret field name. Optional with --provider (defaults to the template's field).") var field: String?
+    @Option(help: "A provider template (see `keykeeper providers`): fills in the credential ID and field name, checks the key's shape before saving, and has KeyKeeper verify the saved key with a read-only request. The value never reaches you.")
+    var provider: String?
     @Flag(help: "Read the system clipboard inside the App only after approval.")
     var fromClipboard = false
     @Flag(help: "Print a single-use local receiver URL for paste; keep this command running until confirmation. Do not mix clipboard transports.")
@@ -41,7 +43,17 @@ struct SaveCommand: ParsableCommand {
     @Flag(help: "With --create: it has to work with nobody at the Mac. Only makes sense with --frequency scheduled or occasional.")
     var background = false
 
+    var template: ProviderTemplate? { provider.flatMap(ProviderCatalog.find) }
+    var credentialId: String { credential ?? template?.id ?? "" }
+    var fieldName: String { field ?? template?.fieldName ?? "" }
+
     mutating func validate() throws {
+        if let provider, template == nil {
+            throw ValidationError("Unknown provider '\(provider)'. Run `keykeeper providers` to see the templates.")
+        }
+        guard !credentialId.isEmpty, !fieldName.isEmpty else {
+            throw ValidationError("Give -c <credential-id> and --field <field-name>, or --provider <id> to take them from a template.")
+        }
         if (replaceExisting || expectedEd25519PublicKey != nil) && !fromClipboard {
             throw ClipboardSaveError.invalidReplacement
         }
@@ -64,10 +76,36 @@ struct SaveCommand: ParsableCommand {
         }
     }
     var request: ClipboardSaveRequest {
-        .init(credentialId: credential, fieldName: field, create: create, expect: expect,
+        .init(credentialId: credentialId, fieldName: fieldName, create: create, expect: expect,
               useCurrentClipboard: useCurrentClipboard, replaceExisting: replaceExisting,
               expectedEd25519PublicKey: expectedEd25519PublicKey, security: security, expires: expires,
-              intent: intent)
+              intent: intent, provider: template?.id)
+    }
+
+    /// A refusal, with the app's one-line reason and the clipboard's shape when it gave them.
+    static func failureMessage(_ result: ClipboardSaveResponse) -> String {
+        var message = result.errorCode?.localizedDescription ?? "Save failed."
+        if let detail = result.detail { message += " \(detail)" }
+        if let shape = result.shape { message += " Clipboard holds: \(Self.storedSummary(shape))." }
+        return message
+    }
+
+    /// " KeyKeeper verified it: …" after a save with a template; otherwise the old honest line.
+    func verificationSuffix(_ result: ClipboardSaveResponse) -> String {
+        if let validation = result.validation, validation != .skipped, let template {
+            return " " + Self.validationNote(validation, provider: template.name)
+        }
+        return " Runtime/provider access is not verified."
+    }
+
+    /// What the provider said about the saved key, for the caller. Never a value.
+    static func validationNote(_ validation: CredentialValidation, provider: String) -> String {
+        switch validation {
+        case .valid: return "KeyKeeper verified it: \(provider) accepted the key (read-only request)."
+        case .invalid: return "KeyKeeper verified it: \(provider) rejected the key. It is saved, but wrong — check that you copied the whole key from the right account, then save again with --replace."
+        case .unreachable: return "KeyKeeper could not reach \(provider) to verify the key (offline, rate-limited or an outage). It is saved; try the task and see."
+        case .skipped: return ""
+        }
     }
     /// The caller's declaration, sanitized here and again in the app.
     var intent: UsageIntent? {
@@ -89,13 +127,15 @@ struct SaveCommand: ParsableCommand {
     mutating func run() throws {
         if let fromSource, let pythonSymbol {
             let result = try IPCClient.requestSourceImport(.init(target: request, filePath: fromSource, pythonSymbol: pythonSymbol))
-            guard result.success else { throw CommandFailure(result.errorCode?.localizedDescription ?? "Save failed.") }
-            print("Saved source candidate. Original retained. Runtime/provider access is not verified. No read permission was granted.")
+            guard result.success else { throw CommandFailure(Self.failureMessage(result)) }
+            var note = "Saved source candidate. Original retained. No read permission was granted."
+            note += verificationSuffix(result)
+            print(note)
             return
         }
         if let fromFile {
             let result = try IPCClient.requestFileImport(.init(target: request, filePath: fromFile))
-            guard result.success else { throw CommandFailure(result.errorCode?.localizedDescription ?? "Save failed.") }
+            guard result.success else { throw CommandFailure(Self.failureMessage(result)) }
             print("Saved credential file. Original file retained. No read permission was granted.")
             return
         }
@@ -108,15 +148,16 @@ struct SaveCommand: ParsableCommand {
             print(url); fflush(stdout)
         }
         guard result.success else {
-            var message = result.errorCode?.localizedDescription ?? "Save failed."
             // On a shape refusal the App reports what was there instead: that is the fastest
             // way to see that the clipboard was overwritten between the copy and the save.
-            if let shape = result.shape { message += " Clipboard holds: \(Self.storedSummary(shape))." }
-            throw CommandFailure(message)
+            throw CommandFailure(Self.failureMessage(result))
         }
         var note = fromBrowser ? "Saved. Browser clipboard was not cleared. No read permission was granted." : "Saved. Clipboard cleared if unchanged. No read permission was granted."
         if let shape = result.shape { note += " Stored: \(Self.storedSummary(shape))." }
         if replaceExisting { note += " Replaced the existing field. Existing permissions are unchanged." }
+        if let validation = result.validation, validation != .skipped, let template {
+            note += " " + Self.validationNote(validation, provider: template.name)
+        }
         print(note)
     }
 }

@@ -220,6 +220,33 @@ keykeeper edit baidu-qianfan --title "百度千帆 · 学术搜索"
 5. ALWAYS read secrets from the environment (or the SDK) inside the code you write.
 6. Use `keykeeper list` and `keykeeper meta <id>` to find the exact target without exposing values.
 7. For missing or unusable credentials, follow the assistance workflow above, retaining all authorization and higher-priority gates.
+## Getting a key the user does not have yet (provider templates)
+
+When a task needs a service the user has no key for, do not stop and ask them to "get an API
+key" — run the flow. `keykeeper providers` lists the templates; `keykeeper providers show <id>`
+prints one as JSON: `createURL` (the official page), `gates` (the steps only the person can do:
+login, MFA, billing, project/workspace choice), `minimalPermission` (what to pick on that page),
+`prefix`/`minChars` (what the key looks like), `shownOnce`, and `validation` (the read-only
+request KeyKeeper itself makes after saving). Then:
+
+1. Open `createURL` for the user (a browser tool if you have one, otherwise give the link) and
+   tell them, in one sentence, what to choose: the `minimalPermission`, and that the key is
+   shown once. The gates are theirs — never try to log in, pass MFA or pay for them.
+2. Once they have copied the key, run
+   `keykeeper save --provider <id> --from-clipboard --create --purpose "<what this task does>"`.
+   `-c` and `--field` come from the template (`openai` → `openai-api-key` → `OPENAI_API_KEY`),
+   so the SDK's own environment variable is set by `keykeeper run -c openai -- …` with no mapping.
+3. Read the result. KeyKeeper refuses before writing when the value does not look like that
+   provider's key ("OpenAI keys start with sk-; this value does not") — ask the user to copy
+   again. After a save it verifies the key with the provider's read-only request and tells you
+   `accepted`, `rejected` or `could not reach`. On `rejected`, ask them to check the account and
+   save again with `--replace`; on `could not reach`, go on with the task and watch the first call.
+4. Continue the original task with `keykeeper run -c <id> -- <command>`. The value never
+   reaches you at any step.
+
+No template for the service? Fall back to the plain `save --create` flow below with `-c`,
+`--field` and, when the provider documents the key's shape, `--expect`.
+
 ## Save without exposing a key to the model
 
 Clipboard saves take **whatever is on the clipboard when the person confirms**. The order

@@ -134,6 +134,10 @@ struct TrustPromptModel: Equatable {
         if request.create, let expires = request.expires {
             rows.append(Row(label: L("Expires"), value: expires, monospaced: true, note: L("Suggested by \(caller)")))
         }
+        if let template = request.provider.flatMap(ProviderCatalog.find) {
+            rows.append(Row(label: L("Provider"), value: template.name,
+                            note: template.validation.map { L("Checked after saving with a read-only request to \($0.host).") }))
+        }
         // The caller's declaration, and what the rules make of the protection it suggested.
         var inflated = false
         if request.create, let intent = request.intent?.sanitized() {

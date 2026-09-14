@@ -66,6 +66,12 @@ extension ClipboardSaveSource {
     private let approvals: ApprovalStore
     private let clipboard: ClipboardSaveSource
     private let now: () -> Date
+    /// KeyKeeper's own check of a saved key against its provider (see ProviderProbe). Injected
+    /// so tests never touch the network. The value is in the app's memory for the probe only.
+    private let probe: @Sendable (ProviderValidation, String) async -> CredentialValidation
+    /// True while the probe runs: the request is done as far as the person is concerned, but the
+    /// caller has not been answered yet; the 90 s deadline must not fire in between.
+    private var validating = false
     private let present: (Presentation, @escaping (Bool) -> Void) -> Void
     /// The prompt is already up; only its rows changed (the clipboard moved).
     private let update: (Presentation) -> Void
@@ -79,9 +85,11 @@ extension ClipboardSaveSource {
          clipboard: ClipboardSaveSource? = nil, now: @escaping () -> Date = Date.init,
          present: ((Presentation, @escaping (Bool) -> Void) -> Void)? = nil,
          update: ((Presentation) -> Void)? = nil,
-         dismiss: (() -> Void)? = nil) {
+         dismiss: (() -> Void)? = nil,
+         probe: (@Sendable (ProviderValidation, String) async -> CredentialValidation)? = nil) {
         self.service = service; self.metaStore = metaStore; self.approvals = approvals
         self.clipboard = clipboard ?? SystemClipboardSaveSource(); self.now = now
+        self.probe = probe ?? { validation, value in await ProviderProbe.run(validation, value: value, transport: URLSessionProbeTransport()) }
         let window = ClipboardSaveWindow()
         self.present = present ?? { info, decide in
             // An isolated e2e instance answers itself; the prompt never appears.
@@ -147,7 +155,7 @@ extension ClipboardSaveSource {
     }
 
     func expireIfNeeded() {
-        guard let pending else { return }
+        guard let pending, !validating else { return }
         if now() >= pending.expiresAt { finish(.init(success: false, errorCode: .expired)) }
         else if !pending.isConnected() { finish(.init(success: false, errorCode: .disconnected)) }
     }
@@ -156,11 +164,12 @@ extension ClipboardSaveSource {
 
     func resolve(approved: Bool) {
         expireIfNeeded()
-        guard let pending, isPresented else { return }
+        guard let pending, isPresented, !validating else { return }
         guard approved else { cancel(); return }
         // Reported only when a declared shape did not match: the caller needs to know what it
         // nearly stored. Every other failure says nothing about the clipboard.
         var shapeOnFailure: ValueShape?
+        var refusalDetail: String?
         do {
             let clipboard = pending.source
             let request = pending.presentation.request
@@ -189,6 +198,13 @@ extension ClipboardSaveSource {
             // clipboard is a shared, racy channel: what the user copied is not always what is
             // there when the save runs, and "saved" must not mean "stored whatever was there".
             let shape = ValueShape.of(value)
+            // The provider's key shape, when the caller named one: refused before a byte is written.
+            let template = request.provider.flatMap(ProviderCatalog.find)
+            if let template, let problem = template.shapeProblem(for: value) {
+                shapeOnFailure = shape
+                refusalDetail = problem
+                throw ClipboardSaveError.shapeMismatch
+            }
             if let expect = request.expect {
                 guard let expectation = ValueExpectation.parse(expect) else {
                     throw ClipboardSaveError.invalidExpectation
@@ -229,7 +245,8 @@ extension ClipboardSaveSource {
                         return declared
                     },
                     // Created over the socket, i.e. by an agent: never handed back to one.
-                    injectOnly: true)
+                    injectOnly: true,
+                    provider: template?.id)
                 do { try metaStore.save(metadata) }
                 catch { throw ClipboardSaveError.metadataCommitFailed }
             }
@@ -238,11 +255,26 @@ extension ClipboardSaveSource {
                 throw ClipboardSaveError.storageUnavailable
             }
             clipboard.clearIfUnchanged(since: countAtRead)
-            finish(.init(success: true, shape: shape))
             NotificationCenter.default.post(name: .clipboardCredentialSaved, object: nil)
+            // Saved. If the provider can be asked, ask it before answering the caller: the window
+            // goes away now, the answer carries the verdict, and the value never leaves this process.
+            if let validation = template?.validation {
+                validating = true
+                isPresented = false
+                dismiss()
+                let probe = self.probe
+                Task { @MainActor [weak self] in
+                    let outcome = await probe(validation, value)
+                    guard let self else { return }
+                    self.validating = false
+                    self.finish(.init(success: true, shape: shape, validation: outcome))
+                }
+            } else {
+                finish(.init(success: true, shape: shape, validation: .skipped))
+            }
         } catch {
             finish(.init(success: false, errorCode: error as? ClipboardSaveError ?? .storageUnavailable,
-                         shape: shapeOnFailure))
+                         shape: shapeOnFailure, detail: refusalDetail))
         }
     }
 

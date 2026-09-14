@@ -53,6 +53,8 @@ public struct Credential: Codable, Sendable {
     /// `get` to a pipe puts the value straight into an agent's context. Credentials an agent
     /// creates start this way; the person can open one up in the app. Nil (older data) = false.
     public var injectOnly: Bool?
+    /// The provider template this credential was created from (`ProviderCatalog`), if any.
+    public var provider: String?
 
     public var isInjectOnly: Bool { injectOnly ?? false }
 
@@ -66,7 +68,7 @@ public struct Credential: Codable, Sendable {
     public init(label: String, notes: String, links: [String],
                 fields: [String: CredentialField], security: SecurityLevel,
                 created: String, updated: String, aliases: [String]? = nil, expires: String? = nil,
-                intent: UsageIntent? = nil, injectOnly: Bool? = nil) {
+                intent: UsageIntent? = nil, injectOnly: Bool? = nil, provider: String? = nil) {
         self.label = label
         self.notes = notes
         self.links = links
@@ -78,6 +80,7 @@ public struct Credential: Codable, Sendable {
         self.expires = expires
         self.intent = intent
         self.injectOnly = injectOnly
+        self.provider = provider
     }
 }
 

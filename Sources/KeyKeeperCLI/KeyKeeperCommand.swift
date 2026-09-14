@@ -8,6 +8,7 @@ struct KeyKeeperCommand: ParsableCommand {
         version: BuildVersion.identifier,
         subcommands: [
             ListCommand.self,
+            ProvidersCommand.self,
             GetCommand.self,
             MetaCommand.self,
             EditCommand.self,

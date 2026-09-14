@@ -87,6 +87,18 @@ OUT="$("$KK" save -c svc --field token --from-source "$TMP/config.py" --python-s
 expect_contains "save from source" "Saved" "$OUT"
 OUT="$("$KK" list)"; expect_contains "list shows credential" "svc |" "$OUT"; expect_contains "list shows expiry" "expires: 2027-01-31" "$OUT"
 
+echo "==> provider templates: save --provider fills in id/field, checks the shape, verifies afterwards"
+OUT="$("$KK" providers 2>&1)"; expect_contains "providers listed" "openai | OpenAI" "$OUT"
+OUT="$("$KK" providers show claude 2>&1)"; expect_contains "template shown as JSON" "console.anthropic.com" "$OUT"
+printf 'WRONG = "AKIA-not-an-openai-key-at-all-0123456789"\nOK = "sk-proj-synthetic-e2e-%s"\n' "$(printf 'x%.0s' $(seq 1 60))" > "$TMP/providers.py"
+OUT="$("$KK" save --provider openai --from-source "$TMP/providers.py" --python-symbol WRONG --create --purpose "e2e: wrong shape" 2>&1 || true)"
+expect_contains "wrong shape refused before writing" "start with sk-" "$OUT"
+OUT="$("$KK" list 2>&1)"; expect_not_contains "nothing created for the refused save" "openai |" "$OUT"
+OUT="$("$KK" save --provider openai --from-source "$TMP/providers.py" --python-symbol OK --create --purpose "e2e: synthetic openai key" 2>&1)"
+expect_contains "saved under the template's id" "Saved" "$OUT"
+case "$OUT" in *"rejected the key"*|*"could not reach"*) pass "verification ran (synthetic key: rejected or unreachable)";; *) fail "verification ran" "$OUT";; esac
+OUT="$("$KK" list --detail 2>&1)"; expect_contains "credential uses the template's id and field" "openai |" "$OUT"
+
 echo "==> agent-created credentials are inject-only: get refuses, run works"
 OUT="$("$KK" get svc token 2>&1 || true)"
 expect_contains "get is refused for an inject-only credential" "inject-only" "$OUT"

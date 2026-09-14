@@ -49,3 +49,28 @@ extension SaveSuggestionCommandTests {
         XCTAssertNil(GetCommand.injectOnlyRefusal(credentialId: "stripe", credential: open))
     }
 }
+
+extension SaveSuggestionCommandTests {
+    /// yyt 2026-09-15：`--provider openai` 就够了——凭据 ID、字段名、格式检查都从模板来。
+    func testProvider参数补全ID和字段名() throws {
+        let command = try SaveCommand.parse(["--provider", "gpt", "--from-clipboard", "--create", "--purpose", "chat completions for the app"])
+        XCTAssertEqual(command.request.credentialId, "openai")
+        XCTAssertEqual(command.request.fieldName, "openai-api-key")
+        XCTAssertEqual(command.request.provider, "openai")
+        let explicit = try SaveCommand.parse(["--provider", "openai", "-c", "openai-prod", "--from-clipboard", "--create", "--purpose", "p"])
+        XCTAssertEqual(explicit.request.credentialId, "openai-prod")
+        XCTAssertThrowsError(try SaveCommand.parse(["--provider", "nope", "--from-clipboard", "--create"]))
+        XCTAssertThrowsError(try SaveCommand.parse(["--from-clipboard", "--create"]), "没有模板就必须给 -c 和 --field")
+        XCTAssertTrue(SaveCommand.validationNote(.valid, provider: "openai").contains("accepted"))
+        XCTAssertTrue(SaveCommand.validationNote(.invalid, provider: "openai").contains("rejected"))
+        XCTAssertTrue(SaveCommand.validationNote(.unreachable, provider: "openai").contains("could not"))
+    }
+
+    func testProviders命令列出并输出模板() {
+        let list = ProvidersCommand.listText()
+        XCTAssertTrue(list.contains("openai") && list.contains("anthropic") && list.contains("OPENAI_API_KEY"), list)
+        let shown = ProvidersCommand.showText("claude")!
+        XCTAssertTrue(shown.contains("console.anthropic.com") && shown.contains("\"validation\""), shown)
+        XCTAssertNil(ProvidersCommand.showText("nope"))
+    }
+}

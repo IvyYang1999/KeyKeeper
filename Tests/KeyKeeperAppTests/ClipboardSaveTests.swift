@@ -533,3 +533,66 @@ extension ClipboardSaveTests {
         XCTAssertEqual(saved.expires, "2026-12-31")
     }
 }
+
+// MARK: - 2026-09-15 服务商模板：保存后 KeyKeeper 自己验证，值不经过 Agent
+
+extension ClipboardSaveTests {
+    @MainActor private func providerController(probe: @escaping @Sendable (ProviderValidation, String) async -> CredentialValidation) -> ClipboardSaveController {
+        ClipboardSaveController(service: service, metaStore: meta, approvals: approvals, clipboard: clipboard,
+            now: { self.clock }, present: { _, _ in }, update: { _ in }, dismiss: {}, probe: probe)
+    }
+
+    func test带模板保存_保存后用只读请求验证_结果回给调用方_值只进请求头() async throws {
+        let value = "sk-proj-" + String(repeating: "x", count: 100)
+        clipboard.text = value
+        nonisolated(unsafe) var probed: (String, String)?
+        controller = providerController { validation, value in probed = (validation.url, value); return .valid }
+        controller.receive(.init(credentialId: "openai", fieldName: "openai-api-key", create: true, provider: "openai"),
+            callerName: "codex", isConnected: { true }, completion: { self.results.append($0) })
+        controller.resolve(approved: true)
+        for _ in 0..<50 where results.isEmpty { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(results.first?.success, true)
+        XCTAssertEqual(results.first?.validation, .valid)
+        XCTAssertEqual(probed?.0, "https://api.openai.com/v1/models")
+        XCTAssertEqual(probed?.1, value, "探测用的就是存进去的值")
+        XCTAssertNil(clipboard.text, "存完剪贴板清掉")
+        XCTAssertEqual(try meta.load().credentials["openai"]?.provider, "openai")
+        XCTAssertEqual(try service.retrieve(credentialId: "openai", fieldName: "openai-api-key"), value)
+    }
+
+    func test形状不像这家的key_写入前拒绝_说明不带值() throws {
+        clipboard.text = "AKIA" + String(repeating: "x", count: 100)
+        controller = providerController { _, _ in .valid }
+        controller.receive(.init(credentialId: "openai", fieldName: "openai-api-key", create: true, provider: "openai"),
+            callerName: "codex", isConnected: { true }, completion: { self.results.append($0) })
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.first?.errorCode, .shapeMismatch)
+        XCTAssertTrue(results.first!.detail!.contains("sk-") && !results.first!.detail!.contains("AKIA"), results.first!.detail!)
+        XCTAssertEqual(io.writes, 0)
+        XCTAssertNil(try? meta.load().credentials["openai"])
+    }
+
+    func test验证期间不算超时_验证不可达也算保存成功() async throws {
+        clipboard.text = "sk-ant-" + String(repeating: "y", count: 80)
+        controller = providerController { _, _ in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            return .unreachable
+        }
+        controller.receive(.init(credentialId: "anthropic", fieldName: "anthropic-api-key", create: true, provider: "claude"),
+            callerName: "codex", isConnected: { true }, completion: { self.results.append($0) })
+        controller.resolve(approved: true)
+        clock = clock.addingTimeInterval(120)
+        controller.tick()   // the 90 s deadline must not fire while the probe is running
+        for _ in 0..<50 where results.isEmpty { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results.first?.success, true)
+        XCTAssertEqual(results.first?.validation, .unreachable)
+    }
+
+    func test没有模板_照旧_验证标记为skipped() throws {
+        request()
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.first?.success, true)
+        XCTAssertEqual(results.first?.validation, .skipped)
+    }
+}
