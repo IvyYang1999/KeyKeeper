@@ -17,6 +17,8 @@ struct BrowserExtensionSetup: Equatable {
         case notRegistered
         /// The registration exists but points somewhere else — somebody rewrote the file.
         case tamperedWith
+        /// Registered by KeyKeeper, for where it used to live.
+        case moved
         /// KeyKeeper's side is wired up. Deliberately not called "connected": this file is one
         /// KeyKeeper wrote, and Chrome never writes back to it. If the extension is later removed
         /// in Chrome, nothing here changes — so the screen must not claim Chrome is ready.
@@ -54,18 +56,23 @@ struct BrowserExtensionSetup: Equatable {
               FileManager.default.fileExists(atPath: extensionFolder.path),
               FileManager.default.fileExists(atPath: launcher.path)
         else { return .missingFromApp }
-        if let found = BrowserHostRegistration.registration(at: manifestURL,
-                                                            expectedLauncher: launcher.path) {
-            return found.intact ? .registered(found.id) : .tamperedWith
+        // The file's own extension ID is taken as intended: re-registering for a different extension
+        // is a supported way out (a development copy, say). What must match is everything else —
+        // above all `path`, which decides where Chrome sends the cookies.
+        switch BrowserHostRegistration.registrationState(at: manifestURL, expectedLauncher: launcher.path,
+                                                         expectedExtensionID: nil) {
+        case .intact(let id): return .registered(id)
+        case .moved: return .moved
+        case .tampered: return .tamperedWith
+        case nil: return .notRegistered
         }
-        return .notRegistered
     }
 
     /// Registering over a tampered file has to replace it. Install is create-only, so the plain
     /// "Register" button could never repair a tampered registration — it failed because the file
     /// exists. 【独立审计 2026-09-13】
     static func registrationReplacesExisting(_ connection: Connection) -> Bool {
-        connection == .tamperedWith
+        connection == .tamperedWith || connection == .moved
     }
 
     /// Registers this Mac's Chrome to talk to exactly one extension. Create-only by default: an

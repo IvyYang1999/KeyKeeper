@@ -11,9 +11,12 @@ import KeyKeeperCore
     func open(_ snapshot: BrowserSessionImport, bringToFront: Bool, completion: @escaping (Bool) -> Void)
     func stop(id: String)
     func stopAll()
+    /// A frozen window's re-authorization prompt went unanswered: stay frozen, able to ask again.
+    func reauthorizationLapsed(id: String)
 }
 
 extension BrowserSessionRuntime {
+    func reauthorizationLapsed(id: String) {}
     func validate(_ snapshot: BrowserSessionImport) throws {}
     func setReauthorizationHandler(_ handler: @escaping (String, @escaping (Bool) -> Void) -> Void) {}
 }
@@ -51,6 +54,9 @@ struct BrowserSessionPresentation {
     private var humanApprovedOpen = true
     /// Who asked for the pending request, so an approval can be remembered for them alone.
     private var pendingFingerprint: String?
+    /// A frozen window's re-authorization prompt, while it is on screen.
+    private var reauthorizing: (id: String, deadline: Date)?
+    private var reauthTimer: Timer?
     /// The prompt that also asks how long. Nil keeps every approval single-use.
     private let presentWithDuration: ((BrowserSessionPresentation, @escaping (ApprovalDuration?) -> Void) -> Void)?
     /// Standing permissions to open a login, kept with every other approval.
@@ -81,11 +87,35 @@ struct BrowserSessionPresentation {
             // Background OK: the limit is a safety net, not a question.
             decided(true); return
         }
-        guard pending == nil else { decided(false); return }
+        guard pending == nil, reauthorizing == nil else { decided(false); return }
+        // 【独立审计第二轮】this prompt never expired: left alone it stayed up forever, and the next
+        // request silently replaced it, leaving the window frozen with a button that did nothing.
+        // It now lapses like any other prompt, other requests wait for it, and a lapsed prompt leaves
+        // the window frozen and able to ask again.
+        reauthorizing = (id, now().addingTimeInterval(90))
+        reauthTimer?.invalidate()
+        reauthTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.expireReauthorizationIfNeeded() }
+        }
         present(.init(action: .open, session: summary, caller: L("Session window"))) { [weak self] granted in
-            self?.dismiss()
+            guard let self, self.reauthorizing?.id == id else { return }
+            self.endReauthorization()
+            self.dismiss()
             decided(granted)
         }
+    }
+
+    func expireReauthorizationIfNeeded() {
+        guard let current = reauthorizing, now() >= current.deadline else { return }
+        endReauthorization()
+        dismiss()
+        runtime.reauthorizationLapsed(id: current.id)
+    }
+
+    private func endReauthorization() {
+        reauthorizing = nil
+        reauthTimer?.invalidate()
+        reauthTimer = nil
     }
 
     /// "Just this once" stores nothing: it is this request. Longer answers become a grant for this
@@ -133,7 +163,7 @@ struct BrowserSessionPresentation {
                 runtime.stop(id: request.id!); objectWillChange.send()
                 completion(.init(success: true, activeIDs: activeIDs)); return
             }
-            guard !isPending, !otherApprovalPending() else { throw BrowserSessionError.busy }
+            guard !isPending, reauthorizing == nil, !otherApprovalPending() else { throw BrowserSessionError.busy }
             if request.action == .list {
                 completion(.init(success: true, sessions: try store.list(), activeIDs: activeIDs)); return
             }

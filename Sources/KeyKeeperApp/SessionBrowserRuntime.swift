@@ -85,6 +85,7 @@ enum SessionBrowserPolicy {
         }
     }
     func stop(id: String) { windows.removeValue(forKey: id)?.shutdown() }
+    func reauthorizationLapsed(id: String) { windows[id]?.reauthorizationLapsed() }
     func stopAll() { for id in activeIDs { stop(id: id) } }
 }
 
@@ -226,6 +227,9 @@ enum SessionBrowserPolicy {
         contentView.addSubview(veil)
         self.veil = veil
     }
+
+    /// The prompt went unanswered. Stay frozen; the veil's button may ask again.
+    func reauthorizationLapsed() { asking = false }
 
     private func renew() {
         guard !asking else { return }

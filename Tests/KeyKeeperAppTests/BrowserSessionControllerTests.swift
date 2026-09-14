@@ -354,3 +354,45 @@ extension SessionDurationPromptTests {
         }
     }
 }
+
+@MainActor private final class LapseTrackingRuntime: BrowserSessionRuntime {
+    var activeIDs: [String] = []
+    var lapsed: [String] = []
+    func validate(_ snapshot: BrowserSessionImport) throws {}
+    func setReauthorizationHandler(_ handler: @escaping (String, @escaping (Bool) -> Void) -> Void) {}
+    func open(_ snapshot: BrowserSessionImport, bringToFront: Bool, completion: @escaping (Bool) -> Void) { completion(true) }
+    func stop(id: String) {}
+    func stopAll() {}
+    func reauthorizationLapsed(id: String) { lapsed.append(id) }
+}
+
+extension BrowserSessionControllerTests {
+    /// 【独立审计第二轮】冻结窗口的重新授权确认框没有期限：不理它就一直挂着；来一个新请求会悄悄把它顶掉，
+    /// 窗口卡在冻结态，按钮再也没反应。
+    func test冻结窗口的重新授权会过期且不被别的请求顶掉() throws {
+        let runtime = LapseTrackingRuntime()
+        let store = BrowserSessionStore(io: FakeKeychainIO(), marker: SessionControllerMarker())
+        var clock = Date()
+        var presented = 0, dismissed = 0
+        var decide: ((Bool) -> Void)?
+        let controller = BrowserSessionController(store: store, runtime: runtime, now: { clock },
+            present: { _, reply in presented += 1; decide = reply }, dismiss: { dismissed += 1 }, approvals: .inMemory())
+        let input = try savedSession(store)
+        controller.refresh()
+        var outcome: Bool?
+        controller.authorizeAgain(id: input.id) { outcome = $0 }
+        XCTAssertEqual(presented, 1)
+
+        var result: BrowserSessionResponse?
+        controller.receive(.init(action: .open, id: input.id), caller: "Agent", fingerprint: "unsigned:path=a") { result = $0 }
+        XCTAssertEqual(result?.errorCode, .busy, "别的请求等它答完，不顶掉它")
+        XCTAssertEqual(presented, 1)
+
+        clock = clock.addingTimeInterval(91)
+        controller.expireReauthorizationIfNeeded()
+        XCTAssertEqual(runtime.lapsed, [input.id], "过期后窗口保持冻结，按钮还能再问")
+        XCTAssertGreaterThanOrEqual(dismissed, 1)
+        decide?(true)
+        XCTAssertNil(outcome, "过期之后再点也不算数")
+    }
+}

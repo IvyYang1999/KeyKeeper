@@ -105,6 +105,36 @@ public enum BrowserHostRegistration {
         return (id, NSDictionary(dictionary: object).isEqual(to: canonical))
     }
 
+    public enum RegistrationState: Equatable, Sendable {
+        case intact(String)
+        /// Exactly as KeyKeeper writes it, except `path`: KeyKeeper lives somewhere else now.
+        case moved(String)
+        case tampered
+    }
+
+    /// 【独立审计第二轮】the comparison used the extension ID written in the file itself, so a file
+    /// that pointed KeyKeeper's host at a different extension still read "registered" — while a
+    /// KeyKeeper that had merely moved was described as tampered with.
+    public static func registrationState(at target: URL = manifestURL(), expectedLauncher: String,
+                                         expectedExtensionID: String?) -> RegistrationState? {
+        guard let data = try? Data(contentsOf: target) else { return nil }
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return .tampered }
+        let ids = (object["allowed_origins"] as? [String] ?? []).compactMap(extensionID(fromOrigin:))
+        guard let id = expectedExtensionID ?? ids.first,
+              let canonicalData = try? manifest(extensionID: id, launcher: expectedLauncher),
+              let canonical = (try? JSONSerialization.jsonObject(with: canonicalData)) as? [String: Any]
+        else { return .tampered }
+        if NSDictionary(dictionary: object).isEqual(to: canonical) { return .intact(id) }
+        // "Moved" only when the old path is itself a KeyKeeper bundle's host. A path to any other
+        // program is the attack this check exists for, and stays tampered.
+        guard (object["path"] as? String)?.hasSuffix(".app/Contents/Resources/browser-native-host") == true else {
+            return .tampered
+        }
+        var found = object, expected = canonical
+        found.removeValue(forKey: "path"); expected.removeValue(forKey: "path")
+        return NSDictionary(dictionary: found).isEqual(to: expected) ? .moved(id) : .tampered
+    }
+
     static func extensionID(fromOrigin origin: String) -> String? {
         let id = origin
             .replacingOccurrences(of: "chrome-extension://", with: "")

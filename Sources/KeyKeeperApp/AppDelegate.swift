@@ -227,8 +227,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let request = pending.request
         let caller = TrustPromptModel.sanitizedCaller(request.callerIdentity?.displayName ?? L("Unknown Caller"))
         registerAuthApproval(
-            title: L("\(caller) wants to use \(request.credentialLabel)"),
-            detail: ([request.fieldNames.joined(separator: ", ")] + [request.sessionLabel.map { AppL10n.text($0) }].compactMap { $0 })
+            // Any local process can rename a credential without a prompt and put anything in its
+            // session label: both go through the strong sanitiser here too. 【独立审计第二轮】
+            title: L("\(caller) wants to use \(CallerStatedReason.printableLine(request.credentialLabel, limit: 80))"),
+            detail: ([request.fieldNames.joined(separator: ", ")]
+                     + [request.sessionLabel.map { CallerStatedReason.printableLine(AppL10n.text($0), limit: 80) }].compactMap { $0 })
                 .joined(separator: " · "),
             expiresAt: pending.expiresAt,
             deny: { [weak self] in

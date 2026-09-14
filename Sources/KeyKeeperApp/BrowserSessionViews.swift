@@ -76,7 +76,7 @@ struct BrowserSessionManagerView: View {
                                 HStack(spacing: 10) {
                                     KeyAvatar(label: item.label, kind: .session, size: 30)
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(item.label).font(.callout.weight(.semibold))
+                                        Text(CallerStatedReason.printableLine(item.label, limit: 80)).font(.callout.weight(.semibold))
                                         Text(item.origin).font(.caption.monospaced()).foregroundColor(.secondary)
                                             .textSelection(.enabled)
                                     }
@@ -249,15 +249,17 @@ struct BrowserSessionStartCard: View {
                 title: L("Bring one over from Chrome"),
                 detail: L("Open the site in Chrome, click the KeyKeeper extension, pick that site and confirm here."),
                 button: nil, action: {})
-        case .notRegistered, .tamperedWith:
+        case .notRegistered, .tamperedWith, .moved:
             VStack(alignment: .leading, spacing: 10) {
-                row(symbol: setup.connection == .tamperedWith ? "exclamationmark.triangle" : "puzzlepiece.extension",
+                row(symbol: setup.connection == .notRegistered ? "puzzlepiece.extension" : "exclamationmark.triangle",
                     title: setup.connection == .tamperedWith
                         ? L("Chrome is wired to something else")
-                        : L("Bring one over from Chrome"),
+                        : setup.connection == .moved ? L("KeyKeeper has moved since Chrome was connected") : L("Bring one over from Chrome"),
                     detail: setup.connection == .tamperedWith
                         ? L("KeyKeeper's registration file now points at another program. Something changed it. Register again to point it back.")
-                        : L("Reuse a site you are already signed in to in Chrome. Needs a one-time setup."),
+                        : setup.connection == .moved
+                            ? L("The registration still points at KeyKeeper's old location. Register again to point it here.")
+                            : L("Reuse a site you are already signed in to in Chrome. Needs a one-time setup."),
                     button: showingChromeSteps ? L("Hide") : L("Set up"),
                     action: { showingChromeSteps.toggle() })
                 if showingChromeSteps {
@@ -292,9 +294,18 @@ struct BrowserExtensionStatusLine: View {
         case .registered:
             Text(L("Chrome is registered. Use the extension there to bring another site over."))
                 .font(.caption).foregroundColor(.secondary)
-        case .tamperedWith:
-            Text(L("Chrome is wired to something else"))
-                .font(.caption).foregroundColor(.red)
+        case .tamperedWith, .moved:
+            // Once snapshots exist this line is all the page shows about Chrome, so it carries the fix.
+            // 【独立审计第二轮】it used to be red text with no way to act on it.
+            HStack(spacing: 8) {
+                Text(setup.connection == .moved ? L("KeyKeeper has moved since Chrome was connected") : L("Chrome is wired to something else"))
+                    .font(.caption).foregroundColor(setup.connection == .moved ? .orange : .red)
+                Button(L("Register again")) {
+                    try? setup.connect(replacingExisting: true)
+                    setup = setup
+                }
+                .buttonStyle(.link).font(.caption)
+            }
         case .notRegistered, .missingFromApp:
             EmptyView()
         }
@@ -315,7 +326,7 @@ struct BrowserExtensionSetupCard: View {
                 title: L("This build has no browser extension"),
                 text: L("Website sessions need the Chrome extension that ships inside KeyKeeper.app, and this copy does not contain it. Reinstall KeyKeeper from keykeeper.dev.")
             )
-        case .notRegistered, .tamperedWith:
+        case .notRegistered, .tamperedWith, .moved:
             connectCard
         case .registered(let id):
             if showsNextStep { nextStepCard(id: id) }
@@ -336,7 +347,7 @@ struct BrowserExtensionSetupCard: View {
             Text(L("Then let KeyKeeper register the connection. Its extension ID is fixed, so there is nothing to copy."))
                 .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                Button(setup.connection == .tamperedWith ? L("Register again") : L("Register the connection")) {
+                Button(setup.connection == .notRegistered ? L("Register the connection") : L("Register again")) {
                     connect(replacing: BrowserExtensionSetup.registrationReplacesExisting(setup.connection))
                 }
                     .disabled(setup.expectedExtensionID == nil)

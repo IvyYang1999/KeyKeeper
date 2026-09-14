@@ -161,7 +161,7 @@ struct TrustPromptModel: Equatable {
             subtitle: L("Requested by: \(caller)"),
             rows: [
                 Row(label: L("Website"), value: info.session.origin, monospaced: true),
-                Row(label: L("Snapshot"), value: L("\(info.session.label) · \(info.session.cookieCount) Cookies")),
+                Row(label: L("Snapshot"), value: L("\(CallerStatedReason.printableLine(info.session.label, limit: 80)) · \(info.session.cookieCount) Cookies")),
                 Row(label: L("Requested by"), value: caller),
             ],
             assurance: isDelete
@@ -281,19 +281,18 @@ struct TrustPromptView: View {
                 Button(L("Cancel"), action: onCancel)
                     .keyboardShortcut(.cancelAction)
                     .controlSize(.large)
-                // ⌘↩ confirms. Plain Return deliberately does nothing, so a keystroke meant
-                // for the terminal can never approve a request that just stole focus.
+                // No keyboard shortcut at all, like the authorization window. ⌘↩ is "send" in chat
+                // and comment boxes, and this prompt takes focus: a keystroke meant for them must
+                // never approve it. 【独立审计第二轮】
                 Button(action: {
                     if let onConfirmDuration { onConfirmDuration(duration.grantDuration) } else { onConfirm() }
                 }) {
                     Text(model.confirmTitle).frame(minWidth: 52)
                 }
-                .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!canConfirm)
                 .buttonStyle(.borderedProminent)
                 .tint(model.tone == .destructive ? .red : .accentColor)
                 .controlSize(.large)
-                .help("⌘↩")
             }
         }
         .padding(24)
