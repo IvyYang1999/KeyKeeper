@@ -1,18 +1,13 @@
 import XCTest
 import KeyKeeperCore
 @testable import KeyKeeperApp
+import KeyKeeperTestSupport
 
-private final class BrowserTestIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    var writes = 0
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws { blob = data; writes += 1 }
-}
 
 @MainActor final class BrowserImportBridgeTests: XCTestCase {
     private var directory: URL!
     private var meta: MetaStore!
-    private var io: BrowserTestIO!
+    private var io: FakeKeychainIO!
     private var service: KeychainCredentialService!
     private var controller: ClipboardSaveController!
     private var bridge: BrowserImportBridge!
@@ -25,7 +20,7 @@ private final class BrowserTestIO: KeychainBlobIO, @unchecked Sendable {
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("browser-import-tests-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
-        meta = MetaStore(directory: directory); io = BrowserTestIO()
+        meta = MetaStore(directory: directory); io = FakeKeychainIO()
         service = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.meta.load() }))
         controller = ClipboardSaveController(service: service, metaStore: meta, now: { self.clock },
             present: { _, decide in self.decision = decide }, dismiss: {})

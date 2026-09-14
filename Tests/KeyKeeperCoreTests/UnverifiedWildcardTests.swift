@@ -1,5 +1,6 @@
 import XCTest
 @testable import KeyKeeperCore
+import KeyKeeperTestSupport
 
 /// 【独立审计 2026-09-13】「未核实的身份匹配不到授权」只加在了 GrantStore 上。ServiceGrantStore
 /// 和登录态授权照样按字符串相等匹配——而 `unverified:no-code-object` 这类指纹是**常量**，
@@ -18,7 +19,7 @@ final class UnverifiedWildcardTests: XCTestCase {
     }
 
     func test登录态授权不认未核实的身份() throws {
-        let io = WildcardIO()
+        let io = FakeKeychainIO()
         let store = BrowserSessionStore(io: io, marker: WildcardMarker())
         let id = UUID().uuidString
         _ = try store.save(BrowserSessionImport(id: id, origin: "https://example.com", label: "S", cookies: [
@@ -37,11 +38,6 @@ final class UnverifiedWildcardTests: XCTestCase {
     }
 }
 
-private final class WildcardIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws { blob = data }
-}
 private final class WildcardMarker: BrowserSessionMarker {
     var exists = false
     func wasCreated() throws -> Bool { exists }

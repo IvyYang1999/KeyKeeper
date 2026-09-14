@@ -1,9 +1,10 @@
 import XCTest
 @testable import KeyKeeperCore
+import KeyKeeperTestSupport
 
 final class SaveMissingTests: XCTestCase {
     func testInsertPreservesEveryOtherValueAndRefusesOverwrite() throws {
-        let io = FakeBlobIO()
+        let io = FakeKeychainIO()
         let store = KeychainBlobStore(io: io)
         try store.save(credentialId: "existing", fieldName: "key", value: "synthetic-original")
         try store.saveMissing(credentialId: "recovery", fieldName: "key", value: "synthetic-restored")
@@ -14,7 +15,7 @@ final class SaveMissingTests: XCTestCase {
     }
 
     func testMissingStoreAndUnknownVersionCannotBeRecreated() throws {
-        let io = FakeBlobIO()
+        let io = FakeKeychainIO()
         let meta = MetaFile(credentials: ["old": Credential(label: "Old", notes: "", links: [],
             fields: ["key": .init(secret: true)], security: .strict, created: "", updated: "")])
         let store = KeychainBlobStore(io: io, loadMetadata: { meta })

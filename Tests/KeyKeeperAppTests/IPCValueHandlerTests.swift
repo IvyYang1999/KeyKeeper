@@ -3,6 +3,7 @@ import Foundation
 import XCTest
 @testable import KeyKeeperApp
 import KeyKeeperCore
+import KeyKeeperTestSupport
 
 @MainActor
 final class IPCValueHandlerTests: XCTestCase {
@@ -59,7 +60,7 @@ final class IPCValueHandlerTests: XCTestCase {
 
     func testKeychainServiceReadsValueRoundTrip() throws {
         try saveMetadata(security: .standard)
-        let service = KeychainCredentialService(store: KeychainBlobStore(io: MemoryBlobIO()))
+        let service = KeychainCredentialService(store: KeychainBlobStore(io: FakeKeychainIO()))
         try service.save(
             credentialId: "service-a",
             fieldName: "access",
@@ -79,7 +80,7 @@ final class IPCValueHandlerTests: XCTestCase {
     /// `keykeeper edit` 不弹窗直接改名；改名后脚本里写的旧组 ID、旧字段名照样能取值，改动留一笔。
     func test改名后旧组ID和旧字段名照样能取值且改动留记录() throws {
         try saveMetadata(security: .standard)
-        let service = KeychainCredentialService(store: KeychainBlobStore(io: MemoryBlobIO()))
+        let service = KeychainCredentialService(store: KeychainBlobStore(io: FakeKeychainIO()))
         try service.save(credentialId: "service-a", fieldName: "access", value: "opaque-keychain-value", security: .standard)
         let server = makeServer(session: service)
         let log = MetadataChangeLog(directory: directory)
@@ -313,8 +314,3 @@ private enum StorageTestError: Error {
     case timedOut
 }
 
-private final class MemoryBlobIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws { blob = data }
-}

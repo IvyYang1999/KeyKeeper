@@ -1,45 +1,20 @@
 import XCTest
 @testable import KeyKeeperCore
-
-private final class MemoryKeychain: @unchecked Sendable {
-    var items: [String: Data] = [:]
-    var failNextReads: [String: Int] = [:]
-}
-
-private final class MemoryItemIO: KeychainBlobIO, @unchecked Sendable {
-    let keychain: MemoryKeychain
-    let service: String
-    init(_ keychain: MemoryKeychain, _ service: String) { self.keychain = keychain; self.service = service }
-    func readBlob() throws -> Data? {
-        if let left = keychain.failNextReads[service], left > 0 {
-            keychain.failNextReads[service] = left - 1
-            throw KeychainError.retrieveFailed(-25293)
-        }
-        return keychain.items[service]
-    }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws {
-        if replacingExisting {
-            guard keychain.items[service] != nil else { throw CredentialStorageError.missingStore }
-        } else {
-            guard keychain.items[service] == nil else { throw KeychainError.saveFailed(-25299) }
-        }
-        keychain.items[service] = data
-    }
-}
+import KeyKeeperTestSupport
 
 /// 【独立审计第二轮 · critical，2026-09-13 23 点在 yyt 本机真实发生】两份授权文件共用一把签名密钥。升级后首次启动，
 /// 先清理 grants.json 时建出密钥，紧接着清理 service-grants.json——密钥已在、文件未签——被判篡改、换成空文件：
 /// 后台授权与访问记录全部清空，模式被改成「先问我」。这里跑的就是 App 真实的接线。
 final class GrantFileUpgradeTests: XCTestCase {
     private var dir: URL!
-    private var keychain: MemoryKeychain!
+    private var keychain: FakeKeychain!
 
     override func setUpWithError() throws {
         dir = FileManager.default.temporaryDirectory.appendingPathComponent("grant-upgrade-\(UUID())")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        keychain = MemoryKeychain()
+        keychain = FakeKeychain()
         let chain = keychain!
-        GrantFileIntegrity.configureAppDefaults { MemoryItemIO(chain, $0) }
+        GrantFileIntegrity.configureAppDefaults { chain.io($0) }
     }
 
     override func tearDownWithError() throws {
@@ -49,8 +24,6 @@ final class GrantFileUpgradeTests: XCTestCase {
     }
 
     private func writeLegacyFiles() throws {
-        let unsigned = GrantFileIntegrity(io: MemoryItemIO(MemoryKeychain(), "unused"))
-        _ = unsigned
         let legacyGrants = GrantFile(grants: [Grant(credentialId: "c", duration: .always, subjectFingerprint: "unsigned:path=a")])
         let legacyService = ServiceGrantFile(mode: .permissive, grants: [
             ServiceGrant(credentialId: "c", subjectFingerprint: "unsigned:path=a", subjectDisplayName: "x", fields: ["f"], duration: .always)
@@ -73,7 +46,7 @@ final class GrantFileUpgradeTests: XCTestCase {
     func test开发版用授权密钥签过的service文件照样收养() throws {
         try writeLegacyFiles()
         // What the broken build left behind: service-grants.json signed with the grants key.
-        let shared = GrantFileIntegrity(io: MemoryItemIO(keychain, IntegrityKeyNames.service(GrantFileIntegrity.grantsKeyName)))
+        let shared = GrantFileIntegrity(io: keychain.io(IntegrityKeyNames.service(GrantFileIntegrity.grantsKeyName)))
         try ServiceGrantStore(directory: dir, integrity: shared).setAuthorizationMode(.enforced)
         let service = ServiceGrantStore(directory: dir)
         XCTAssertEqual(try service.authorizationMode(), .enforced)
@@ -84,9 +57,9 @@ final class GrantFileUpgradeTests: XCTestCase {
         try writeLegacyFiles()
         try GrantStore(directory: dir).pruneExpired()     // signed from here on
         let keyName = IntegrityKeyNames.service(GrantFileIntegrity.grantsKeyName)
-        keychain.failNextReads[keyName] = 1
+        keychain.failNextReads(of: keyName, count: 1)
         let chain = keychain!
-        GrantFileIntegrity.configureAppDefaults { MemoryItemIO(chain, $0) }   // fresh instances, nothing cached
+        GrantFileIntegrity.configureAppDefaults { chain.io($0) }   // fresh instances, nothing cached
         XCTAssertThrowsError(try GrantStore(directory: dir).pruneExpired(), "读不出密钥就别动文件")
         XCTAssertNotNil(try GrantStore(directory: dir).findValidGrant(credentialId: "c", sessionId: nil, fingerprint: "unsigned:path=a"))
     }

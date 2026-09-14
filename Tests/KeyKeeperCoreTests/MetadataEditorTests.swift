@@ -1,11 +1,12 @@
 import XCTest
 @testable import KeyKeeperCore
+import KeyKeeperTestSupport
 
 /// 改名要做到：值不丢、旧名继续能用、授权跟着走；任何一步失败都不能留下缺值的库。
 final class MetadataEditorTests: XCTestCase {
     private var directory: URL!
     private var metaStore: MetaStore!
-    private var io: FakeBlobIO!
+    private var io: FakeKeychainIO!
     private var blobStore: KeychainBlobStore!
     private var service: KeychainCredentialService!
     private var grants: GrantStore!
@@ -15,7 +16,7 @@ final class MetadataEditorTests: XCTestCase {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("kk-meta-edit-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         metaStore = MetaStore(directory: directory)
-        io = FakeBlobIO()
+        io = FakeKeychainIO()
         let store = metaStore!
         blobStore = KeychainBlobStore(io: io, loadMetadata: { try store.load() })
         service = KeychainCredentialService(store: blobStore)

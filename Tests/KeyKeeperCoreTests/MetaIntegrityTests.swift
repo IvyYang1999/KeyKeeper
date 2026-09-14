@@ -1,5 +1,6 @@
 import XCTest
 @testable import KeyKeeperCore
+import KeyKeeperTestSupport
 
 /// 【安全审计 2026-09-13】meta.json 是明文，而它决定**哪些字段是机密**、每条凭据的安全
 /// 级别，还直接存着明文字段的值。同 UID 进程改一行就能：把 `secret: true` 翻成 false 再
@@ -71,10 +72,10 @@ final class MetaIntegrityTests: XCTestCase {
 
 /// 存储层：印记什么时候写、什么时候认、什么时候翻脸。
 final class MetaStoreIntegrityTests: XCTestCase {
-    private func store() -> (MetaStore, FakeKeyIO, URL) {
+    private func store() -> (MetaStore, FakeKeychainIO, URL) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("meta-integrity-\(UUID())")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let io = FakeKeyIO()
+        let io = FakeKeychainIO()
         return (MetaStore(directory: dir, integrityIO: io), io, dir)
     }
     private func meta() -> MetaFile {
@@ -145,7 +146,7 @@ final class MetaStoreIntegrityTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("meta-integrity-\(UUID())")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let io = FakeKeyIO(); io.failReads = true
+        let io = FakeKeychainIO(); io.failReads = true
         let store = MetaStore(directory: dir, integrityIO: io)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         try encoder.encode(meta()).write(to: store.fileURL)
@@ -153,12 +154,3 @@ final class MetaStoreIntegrityTests: XCTestCase {
     }
 }
 
-private final class FakeKeyIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    var failReads = false
-    func readBlob() throws -> Data? {
-        if failReads { throw KeychainError.unexpectedData }
-        return blob
-    }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws { blob = data }
-}

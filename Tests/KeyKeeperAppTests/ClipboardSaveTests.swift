@@ -3,19 +3,8 @@ import XCTest
 import KeyKeeperCore
 import CryptoKit
 import Darwin
+import KeyKeeperTestSupport
 
-private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    var writes = 0
-    var failWrites = false
-    var afterWrite: (() throws -> Void)?
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws {
-        if failWrites { throw CocoaError(.fileWriteNoPermission) }
-        writes += 1; blob = data
-        try afterWrite?()
-    }
-}
 @MainActor private final class SaveTestClipboard: ClipboardSaveSource {
     var changeCount = 1
     var text: String? = "synthetic-import"
@@ -33,7 +22,7 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
 @MainActor final class ClipboardSaveTests: XCTestCase {
     private var directory: URL!
     private var meta: MetaStore!
-    private var io: SaveTestIO!
+    private var io: FakeKeychainIO!
     private var service: KeychainCredentialService!
     private var clipboard: SaveTestClipboard!
     private var controller: ClipboardSaveController!
@@ -45,7 +34,7 @@ private final class SaveTestIO: KeychainBlobIO, @unchecked Sendable {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("clipboard-save-tests-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         meta = MetaStore(directory: directory)
-        io = SaveTestIO()
+        io = FakeKeychainIO()
         service = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.meta.load() }))
         clipboard = SaveTestClipboard()
         controller = ClipboardSaveController(service: service, metaStore: meta, clipboard: clipboard,

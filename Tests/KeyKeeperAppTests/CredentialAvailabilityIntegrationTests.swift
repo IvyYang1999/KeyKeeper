@@ -2,36 +2,21 @@ import XCTest
 import Foundation
 @testable import KeyKeeperApp
 import KeyKeeperCore
+import KeyKeeperTestSupport
 
 @MainActor
 final class CredentialAvailabilityIntegrationTests: XCTestCase {
-    private final class IO: KeychainBlobIO, @unchecked Sendable {
-        var bytes: Data?
-        var failure = false
-        var ordinaryReads = 0
-        var writes = 0
-        var reads = 0
-        var onRead: (() -> Void)?
-        func readBlob() throws -> Data? { ordinaryReads += 1; return bytes }
-        func readBlobWithoutInteraction() throws -> Data? {
-            reads += 1
-            onRead?()
-            if failure { throw KeychainError.unexpectedData }
-            return bytes
-        }
-        func writeBlob(_ data: Data, replacingExisting: Bool) throws { writes += 1 }
-    }
 
     func testRealServiceIPCOnlyReturnsNamesWithoutReadingOnOrdinaryStatus() throws {
-        let io = IO()
-        io.bytes = Data(#"{"version":1,"credentials":{"fixture":{"field":"synthetic"}}}"#.utf8)
+        let io = FakeKeychainIO()
+        io.blob = Data(#"{"version":1,"credentials":{"fixture":{"field":"synthetic"}}}"#.utf8)
         let session = KeychainCredentialService(store: KeychainBlobStore(io: io))
         let server = IPCServer(session: session)
         XCTAssertNil(server.handleSessionControl(.init(action: .status)).valueInventory)
         let reply = server.handleSessionControl(.init(action: .status, inspectValues: true))
         XCTAssertEqual(reply.valueInventory, ["fixture": ["field"]])
         XCTAssertFalse(String(decoding: try JSONEncoder().encode(reply), as: UTF8.self).contains("synthetic"))
-        io.failure = true
+        io.readError = KeychainError.unexpectedData
         XCTAssertNil(server.handleSessionControl(.init(action: .status, inspectValues: true)).valueInventory)
         XCTAssertEqual(io.ordinaryReads, 0)
         XCTAssertEqual(io.writes, 0)
@@ -47,17 +32,17 @@ final class CredentialAvailabilityIntegrationTests: XCTestCase {
             created: "2026-01-01", updated: "2026-01-01")
         try metadata.save(.init(credentials: ["fixture": record]))
         let before = try Data(contentsOf: metadata.fileURL)
-        let io = IO()
+        let io = FakeKeychainIO()
         let vm = CredentialListViewModel(session: KeychainCredentialService(store: KeychainBlobStore(io: io)), store: metadata)
         vm.load()
         try await finish(vm)
         XCTAssertEqual(vm.valueAvailability["fixture"]?.state, .missing)
-        io.bytes = Data(#"{"version":1,"credentials":{"fixture":{"field":"synthetic"}}}"#.utf8)
+        io.blob = Data(#"{"version":1,"credentials":{"fixture":{"field":"synthetic"}}}"#.utf8)
         vm.load()
         XCTAssertNil(vm.valueAvailability["fixture"])
         try await finish(vm)
         XCTAssertEqual(vm.valueAvailability["fixture"]?.state, .present)
-        io.failure = true
+        io.readError = KeychainError.unexpectedData
         vm.load()
         try await finish(vm)
         XCTAssertEqual(vm.valueAvailability["fixture"]?.state, .unavailable)
@@ -80,7 +65,7 @@ final class CredentialAvailabilityIntegrationTests: XCTestCase {
             fields: ["field": .init(secret: true)], security: .standard,
             created: "2026-01-01", updated: "2026-01-01")
         try metadata.save(.init(credentials: ["before": record]))
-        let io = IO()
+        let io = FakeKeychainIO()
         let gate = DispatchSemaphore(value: 0)
         let began = expectation(description: "inspection started")
         io.onRead = {

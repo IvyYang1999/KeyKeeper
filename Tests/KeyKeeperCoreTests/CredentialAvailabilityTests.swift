@@ -1,38 +1,27 @@
 import XCTest
 import Security
 @testable import KeyKeeperCore
+import KeyKeeperTestSupport
 
 final class CredentialAvailabilityTests: XCTestCase {
-    private final class InspectionIO: KeychainBlobIO, @unchecked Sendable {
-        var data: Data?
-        var error: Error?
-        var ordinaryReads = 0
-        var writes = 0
-        func readBlob() throws -> Data? { ordinaryReads += 1; return data }
-        func readBlobWithoutInteraction() throws -> Data? {
-            if let error { throw error }
-            return data
-        }
-        func writeBlob(_ data: Data, replacingExisting: Bool) throws { writes += 1 }
-    }
 
     func testInventoryIsNonInteractiveReadOnlyAndDistinguishesErrors() throws {
-        let io = InspectionIO()
+        let io = FakeKeychainIO()
         let store = KeychainBlobStore(io: io)
         XCTAssertEqual(try store.inspectValueInventory(), [:])
-        io.data = Data(#"{"version":1,"credentials":{"fixture":{"field":"synthetic"}}}"#.utf8)
+        io.blob = Data(#"{"version":1,"credentials":{"fixture":{"field":"synthetic"}}}"#.utf8)
         XCTAssertEqual(try store.inspectValueInventory(), ["fixture": ["field"]])
-        io.error = KeychainError.retrieveFailed(errSecInteractionNotAllowed)
+        io.readError = KeychainError.retrieveFailed(errSecInteractionNotAllowed)
         XCTAssertThrowsError(try store.inspectValueInventory())
         XCTAssertEqual(io.ordinaryReads, 0)
         XCTAssertEqual(io.writes, 0)
     }
 
     func testCorruptAndUnknownVersionNeverBecomeMissing() {
-        let io = InspectionIO()
+        let io = FakeKeychainIO()
         let store = KeychainBlobStore(io: io)
         for text in ["broken", #"{"version":99,"credentials":{}}"#] {
-            io.data = Data(text.utf8)
+            io.blob = Data(text.utf8)
             XCTAssertThrowsError(try store.inspectValueInventory())
         }
         XCTAssertEqual(io.writes, 0)

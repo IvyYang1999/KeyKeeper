@@ -1,5 +1,6 @@
 import XCTest
 @testable import KeyKeeperCore
+import KeyKeeperTestSupport
 
 /// 登录态的授权：和 key 一样的三档时长（仅本次 / 1 小时 / 始终允许），和 ServiceGrant
 /// 一样按调用方指纹匹配。
@@ -15,8 +16,8 @@ final class BrowserSessionGrantTests: XCTestCase {
             cookies: [BrowserSessionCookie(name: "s", value: "synthetic", domain: "example.com",
                 hostOnly: true, path: "/", secure: true, httpOnly: true, sameSite: "lax", expirationDate: nil)])
     }
-    private func store() -> (BrowserSessionStore, GrantTestIO) {
-        let io = GrantTestIO()
+    private func store() -> (BrowserSessionStore, FakeKeychainIO) {
+        let io = FakeKeychainIO()
         return (BrowserSessionStore(io: io, marker: GrantTestMarker()), io)
     }
 
@@ -89,11 +90,6 @@ final class BrowserSessionGrantTests: XCTestCase {
     }
 }
 
-private final class GrantTestIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws { blob = data }
-}
 private final class GrantTestMarker: BrowserSessionMarker {
     var exists = false
     func wasCreated() throws -> Bool { exists }

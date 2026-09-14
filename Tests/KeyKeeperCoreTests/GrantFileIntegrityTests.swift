@@ -1,22 +1,18 @@
 import XCTest
 @testable import KeyKeeperCore
+import KeyKeeperTestSupport
 
-private final class KeyIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws { blob = data }
-}
 
 /// 【独立审计 2026-09-13 · 早就存在的 high】授权文件是普通文件，以用户身份运行的任何程序都能写。
 /// 往里追加一条给自己的「始终允许」，或者把模式改成宽松，就能不弹窗读走 strict 凭据。
 final class GrantFileIntegrityTests: XCTestCase {
     private var dir: URL!
-    private var io: KeyIO!
+    private var io: FakeKeychainIO!
 
     override func setUpWithError() throws {
         dir = FileManager.default.temporaryDirectory.appendingPathComponent("grant-integrity-\(UUID())")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        io = KeyIO()
+        io = FakeKeychainIO()
     }
 
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: dir) }

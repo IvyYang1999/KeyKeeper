@@ -2,19 +2,20 @@ import Foundation
 import XCTest
 @testable import KeyKeeperApp
 import KeyKeeperCore
+import KeyKeeperTestSupport
 
 @MainActor
 final class StorageProtectionTests: XCTestCase {
     private var directory: URL!
     private var metaStore: MetaStore!
-    private var io: StorageProtectionIO!
+    private var io: FakeKeychainIO!
     private var session: KeychainCredentialService!
 
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         metaStore = MetaStore(directory: directory)
-        io = StorageProtectionIO()
+        io = FakeKeychainIO()
         let metadata = metaStore!
         session = KeychainCredentialService(store: KeychainBlobStore(
             io: io, loadMetadata: { try metadata.load() }
@@ -86,15 +87,6 @@ final class StorageProtectionTests: XCTestCase {
     }
 }
 
-private final class StorageProtectionIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    var writes = 0
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws {
-        writes += 1
-        blob = data
-    }
-}
 
 extension StorageProtectionTests {
     /// 【曾经的 bug · 2026-09-13 本机】列表里的删除用的是**整库**完整性检查：库里任意一条旧凭据

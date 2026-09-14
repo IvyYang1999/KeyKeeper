@@ -1,12 +1,8 @@
 import XCTest
 @testable import KeyKeeperApp
 import KeyKeeperCore
+import KeyKeeperTestSupport
 
-private final class RecoveryKeyIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws { blob = data }
-}
 
 /// 【安全遗留 2026-09-13】meta.json 的签名验不过时，命令行不再信任它，App 里却什么都不显示、也没有
 /// 恢复办法——用户只会看到 Agent 莫名其妙地拿不到值，而且没有任何办法让它恢复。
@@ -19,12 +15,12 @@ final class MetadataTamperRecoveryTests: XCTestCase {
     override func setUpWithError() throws {
         dir = FileManager.default.temporaryDirectory.appendingPathComponent("meta-recovery-\(UUID())")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        store = MetaStore(directory: dir, integrityIO: RecoveryKeyIO())
+        store = MetaStore(directory: dir, integrityIO: FakeKeychainIO())
         try store.save(MetaFile(credentials: ["svc": Credential(
             label: "Svc", notes: "", links: [], fields: ["region": .init(value: "us-east-1", secret: false)],
             security: .standard, created: "2026-01-01", updated: "2026-01-01")]))
         let metadata = store!
-        let session = KeychainCredentialService(store: KeychainBlobStore(io: RecoveryKeyIO(), loadMetadata: { try metadata.load() }))
+        let session = KeychainCredentialService(store: KeychainBlobStore(io: FakeKeychainIO(), loadMetadata: { try metadata.load() }))
         vm = CredentialListViewModel(session: session, store: store)
     }
 

@@ -1,5 +1,6 @@
 import XCTest
 @testable import KeyKeeperCore
+import KeyKeeperTestSupport
 
 /// yyt 2026-09-13：「存 Cookie 这件事，就是把自己账号的登录权交给了 Agent。理应做到和
 /// keykeeper 的其它体验一致的。」
@@ -13,8 +14,8 @@ final class BrowserSessionSecurityTests: XCTestCase {
                 hostOnly: true, path: "/", secure: true, httpOnly: true,
                 sameSite: "lax", expirationDate: nil)])
     }
-    private func store() -> (BrowserSessionStore, InMemoryBlobIO, MemoryMarker) {
-        let io = InMemoryBlobIO()
+    private func store() -> (BrowserSessionStore, FakeKeychainIO, MemoryMarker) {
+        let io = FakeKeychainIO()
         let marker = MemoryMarker()
         return (BrowserSessionStore(io: io, marker: marker), io, marker)
     }
@@ -55,11 +56,6 @@ final class BrowserSessionSecurityTests: XCTestCase {
     }
 }
 
-private final class InMemoryBlobIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws { blob = data }
-}
 
 private final class MemoryMarker: BrowserSessionMarker {
     var exists = false

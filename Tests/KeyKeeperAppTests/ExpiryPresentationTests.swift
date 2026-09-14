@@ -1,12 +1,8 @@
 import XCTest
 @testable import KeyKeeperApp
 import KeyKeeperCore
+import KeyKeeperTestSupport
 
-private final class ExpiryBlobIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws { blob = data }
-}
 
 /// 过期日在 App 里：新建、编辑都能填；列表只在快过期和已过期时打标记。
 @MainActor
@@ -20,7 +16,7 @@ final class ExpiryPresentationTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         store = MetaStore(directory: dir)
         let metadata = store!
-        session = KeychainCredentialService(store: KeychainBlobStore(io: ExpiryBlobIO(), loadMetadata: { try metadata.load() }))
+        session = KeychainCredentialService(store: KeychainBlobStore(io: FakeKeychainIO(), loadMetadata: { try metadata.load() }))
     }
 
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: dir) }

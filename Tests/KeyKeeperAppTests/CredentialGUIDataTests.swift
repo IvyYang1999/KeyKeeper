@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 @testable import KeyKeeperApp
 import KeyKeeperCore
+import KeyKeeperTestSupport
 
 @MainActor
 final class CredentialGUIDataTests: XCTestCase {
@@ -363,7 +364,7 @@ final class CredentialGUIDataTests: XCTestCase {
     func testPartialOldStoreAllowsNewCredentialWithoutChangingOldValuesOrMetadata() throws {
         let old = makeCredential(fields: ["missing": .init(secret: true), "kept": .init(secret: true)])
         try store.save(.init(credentials: ["old": old]))
-        let io = GUIRecoveryBlobIO()
+        let io = FakeKeychainIO()
         io.blob = Data(#"{"version":1,"credentials":{"old":{"kept":"synthetic-kept","orphan":"synthetic-orphan"}}}"#.utf8)
         let session = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.store.load() }))
         let vm = AddCredentialViewModel(session: session, store: store)
@@ -388,7 +389,7 @@ extension CredentialGUIDataTests {
         let before = try Data(contentsOf: store.fileURL)
         let originals: [Data?] = [nil, Data("invalid".utf8), Data(#"{"version":1,"credentials":{"new":{"other":"synthetic"}}}"#.utf8)]
         for original in originals {
-            let io = GUIRecoveryBlobIO(); io.blob = original
+            let io = FakeKeychainIO(); io.blob = original
             let service = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.store.load() }))
             let vm = AddCredentialViewModel(session: service, store: store)
             vm.label = "New"; vm.credentialId = "new"; vm.fields = [.init(name: "fixture", value: "synthetic")]
@@ -414,7 +415,7 @@ extension CredentialGUIDataTests {
     }
 
     func testMetadataCommitFailureRetainsStoredValuesAndReportsDoNotRetry() throws {
-        let io = GUIRecoveryBlobIO()
+        let io = FakeKeychainIO()
         let service = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.store.load() }))
         io.onWrite = { try FileManager.default.createDirectory(at: self.store.fileURL, withIntermediateDirectories: false) }
         let vm = AddCredentialViewModel(session: service, store: store)
@@ -427,17 +428,6 @@ extension CredentialGUIDataTests {
     }
 }
 
-private final class GUIRecoveryBlobIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    var writeCount = 0
-    var onWrite: (() throws -> Void)?
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws {
-        guard !replacingExisting || blob != nil else { throw CredentialStorageError.missingStore }
-        blob = data; writeCount += 1
-        try onWrite?()
-    }
-}
 
 private final class FakeCredentialSession: CredentialSessionManaging {
     var currentStatus: SessionStatus

@@ -40,17 +40,23 @@ let package = Package(
             ],
             plugins: ["GenerateVersionPlugin"]
         ),
+        // Shared test doubles that behave like the real Keychain. Not a product: nothing ships it.
+        .target(
+            name: "KeyKeeperTestSupport",
+            dependencies: ["KeyKeeperCore"],
+            path: "Tests/KeyKeeperTestSupport"
+        ),
         .testTarget(
             name: "KeyKeeperCoreTests",
-            dependencies: ["KeyKeeperCore"]
+            dependencies: ["KeyKeeperCore", "KeyKeeperTestSupport"]
         ),
         .testTarget(
             name: "KeyKeeperCLITests",
-            dependencies: ["KeyKeeperCLI"]
+            dependencies: ["KeyKeeperCLI", "KeyKeeperTestSupport"]
         ),
         .testTarget(
             name: "KeyKeeperAppTests",
-            dependencies: ["KeyKeeperApp"]
+            dependencies: ["KeyKeeperApp", "KeyKeeperTestSupport"]
         ),
         .executableTarget(
             name: "VersionGenerator",

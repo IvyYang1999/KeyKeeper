@@ -2,12 +2,8 @@ import Foundation
 import XCTest
 @testable import KeyKeeperCLI
 @testable import KeyKeeperCore
+import KeyKeeperTestSupport
 
-private final class MemoryBlobIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws { blob = data }
-}
 
 final class MigrateStorageCommandTests: XCTestCase {
     private func makeMeta() -> MetaFile {
@@ -29,7 +25,7 @@ final class MigrateStorageCommandTests: XCTestCase {
     }
 
     func test只迁移secret字段并逐条校验() throws {
-        let store = KeychainBlobStore(io: MemoryBlobIO())
+        let store = KeychainBlobStore(io: FakeKeychainIO())
         var fetched: [String] = []
         var logs: [String] = []
         let executor = MigrationExecutor(
@@ -54,7 +50,7 @@ final class MigrateStorageCommandTests: XCTestCase {
     }
 
     func test单条失败继续迁移其余并以非零退出() throws {
-        let store = KeychainBlobStore(io: MemoryBlobIO())
+        let store = KeychainBlobStore(io: FakeKeychainIO())
         let executor = MigrationExecutor(
             loadMeta: { self.makeMeta() },
             fetchValue: { id, _, _ in
@@ -72,7 +68,7 @@ final class MigrateStorageCommandTests: XCTestCase {
     }
 
     func testDryRun不取值不写入() throws {
-        let io = MemoryBlobIO()
+        let io = FakeKeychainIO()
         let executor = MigrationExecutor(
             loadMeta: { self.makeMeta() },
             fetchValue: { _, _, _ in XCTFail("dry run must not fetch"); return "" },
@@ -89,7 +85,7 @@ final class MigrateStorageCommandTests: XCTestCase {
         let executor = MigrationExecutor(
             loadMeta: { self.makeMeta() },
             fetchValue: { _, _, _ in XCTFail("delete-legacy must not fetch"); return "" },
-            store: KeychainBlobStore(io: MemoryBlobIO()),
+            store: KeychainBlobStore(io: FakeKeychainIO()),
             deleteLegacyItem: { id, field in deleted.append("\(id).\(field)") },
             log: { _ in }
         )

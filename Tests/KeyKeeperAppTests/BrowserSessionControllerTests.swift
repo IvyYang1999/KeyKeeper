@@ -1,10 +1,11 @@
 import XCTest
 import KeyKeeperCore
 @testable import KeyKeeperApp
+import KeyKeeperTestSupport
 
 @MainActor final class BrowserSessionControllerTests: XCTestCase {
     func testDenyDisconnectAndExpiryNeverSaveAndApprovalIsSingleUse() throws {
-        let io = SessionControllerIO(), runtime = TestSessionRuntime()
+        let io = FakeKeychainIO(), runtime = TestSessionRuntime()
         let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
         var now = Date(); var connected = true; var decide: ((Bool) -> Void)?
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { now },
@@ -28,7 +29,7 @@ import KeyKeeperCore
     }
 
     func testConcurrentAndExternalApprovalBusyRequestsCannotReplacePendingIntent() {
-        let controller = BrowserSessionController(store: .init(io: SessionControllerIO(), marker: SessionControllerMarker()),
+        let controller = BrowserSessionController(store: .init(io: FakeKeychainIO(), marker: SessionControllerMarker()),
             runtime: TestSessionRuntime(), present: { _, _ in }, dismiss: {})
         controller.otherApprovalPending = { true }
         var result: BrowserSessionResponse?
@@ -40,7 +41,7 @@ import KeyKeeperCore
 
     func testStopCancelsPendingOpenAndLateApprovalCannotReopen() throws {
         let runtime = TestSessionRuntime()
-        let store = BrowserSessionStore(io: SessionControllerIO(), marker: SessionControllerMarker())
+        let store = BrowserSessionStore(io: FakeKeychainIO(), marker: SessionControllerMarker())
         let snapshot = BrowserSessionImport(id: UUID().uuidString, origin: "https://example.com", label: "Synthetic", cookies: [
             .init(name: "fixture", value: "synthetic", domain: "example.com", hostOnly: true,
                   path: "/", secure: true, httpOnly: true, sameSite: "lax", expirationDate: nil)
@@ -69,7 +70,7 @@ import KeyKeeperCore
     /// 到期时窗口会回头问控制器：这一次要不要打扰人。答案取决于这条登录态自己的安全级别，
     /// 和 key 是同一个规矩。
     func test到期重新授权按登录态自己的级别决定要不要问() throws {
-        let io = SessionControllerIO(), runtime = TestSessionRuntime()
+        let io = FakeKeychainIO(), runtime = TestSessionRuntime()
         let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
         var prompts = 0; var decide: ((Bool) -> Void)?
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
@@ -111,11 +112,6 @@ import KeyKeeperCore
     }
 }
 
-private final class SessionControllerIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?; var writes = 0
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws { blob = data; writes += 1 }
-}
 private final class SessionControllerMarker: BrowserSessionMarker {
     var exists = false
     func wasCreated() throws -> Bool { exists }
@@ -139,7 +135,7 @@ private final class SessionControllerMarker: BrowserSessionMarker {
 /// 窗口会突然弹到你面前——你正在打的字就进了一个已登录的页面。
 @MainActor final class BrowserSessionFocusTests: XCTestCase {
     func test人点过头的才允许抢焦点() throws {
-        let io = SessionControllerIO(), runtime = FocusTrackingRuntime()
+        let io = FakeKeychainIO(), runtime = FocusTrackingRuntime()
         let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
         var decide: ((Bool) -> Void)?
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
@@ -166,7 +162,7 @@ private final class SessionControllerMarker: BrowserSessionMarker {
 
     /// 有了这个调用方自己的授权，打开就不再问——但只对**这个调用方**、**这条登录态**生效。
     func test已有授权的调用方打开不再弹窗() throws {
-        let io = SessionControllerIO(), runtime = FocusTrackingRuntime()
+        let io = FakeKeychainIO(), runtime = FocusTrackingRuntime()
         let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
         var prompts = 0; var decide: ((Bool) -> Void)?
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
@@ -212,7 +208,7 @@ extension BrowserSessionControllerTests {
     /// 【安全审计】`stop` 没有鉴权，而它会顺手把一条**待批的**开窗请求取消掉——于是任何
     /// 本地进程都能打断你正在批准的那一次。停窗口本身无害，取消别人的待批不是。
     func test别的调用方的stop不能取消你正在批的请求() throws {
-        let io = SessionControllerIO(), runtime = TestSessionRuntime()
+        let io = FakeKeychainIO(), runtime = TestSessionRuntime()
         let store = BrowserSessionStore(io: io, marker: SessionControllerMarker())
         var results: [BrowserSessionResponse] = []
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
@@ -255,7 +251,7 @@ extension BrowserSessionControllerTests {
     /// 于是登录态也能允许一次、一小时或始终——只记给这个调用方、这一个登录态。
     func test开登录态可以按时长记住这个调用方() throws {
         let runtime = TestSessionRuntime()
-        let store = BrowserSessionStore(io: SessionControllerIO(), marker: SessionControllerMarker())
+        let store = BrowserSessionStore(io: FakeKeychainIO(), marker: SessionControllerMarker())
         var durationReply: ((ServiceGrantDuration?) -> Void)?
         var offered: Bool?
         var plainPrompts = 0
@@ -291,7 +287,7 @@ extension BrowserSessionControllerTests {
 
     func test选仅这一次不留下授权() throws {
         let runtime = TestSessionRuntime()
-        let store = BrowserSessionStore(io: SessionControllerIO(), marker: SessionControllerMarker())
+        let store = BrowserSessionStore(io: FakeKeychainIO(), marker: SessionControllerMarker())
         var durationReply: ((ServiceGrantDuration?) -> Void)?
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },
             present: { _, _ in }, dismiss: {}, presentWithDuration: { _, reply in durationReply = reply })
@@ -306,7 +302,7 @@ extension BrowserSessionControllerTests {
 
     func test认不出的调用方开登录态只能一次且不记() throws {
         let runtime = TestSessionRuntime()
-        let store = BrowserSessionStore(io: SessionControllerIO(), marker: SessionControllerMarker())
+        let store = BrowserSessionStore(io: FakeKeychainIO(), marker: SessionControllerMarker())
         var plainReply: ((Bool) -> Void)?
         var durationAsked = false
         let controller = BrowserSessionController(store: store, runtime: runtime, now: { Date() },

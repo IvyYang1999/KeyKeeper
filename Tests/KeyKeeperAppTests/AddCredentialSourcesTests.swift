@@ -1,13 +1,14 @@
 import XCTest
 @testable import KeyKeeperApp
 import KeyKeeperCore
+import KeyKeeperTestSupport
 
 @MainActor
 final class AddCredentialSourcesTests: XCTestCase {
     private func makeVM() throws -> AddCredentialViewModel {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return AddCredentialViewModel(session: KeychainCredentialService(store: KeychainBlobStore(io: InMemorySourcesIO())),
+        return AddCredentialViewModel(session: KeychainCredentialService(store: KeychainBlobStore(io: FakeKeychainIO())),
                                       store: MetaStore(directory: dir))
     }
 
@@ -41,8 +42,3 @@ final class AddCredentialSourcesTests: XCTestCase {
     }
 }
 
-private final class InMemorySourcesIO: KeychainBlobIO, @unchecked Sendable {
-    var blob: Data?
-    func readBlob() throws -> Data? { blob }
-    func writeBlob(_ data: Data, replacingExisting: Bool) throws { blob = data }
-}

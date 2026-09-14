@@ -1,5 +1,6 @@
 import XCTest
 @testable import KeyKeeperCore
+import KeyKeeperTestSupport
 
 final class BrowserSessionStoreTests: XCTestCase {
     private func fixture() -> BrowserSessionImport {
@@ -9,7 +10,7 @@ final class BrowserSessionStoreTests: XCTestCase {
         ])
     }
     func testSaveListAndSameIDReplayAreIdempotentAndConflictPreservesOriginal() throws {
-        let io = FakeBlobIO(); let marker = MemoryBrowserMarker()
+        let io = FakeKeychainIO(); let marker = MemoryBrowserMarker()
         let store = BrowserSessionStore(io: io, marker: marker)
         let input = fixture(); let first = try store.save(input)
         XCTAssertTrue(marker.exists)
@@ -22,7 +23,7 @@ final class BrowserSessionStoreTests: XCTestCase {
         try store.withSnapshot(id: input.id) { XCTAssertEqual($0, input) }
     }
     func testRestartWithMissingOrCorruptStoreFailsClosedAndDeleteDoesNotRecreate() throws {
-        let io = FakeBlobIO(); let marker = MemoryBrowserMarker()
+        let io = FakeKeychainIO(); let marker = MemoryBrowserMarker()
         let store = BrowserSessionStore(io: io, marker: marker)
         let input = fixture(); _ = try store.save(input)
         io.blob = nil
@@ -35,7 +36,7 @@ final class BrowserSessionStoreTests: XCTestCase {
         XCTAssertEqual(io.blob, Data("broken".utf8))
     }
     func testMarkerFailurePreventsFirstWriteAndLastDeleteRetainsEmptyStore() throws {
-        let io = FakeBlobIO(); let marker = MemoryBrowserMarker(); marker.fail = true
+        let io = FakeKeychainIO(); let marker = MemoryBrowserMarker(); marker.fail = true
         let store = BrowserSessionStore(io: io, marker: marker)
         let input = fixture()
         XCTAssertThrowsError(try store.save(input)); XCTAssertNil(io.blob)
@@ -46,7 +47,7 @@ final class BrowserSessionStoreTests: XCTestCase {
         _ = try store.save(fixture())
     }
     func testExpiredSnapshotCanBeListedAndDeletedButNotOpened() throws {
-        let io = FakeBlobIO(); let marker = MemoryBrowserMarker()
+        let io = FakeKeychainIO(); let marker = MemoryBrowserMarker()
         let store = BrowserSessionStore(io: io, marker: marker)
         var input = fixture(); input.cookies[0].expirationDate = 200
         _ = try store.save(input, now: Date(timeIntervalSince1970: 100))
