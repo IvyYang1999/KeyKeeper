@@ -29,7 +29,7 @@ final class IntentReviewTests: XCTestCase {
     func test偶尔用却要always_建议一小时() {
         let review = IntentRules.review(input(intent: .init(purpose: "deploys when asked", frequency: .occasional, background: false), duration: .always))
         XCTAssertTrue(review.findings.contains(.alwaysWithoutRecurringUse))
-        XCTAssertEqual(review.suggestedDuration, .oneHour)
+        XCTAssertEqual(review.suggestedDuration, .thisRun)
         XCTAssertEqual(review.verdict, .inflated)
         let once = IntentRules.review(input(intent: .init(purpose: "one deploy", frequency: .once, background: false), duration: .always))
         XCTAssertEqual(once.suggestedDuration, .once)

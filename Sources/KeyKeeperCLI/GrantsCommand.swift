@@ -65,6 +65,7 @@ private func durationLabel(_ duration: ApprovalDuration) -> String {
     switch duration {
     case .once: return "once"
     case .terminalSession(let id): return "terminal session \(id.prefix(8))"
+    case .process(let pid, _): return "while pid \(pid) runs"
     case .timed(let expiration): return "until \(formatDate(expiration))"
     case .always: return "always"
     }

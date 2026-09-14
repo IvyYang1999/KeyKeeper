@@ -69,16 +69,21 @@ public enum ApprovalDuration: Codable, Equatable, Sendable {
     case once
     /// Until that terminal session ends (24-hour hard cap).
     case terminalSession(String)
+    /// While the identified process (the agent app, the script's shell) is running: pid plus the
+    /// kernel's start time, so a reused pid inherits nothing. yyt 2026-09-14: "the same agent doing
+    /// the same job" — what people clicked "always" for. Seven-day hard cap.
+    case process(pid: Int32, startedAt: Date)
     case timed(Date)
     case always
 
-    private enum CodingKeys: String, CodingKey { case type, value }
+    private enum CodingKeys: String, CodingKey { case type, value, pid, startedAt }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         switch try c.decode(String.self, forKey: .type) {
         case "once": self = .once
         case "terminalSession", "session": self = .terminalSession(try c.decode(String.self, forKey: .value))
+        case "process": self = .process(pid: try c.decode(Int32.self, forKey: .pid), startedAt: try c.decode(Date.self, forKey: .startedAt))
         case "timed": self = .timed(try c.decode(Date.self, forKey: .value))
         case "always": self = .always
         case let other: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "Unknown duration \(other)")
@@ -90,21 +95,27 @@ public enum ApprovalDuration: Codable, Equatable, Sendable {
         switch self {
         case .once: try c.encode("once", forKey: .type)
         case .terminalSession(let id): try c.encode("terminalSession", forKey: .type); try c.encode(id, forKey: .value)
+        case .process(let pid, let startedAt):
+            try c.encode("process", forKey: .type); try c.encode(pid, forKey: .pid); try c.encode(startedAt, forKey: .startedAt)
         case .timed(let date): try c.encode("timed", forKey: .type); try c.encode(date, forKey: .value)
         case .always: try c.encode("always", forKey: .type)
         }
     }
 
     /// Two approvals of the same subject and target replace each other when their durations are
-    /// of the same kind — except terminal sessions, which coexist per session.
+    /// of the same kind — except terminal sessions and processes, which coexist per session/run.
     func sameKind(as other: ApprovalDuration) -> Bool {
         switch (self, other) {
         case (.once, .once), (.timed, .timed), (.always, .always): return true
         case (.terminalSession(let a), .terminalSession(let b)): return a == b
+        case (.process(let p, let s), .process(let q, let t)): return p == q && s == t
         default: return false
         }
     }
 }
+
+/// Answers "is that process still running" for `.process` approvals; injectable for tests.
+public typealias ProcessAliveCheck = @Sendable (Int32, Date) -> Bool
 
 public struct Approval: Codable, Identifiable, Equatable, Sendable {
     public var id: String
@@ -145,10 +156,13 @@ public struct Approval: Codable, Identifiable, Equatable, Sendable {
     public static let onceWindow: TimeInterval = 120
     /// Terminal-session approvals end with the session, and in any case after a day.
     public static let terminalSessionMaxAge: TimeInterval = 24 * 60 * 60
+    /// A process approval ends with the process, and in any case after a week.
+    public static let processMaxAge: TimeInterval = 7 * 24 * 60 * 60
 
     /// `terminalSession` is the caller's current session; nil means it has none. `ignoringTerminalSession`
     /// asks "could this still apply to some session" — what pruning needs.
-    public func isValid(now: Date, terminalSession: String? = nil, ignoringTerminalSession: Bool = false) -> Bool {
+    public func isValid(now: Date, terminalSession: String? = nil, ignoringTerminalSession: Bool = false,
+                        processAlive: ProcessAliveCheck = ProcessLiveness.isAlive) -> Bool {
         switch duration {
         case .once:
             guard !consumed else { return false }
@@ -157,6 +171,8 @@ public struct Approval: Codable, Identifiable, Equatable, Sendable {
         case .terminalSession(let id):
             let withinAge = now.timeIntervalSince(createdAt) < Self.terminalSessionMaxAge
             return withinAge && (ignoringTerminalSession || terminalSession == id)
+        case .process(let pid, let startedAt):
+            return now.timeIntervalSince(createdAt) < Self.processMaxAge && processAlive(pid, startedAt)
         case .timed(let until):
             return now < until
         case .always:
@@ -302,6 +318,8 @@ public final class ApprovalStore: @unchecked Sendable {
     public static let maxAuditEvents = 500
 
     private let io: KeychainBlobIO
+    /// How `.process` approvals learn whether their process still runs. Tests inject one.
+    public var processAlive: ProcessAliveCheck = ProcessLiveness.isAlive
     private let lock = NSLock()
     /// Whether the item was ever seen: decides create versus replace on the next write.
     private var observed = false
@@ -352,7 +370,7 @@ public final class ApprovalStore: @unchecked Sendable {
             $0.subject.fingerprint == fingerprint
                 && $0.target.covers(credentialId: credentialId, field: field)
                 && $0.stillCovers(field: field)
-                && $0.isValid(now: now, terminalSession: terminalSession)
+                && $0.isValid(now: now, terminalSession: terminalSession, processAlive: processAlive)
         }
     }
 
@@ -360,7 +378,7 @@ public final class ApprovalStore: @unchecked Sendable {
     public func valid(sessionId: String, fingerprint: String, now: Date = Date()) throws -> Approval? {
         guard GrantIssuancePolicy.mayRemember(subjectFingerprint: fingerprint) else { return nil }
         return try all().first {
-            $0.subject.fingerprint == fingerprint && $0.target.sessionId == sessionId && $0.isValid(now: now)
+            $0.subject.fingerprint == fingerprint && $0.target.sessionId == sessionId && $0.isValid(now: now, processAlive: processAlive)
         }
     }
 
@@ -453,7 +471,7 @@ public final class ApprovalStore: @unchecked Sendable {
 
     /// Spent and expired approvals grant nothing; they only clutter the list.
     public func pruneExpired(now: Date = Date()) throws {
-        try update { $0.approvals.removeAll { !$0.isValid(now: now, ignoringTerminalSession: true) } }
+        try update { $0.approvals.removeAll { !$0.isValid(now: now, ignoringTerminalSession: true, processAlive: processAlive) } }
     }
 
     /// Used by migration only: the whole document, at once.

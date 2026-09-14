@@ -9,6 +9,9 @@ public struct CallerIdentity: Codable, Equatable, Sendable {
     public var teamIdentifier: String?
     public var signingIdentifier: String?
     public var parentChain: [CallerProcess]
+    /// The process the subject was derived from (the app, the script's shell, the executable):
+    /// what a "while it runs" approval is tied to. Nil when nothing could be located.
+    public var subjectPID: Int32?
     public var subject: CallerSubject
 
     public init(peerPID: Int32,
@@ -17,6 +20,7 @@ public struct CallerIdentity: Codable, Equatable, Sendable {
                 teamIdentifier: String? = nil,
                 signingIdentifier: String? = nil,
                 parentChain: [CallerProcess] = [],
+                subjectPID: Int32? = nil,
                 subject: CallerSubject) {
         self.peerPID = peerPID
         self.executablePath = executablePath
@@ -24,6 +28,7 @@ public struct CallerIdentity: Codable, Equatable, Sendable {
         self.teamIdentifier = teamIdentifier
         self.signingIdentifier = signingIdentifier
         self.parentChain = parentChain
+        self.subjectPID = subjectPID
         self.subject = subject
     }
 
@@ -304,16 +309,29 @@ public enum CallerIdentityResolver {
             teamIdentifier: peer?.teamIdentifier,
             signingIdentifier: peer?.signingIdentifier,
             parentChain: processes,
+            subjectPID: subjectProcess(from: processes)?.pid,
             subject: subject
         )
     }
 
-    public static func selectSubject(from processes: [CallerProcess],
-                                     peerPID: Int32 = 0) -> CallerSubject {
-        let nonKeyKeeperProcesses = processes.filter { process in
+    /// The same first-match rules as `selectSubject`, answering "which process" instead of "who".
+    public static func subjectProcess(from processes: [CallerProcess]) -> CallerProcess? {
+        let candidates = nonKeyKeeper(processes)
+        if let app = candidates.first(where: { $0.bundleIdentifier != nil && !isInsideFramework($0.executablePath) }) { return app }
+        if let script = candidates.first(where: { $0.scriptPath != nil }) { return script }
+        return candidates.first(where: { $0.executablePath != nil })
+    }
+
+    static func nonKeyKeeper(_ processes: [CallerProcess]) -> [CallerProcess] {
+        processes.filter { process in
             guard let executablePath = process.executablePath else { return true }
             return URL(fileURLWithPath: executablePath).lastPathComponent != "keykeeper"
         }
+    }
+
+    public static func selectSubject(from processes: [CallerProcess],
+                                     peerPID: Int32 = 0) -> CallerSubject {
+        let nonKeyKeeperProcesses = nonKeyKeeper(processes)
 
         if let app = nonKeyKeeperProcesses.first(where: { $0.bundleIdentifier != nil && !isInsideFramework($0.executablePath) }) {
             let bundle = app.bundleIdentifier ?? "unknown-bundle"

@@ -10,14 +10,27 @@ import Foundation
 
 /// How long a caller asks to be approved for.
 public enum RequestedDuration: String, Codable, Sendable, CaseIterable {
-    case once, session, oneHour = "1h", always
+    case once
+    /// While the asking process runs (its terminal session when it has one). `session` and `1h`
+    /// are older spellings of roughly the same wish and are folded into it by the prompt.
+    case thisRun = "run"
+    case session, oneHour = "1h", always
 
     public var rank: Int {
         switch self {
         case .once: return 0
-        case .session: return 1
+        case .thisRun, .session: return 1
         case .oneHour: return 2
         case .always: return 3
+        }
+    }
+
+    /// The three answers the prompt offers.
+    public var folded: RequestedDuration {
+        switch self {
+        case .once: return .once
+        case .thisRun, .session, .oneHour: return .thisRun
+        case .always: return .always
         }
     }
 }
@@ -159,7 +172,7 @@ public enum IntentRules {
         }
         if input.requestedDuration == .always, !(recurring && unattended) {
             findings.append(.alwaysWithoutRecurringUse)
-            duration = recurring ? .oneHour : .once
+            duration = recurring ? .thisRun : .once
         }
         if intent == nil, (input.requestedSecurity == .standard || (input.requestedDuration?.rank ?? 0) > RequestedDuration.once.rank),
            !findings.contains(.backgroundForOneOff) {
