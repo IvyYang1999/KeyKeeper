@@ -28,8 +28,9 @@ fi
 # One credential carries all three: APPLE_ID and APPLE_TEAM_ID as plain fields, the
 # app-specific password as a secret. `keykeeper run` injects the plain ones without asking.
 NOTARY_CREDENTIAL_ID="${KEYKEEPER_NOTARY_CREDENTIAL_ID:-apple-notary}"
-keykeeper run -c "$NOTARY_CREDENTIAL_ID" -- \
-    "$PROJECT_DIR/scripts/notarize-update.sh" "$DMG"
+keykeeper run -c "$NOTARY_CREDENTIAL_ID" \
+    --reason "公证本次发布的 KeyKeeper $VERSION 安装包（notarytool submit + staple）" \
+    -- "$PROJECT_DIR/scripts/notarize-update.sh" "$DMG"
 
 UPDATE_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/keykeeper-update.XXXXXX")"
 cleanup() {
