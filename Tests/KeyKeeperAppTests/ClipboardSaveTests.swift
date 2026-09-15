@@ -595,4 +595,35 @@ extension ClipboardSaveTests {
         XCTAssertEqual(results.first?.success, true)
         XCTAssertEqual(results.first?.validation, .skipped)
     }
+
+    /// Catalog rows are data, but every text provider must still cross the real shared App path:
+    /// validate target → inspect shape → write the isolated blob → commit provider metadata →
+    /// return a validation verdict. Values are generated fixtures and never touch macOS Keychain.
+    func testEveryTextProviderCrossesTheIsolatedAppSavePath() async throws {
+        let templates = ProviderCatalog.all.filter { $0.primaryField.kind == .secretText }
+        XCTAssertGreaterThan(templates.count, 30)
+
+        for template in templates {
+            results = []
+            let field = template.primaryField
+            let prefix = field.prefixes.first ?? ""
+            let count = max(field.minChars ?? 24, prefix.count + 8)
+            let value = prefix + String(repeating: "x", count: count - prefix.count)
+            XCTAssertNil(template.shapeProblem(for: value), template.id)
+            clipboard.text = value
+            controller = providerController { _, _ in .valid }
+            controller.receive(.init(credentialId: template.id, fieldName: field.name,
+                                     create: true, provider: template.id),
+                callerName: "isolated-provider-e2e", isConnected: { true },
+                completion: { self.results.append($0) })
+            controller.resolve(approved: true)
+            for _ in 0..<50 where results.isEmpty {
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+
+            XCTAssertEqual(results.first?.success, true, template.id)
+            XCTAssertEqual(try meta.load().credentials[template.id]?.provider, template.id, template.id)
+            XCTAssertEqual(try service.retrieve(credentialId: template.id, fieldName: field.name), value, template.id)
+        }
+    }
 }
