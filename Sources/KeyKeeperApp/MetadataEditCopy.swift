@@ -15,6 +15,7 @@ enum MetadataEditCopy {
         case .reservedFieldName(let name): return L("\u{201C}\(name)\u{201D} would become an environment variable that decides how programs run, like PATH. Pick another name.")
         case .tooLong: return L("That text is too long.")
         case .invalidExpiry: return L("Use a date like 2026-12-31, or never to clear it.")
+        case .unknownProvider: return L("That is not a provider template.")
         case .nothingToChange: return L("Nothing to change.")
         }
     }
@@ -31,6 +32,8 @@ enum MetadataEditCopy {
             return to.map { L("\(field) shown as \u{201C}\($0)\u{201D}") } ?? L("\(field) display name cleared")
         case .expiryChanged(_, let to):
             return to.map { L("Expires \($0)") } ?? L("Expiry date cleared")
+        case .providerChanged(_, let to):
+            return to.map { L("Provider → \($0)") } ?? L("Provider unbound")
         }
     }
 

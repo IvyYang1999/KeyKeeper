@@ -220,6 +220,11 @@ extension AppL10n {
         "{0} h ago": "{0} 小时前",
         // 服务商模板（2026-09-15）
         "Provider": "服务商",
+        "None": "无",
+        "Provider → {0}": "服务商 → {0}",
+        "Provider unbound": "已解除服务商绑定",
+        "The key's shape, verification and the guidance agents get come from this template.": "key 的形状检查、验证方式和给 Agent 的指引都来自这个模板。",
+        "That is not a provider template.": "这不是一个服务商模板。",
         "Checked after saving with a read-only request to {0}.": "保存后会向 {0} 发一个只读请求验证。",
         // 只能注入、不能读出（2026-09-14 深夜）
         "Can be read out (keykeeper get, SDKs)": "允许读出（keykeeper get、SDK）",

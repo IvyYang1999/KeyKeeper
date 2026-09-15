@@ -404,8 +404,9 @@ struct KeyAvatar: View {
         Group {
             switch kind {
             case .provider(let id):
-                // Monochrome, like everything else in the list: the mark in the avatar's white.
-                ProviderMark(providerId: id, size: size * 0.55)
+                // yyt 2026-09-15: a dark mark on the grey tile looked wrong next to the white
+                // letters. A provider tile is white with the mark in its brand colour, like an icon.
+                ProviderMark(providerId: id, size: size * 0.58, colored: true)
             case .text:
                 Text(label.trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "?")
                     .font(.system(size: size * 0.55, weight: .regular))
@@ -418,12 +419,18 @@ struct KeyAvatar: View {
         .foregroundColor(.white)
         .frame(width: size, height: size)
         .background(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous).fill(tint))
+        .overlay {
+            if case .provider = kind {
+                RoundedRectangle(cornerRadius: size * 0.22, style: .continuous).strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+            }
+        }
         .help(kind == .file ? L("Service-account JSON file") : kind == .session ? L("Website session") : "")
     }
 
     private var tint: Color {
         switch kind {
-        case .text, .provider: return Color.gray.opacity(0.6)
+        case .text: return Color.gray.opacity(0.6)
+        case .provider: return Color.white
         case .file: return Color.blue.opacity(0.72)
         case .session: return Color.teal.opacity(0.8)
         }

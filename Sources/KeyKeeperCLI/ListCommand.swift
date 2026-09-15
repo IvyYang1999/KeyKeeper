@@ -28,6 +28,9 @@ struct ListCommand: ParsableCommand {
             if cred.isInjectOnly {
                 print("  inject-only: use keykeeper run; get is refused")
             }
+            if let provider = cred.provider {
+                print("  provider: \(provider) (keykeeper providers show \(provider))")
+            }
             if detail {
                 if let aliases = cred.aliases, !aliases.isEmpty {
                     print("  also answers to: \(aliases.joined(separator: ", "))")

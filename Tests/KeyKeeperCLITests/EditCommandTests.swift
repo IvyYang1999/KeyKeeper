@@ -21,6 +21,13 @@ final class EditCommandTests: XCTestCase {
     }
 
     /// 明文字段可以用 --set/--unset 直接写，机密字段这条路碰不到。
+    func test绑定服务商参数() throws {
+        XCTAssertEqual(try EditCommand.parse(["openai", "--provider", "gpt"]).request().edit.provider, "gpt")
+        XCTAssertEqual(try EditCommand.parse(["openai", "--provider", "none"]).request().edit.provider, "none")
+        let text = EditCommand.report(.init(success: true, groupId: "openai", changes: [.providerChanged(from: nil, to: "openai")]))
+        XCTAssertTrue(text.contains("provider openai"), text)
+    }
+
     func test可以写与删明文字段() throws {
         let command = try EditCommand.parse(["apple-notary",
                                              "--set", "apple-id=someone@example.invalid",

@@ -140,6 +140,21 @@ final class CredentialDetailViewModel: ObservableObject {
         }
     }
 
+    /// Bind to a provider template (or nil to unbind): what the key looks like, how it is
+    /// verified, what an agent is told. A hint, like notes: saved at once, no prompt.
+    func setProvider(_ providerId: String?) {
+        do {
+            var meta = try store.load()
+            guard meta.credentials[credentialId] != nil else { return }
+            meta.credentials[credentialId]?.provider = providerId
+            try store.save(meta)
+            NotificationCenter.default.post(name: .credentialsChanged, object: nil)
+            reloadCredential()
+        } catch {
+            errorMessage = L("Could not change: \(error.localizedDescription)")
+        }
+    }
+
     /// Whether `get` and the SDKs may read values out, or only `run` may inject them. Saved at once.
     func setInjectOnly(_ value: Bool) {
         do {

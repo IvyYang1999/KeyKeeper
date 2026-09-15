@@ -248,3 +248,22 @@ extension MetadataEditPlanTests {
         XCTAssertNil(try JSONDecoder().decode(CredentialField.self, from: old).setByCaller)
     }
 }
+
+// MARK: - 2026-09-15 绑定服务商
+
+extension MetadataEditPlanTests {
+    /// yyt：「已有的 key 也可以绑定服务商。绑定服务商就是告诉模型怎么更好使用这个 key。」
+    func test绑定服务商_按模板id或别名_none清除_不认识的拒绝() throws {
+        let bound = try MetadataEditPlan.apply(MetadataEdit(provider: "gpt"), to: meta(), groupId: "openai")
+        XCTAssertEqual(bound.meta.credentials["openai"]?.provider, "openai", "别名折成模板 id")
+        XCTAssertEqual(bound.changes, [.providerChanged(from: nil, to: "openai")])
+        let cleared = try MetadataEditPlan.apply(MetadataEdit(provider: "none"), to: bound.meta, groupId: "openai")
+        XCTAssertNil(cleared.meta.credentials["openai"]?.provider)
+        XCTAssertEqual(cleared.changes, [.providerChanged(from: "openai", to: nil)])
+        XCTAssertThrowsError(try MetadataEditPlan.apply(MetadataEdit(provider: "nope"), to: meta(), groupId: "openai")) { error in
+            XCTAssertEqual(error as? MetadataEditError, .unknownProvider("nope"))
+        }
+        XCTAssertThrowsError(try MetadataEditPlan.apply(MetadataEdit(provider: "openai"), to: bound.meta, groupId: "openai"), "已经绑着就没什么可改")
+        XCTAssertNil(try JSONDecoder().decode(MetadataEdit.self, from: Data(#"{"title":"x"}"#.utf8)).provider, "旧客户端不带这个键")
+    }
+}

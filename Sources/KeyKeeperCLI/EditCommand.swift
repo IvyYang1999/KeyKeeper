@@ -48,6 +48,9 @@ struct EditCommand: ParsableCommand {
     @Option(help: "The last day the key works at its provider, as YYYY-MM-DD, or never to clear it. No prompt, like notes.")
     var expires: String?
 
+    @Option(help: "Bind the credential to a provider template (see keykeeper providers): its key shape, verification and guidance then apply. none unbinds. No prompt, like notes.")
+    var provider: String?
+
     func request() throws -> MetadataEditRequest {
         var plainFields: [String: String?] = [:]
         for (field, value) in try Self.pairs(setPlain, option: "--set") { plainFields[field] = value }
@@ -55,9 +58,9 @@ struct EditCommand: ParsableCommand {
         let edit = MetadataEdit(newGroupId: newGroupId, title: title, notes: notes,
                                 fieldRenames: try Self.pairs(renameField, option: "--rename-field"),
                                 fieldDisplayNames: try Self.pairs(fieldLabel, option: "--field-label"),
-                                plainFields: plainFields, expires: expires)
+                                plainFields: plainFields, expires: expires, provider: provider)
         guard edit != MetadataEdit() else {
-            throw ValidationError("Nothing to change. Pass --group-id, --title, --notes, --rename-field, --field-label, --set, --unset or --expires.")
+            throw ValidationError("Nothing to change. Pass --group-id, --title, --notes, --rename-field, --field-label, --set, --unset, --expires or --provider.")
         }
         return MetadataEditRequest(groupId: groupId, edit: edit)
     }

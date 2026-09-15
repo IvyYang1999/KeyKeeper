@@ -247,6 +247,11 @@ request KeyKeeper itself makes after saving). Then:
 No template for the service? Fall back to the plain `save --create` flow below with `-c`,
 `--field` and, when the provider documents the key's shape, `--expect`.
 
+A key that already exists can be bound to a template afterwards — `keykeeper edit <id>
+--provider stripe` (no prompt, like notes) — and `keykeeper list --detail` shows `provider:` for
+bound keys. Read that template before using the key: it tells you what the key can do and how
+the user was advised to scope it.
+
 ## Save without exposing a key to the model
 
 Clipboard saves take **whatever is on the clipboard when the person confirms**. The order
