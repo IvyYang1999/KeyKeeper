@@ -46,13 +46,18 @@ enum BrowserSessionCopy {
 /// from a globe button in the menu bar; now it is a page beside the keys it relates to.
 struct BrowserSessionManagerView: View {
     @ObservedObject var controller: BrowserSessionController
-    @State private var setup = BrowserExtensionSetup.production()
+    @State private var setup: BrowserExtensionSetup
     @State private var showingLogin = false
     @State private var loginSite = ""
     @State private var loginLabel = ""
     @State private var loginError: String?
     @State private var loginWindow: SessionLoginWindow?
     @State private var lastSuggestedLabel = ""
+
+    init(controller: BrowserSessionController, setup: BrowserExtensionSetup = .production()) {
+        self.controller = controller
+        self._setup = State(initialValue: setup)
+    }
 
     var body: some View {
         ScrollView {
@@ -67,9 +72,7 @@ struct BrowserSessionManagerView: View {
                         Button(L("Stop all windows")) { controller.stopAll() }
                     }
                 }
-                if controller.sessions.isEmpty {
-                    BrowserSessionStartCard(setup: $setup, onLogIn: { showingLogin = true })
-                } else {
+                if !controller.sessions.isEmpty {
                     VStack(spacing: 10) {
                         ForEach(controller.sessions) { item in
                             VStack(alignment: .leading, spacing: 8) {
@@ -109,12 +112,9 @@ struct BrowserSessionManagerView: View {
                         }
                     }
                 }
-                if !controller.sessions.isEmpty {
-                    HStack(spacing: 10) {
-                        Button(L("Log in to another site here")) { showingLogin = true }
-                        BrowserExtensionStatusLine(setup: $setup)
-                    }
-                }
+                // Both sources remain available after the first snapshot. Choosing local login
+                // never means opting out of Chrome, and setup must not disappear with the empty state.
+                BrowserSessionStartCard(setup: $setup, onLogIn: { showingLogin = true })
                 if let error = controller.errorCode {
                     Text(BrowserSessionCopy.error(error)).font(.callout).foregroundColor(.red)
                         .fixedSize(horizontal: false, vertical: true)
@@ -426,4 +426,3 @@ enum SessionGrantCopy {
         }
     }
 }
-
