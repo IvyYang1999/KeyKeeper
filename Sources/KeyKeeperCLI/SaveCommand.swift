@@ -1,4 +1,5 @@
 import ArgumentParser
+import Foundation
 import KeyKeeperCore
 import Darwin
 
@@ -44,8 +45,23 @@ struct SaveCommand: ParsableCommand {
     var background = false
 
     var template: ProviderTemplate? { provider.flatMap(ProviderCatalog.find) }
-    var credentialId: String { credential ?? template?.id ?? "" }
-    var fieldName: String { field ?? template?.fieldName ?? "" }
+    /// Published provider spellings keep their previous default write target. New canonical IDs
+    /// opt into new defaults; catalog discovery must never silently redirect an old save/replace.
+    private var legacyDefaults: (id: String, field: String)? {
+        switch provider?.lowercased().trimmingCharacters(in: .whitespaces) {
+        case "zhipu", "bigmodel", "glm", "智谱", "zhipu-ai":
+            return ("zhipu", "zhipuai-api-key")
+        case "zhipu-coding", "zhipu-coding-plan", "glm-coding-cn":
+            return ("zhipu-coding", "zai-api-key")
+        case "zai", "z.ai", "zai-api":
+            return ("zai", "zai-api-key")
+        case "zai-coding", "zai-coding-plan", "glm-coding-global":
+            return ("zai-coding", "zai-api-key")
+        default: return nil
+        }
+    }
+    var credentialId: String { credential ?? legacyDefaults?.id ?? template?.id ?? "" }
+    var fieldName: String { field ?? legacyDefaults?.field ?? template?.fieldName ?? "" }
     var templateField: ProviderFieldTemplate? { template?.field(named: fieldName) }
     var fileFormat: CredentialFileFormat? {
         guard fromFile != nil else { return nil }
@@ -132,7 +148,7 @@ struct SaveCommand: ParsableCommand {
     /// required instead of letting a successful primary save masquerade as a usable bundle.
     var remainingFieldsNote: String {
         guard create, let template else { return "" }
-        let remaining = template.fields.filter { $0.required && $0.name != fieldName }
+        let remaining = template.fields.filter { $0.required && $0.name != templateField?.name }
         guard !remaining.isEmpty else { return "" }
         let publicFields = remaining.filter { $0.kind == .publicText }.map(\.name)
         let secretFields = remaining.filter { $0.kind == .secretText || $0.kind == .secretFile }.map(\.name)

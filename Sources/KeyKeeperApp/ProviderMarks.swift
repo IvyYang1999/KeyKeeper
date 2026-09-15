@@ -153,17 +153,26 @@ enum ProviderMarks {
         "zhipu-coding": "zhipu",
         "zai": "zhipu",
         "zai-coding": "zhipu",
+        "zhipu-cn": "zhipu",
+        "zhipu-cn-coding": "zhipu",
+        "zai-global": "zhipu",
+        "zai-global-coding": "zhipu",
         "siliconflow-global": "siliconflow",
         "minimax-global": "minimax",
         "minimax-token-plan-cn": "minimax",
         "minimax-token-plan-global": "minimax",
         "alibaba-bailian-coding-cn": "alibaba-bailian",
         "alibaba-bailian-token-cn": "alibaba-bailian",
+        "alibaba-bailian-sg": "alibaba-bailian",
+        "alibaba-bailian-us": "alibaba-bailian",
+        "alibaba-bailian-hk": "alibaba-bailian",
         "volcengine-ark-coding": "volcengine-ark",
         "cloudflare-account": "cloudflare",
         "neon-org": "neon",
         "railway-api": "railway",
         "aws-sts": "aws",
+        "aws-bedrock-short-term": "aws",
+        "aws-bedrock-long-term": "aws",
         "pypi-test": "pypi",
         "dockerhub-oat": "dockerhub",
         "posthog-eu": "posthog",
@@ -234,7 +243,9 @@ enum ProviderMarks {
         for (providerId, baseId) in providerAliases {
             if let color = result[baseId] { result[providerId] = color }
         }
-        return result
+        // New catalog contracts can ship before artwork research. Neutral letter fallback is
+        // intentionally not claimed to be an official brand colour; never borrow another logo.
+        return Dictionary(uniqueKeysWithValues: ProviderCatalog.all.map { ($0.id, result[$0.id] ?? "6B7280") })
     }()
 
     static let sourceURLs: [String: String] = {
@@ -243,7 +254,7 @@ enum ProviderMarks {
         for (providerId, baseId) in providerAliases {
             if let source = result[baseId] { result[providerId] = source }
         }
-        return result
+        return Dictionary(uniqueKeysWithValues: ProviderCatalog.all.map { ($0.id, result[$0.id] ?? $0.createURL) })
     }()
 
     static func mark(for providerId: String?) -> Mark? { providerId.flatMap { marks[$0] } }

@@ -3,6 +3,26 @@ import XCTest
 import KeyKeeperCore
 
 final class SaveSuggestionCommandTests: XCTestCase {
+    func test旧智谱Provider拼写保留原保存目标而新ID使用新字段() throws {
+        for (spelling, oldID, oldField) in [
+            ("zhipu", "zhipu", "zhipuai-api-key"), ("glm", "zhipu", "zhipuai-api-key"),
+            ("zhipu-coding", "zhipu-coding", "zai-api-key"),
+            ("zai", "zai", "zai-api-key"), ("zai-coding", "zai-coding", "zai-api-key"),
+        ] {
+            let command = try SaveCommand.parse(["--provider", spelling, "--from-clipboard", "--replace", "--expect", "chars:40"])
+            XCTAssertEqual(command.credentialId, oldID)
+            XCTAssertEqual(command.fieldName, oldField)
+            XCTAssertEqual(command.remainingFieldsNote, "")
+        }
+        let fresh = try SaveCommand.parse(["--provider", "zhipu-cn", "--from-clipboard", "--create"])
+        XCTAssertEqual(fresh.credentialId, "zhipu-cn")
+        XCTAssertEqual(fresh.fieldName, "zai-api-key")
+        let explicit = try SaveCommand.parse(["--provider", "zhipu", "-c", "chosen", "--field", "zai-api-key", "--from-clipboard", "--create"])
+        XCTAssertEqual(explicit.credentialId, "chosen")
+        XCTAssertEqual(explicit.fieldName, "zai-api-key")
+        let legacyCreate = try SaveCommand.parse(["--provider", "zhipu", "--from-clipboard", "--create"])
+        XCTAssertEqual(legacyCreate.remainingFieldsNote, "", "primary alias must not be reported as another missing secret")
+    }
     func test保存命令带上建议() throws {
         let command = try SaveCommand.parse(["-c", "x", "--field", "k", "--from-clipboard", "--create",
                                              "--security", "standard", "--expires", "2026-12-31",

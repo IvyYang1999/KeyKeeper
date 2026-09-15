@@ -30,7 +30,7 @@ struct ProvidersCommand: ParsableCommand {
     static func listText() -> String {
         ProviderCatalog.all.map { template in
             let fields = template.fields.map { field in
-                let destination = field.environmentName.map { " → \($0)" } ?? ""
+                let destination = field.environmentNames.isEmpty ? "" : " → " + field.environmentNames.joined(separator: " / ")
                 let kind: String
                 switch field.kind {
                 case .secretText: kind = "secret text"

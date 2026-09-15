@@ -26,10 +26,17 @@ final class ProviderTemplateTests: XCTestCase {
             "siliconflow-global", "app-store-connect", "app-store-connect-individual", "apple-notary", "apple-notary-api-key", "apns", "developer-id", "developer-id-installer",
             "google-cloud", "ga4", "firebase-admin", "search-console",
             "openrouter", "deepseek", "groq", "xai", "kimi", "kimi-global", "kimi-code", "minimax", "minimax-global", "minimax-token-plan-cn", "minimax-token-plan-global",
-            "zhipu", "zhipu-coding", "zai", "zai-coding", "alibaba-bailian", "alibaba-bailian-coding-cn", "alibaba-bailian-token-cn", "volcengine-ark", "volcengine-ark-coding",
+            "zhipu-cn", "zhipu-cn-coding", "zai-global", "zai-global-coding", "alibaba-bailian", "alibaba-bailian-coding-cn", "alibaba-bailian-token-cn", "volcengine-ark", "volcengine-ark-coding",
             "neon", "neon-org", "railway", "railway-api", "render", "netlify", "flyio", "aws", "aws-sts", "azure", "cloudflare-account",
             "sentry", "posthog", "posthog-eu", "npm", "pypi", "pypi-test", "dockerhub", "dockerhub-oat", "gitlab",
             "twilio", "sendgrid", "sendgrid-eu", "mailgun", "slack", "slack-oauth-rotating", "feishu", "lark", "telegram",
+            "atlascloud", "atlascloud-coding-plan", "compshare-modelverse-cn", "compshare-modelverse-global", "compshare-agent-plan",
+            "ccsub", "micu-claude", "micu-codex", "rightcode-codex", "cubence", "crazyrouter", "dmxapi-cn", "dmxapi-global", "dmxapi-ssvip", "aihubmix", "amux", "cherryin",
+            "aws-bedrock-short-term", "aws-bedrock-long-term", "baidu-qianfan-cn", "baidu-qianfan-global", "baidu-qianfan-token-plan",
+            "nvidia-api-catalog", "nvidia-ngc", "modelscope-cn", "modelscope-global", "novita-ai", "longcat", "stepfun-api", "stepfun-step-plan",
+            "xiaomi-mimo-payg", "xiaomi-mimo-token-plan-cn", "xiaomi-mimo-token-plan-sg", "xiaomi-mimo-token-plan-eu",
+            "opencode-zen", "opencode-go", "pipellm", "relaxycode", "therouter",
+            "alibaba-bailian-sg", "alibaba-bailian-us", "alibaba-bailian-hk",
         ]
         XCTAssertEqual(Set(ProviderCatalog.all.map(\.id)), expected)
         XCTAssertEqual(ProviderCatalog.all.count, expected.count)
@@ -73,9 +80,10 @@ final class ProviderTemplateTests: XCTestCase {
 
     func test智谱国内海外与CodingPlan是四个明确合同() throws {
         let china = try XCTUnwrap(ProviderCatalog.find("zhipu"))
-        XCTAssertEqual(china.name, "智谱开放平台（中国，兼容旧 SDK）")
-        XCTAssertEqual(china.fieldName, "zhipuai-api-key", "既有 provider/字段契约不能让旧凭据断链")
-        XCTAssertEqual(china.createURL, "https://open.bigmodel.cn/usercenter/apikeys")
+        XCTAssertEqual(china.name, "智谱开放平台（中国）")
+        XCTAssertEqual(china.fieldName, "zai-api-key")
+        XCTAssertEqual(china.field(named: "zhipuai-api-key")?.name, "zai-api-key", "旧字段名仍解析到同一份值")
+        XCTAssertEqual(china.createURL, "https://bigmodel.cn/usercenter/proj-mgmt/apikeys")
         XCTAssertTrue(china.minimalPermission.contains("https://open.bigmodel.cn/api/paas/v4"))
 
         let chinaCoding = try XCTUnwrap(ProviderCatalog.find("zhipu-coding"))
@@ -97,8 +105,8 @@ final class ProviderTemplateTests: XCTestCase {
         XCTAssertNil(globalCoding.validation)
         XCTAssertTrue(globalCoding.minimalPermission.contains("https://api.z.ai/api/coding/paas/v4"))
         XCTAssertTrue(globalCoding.minimalPermission.contains("not interchangeable"))
-        XCTAssertEqual(ProviderCatalog.find("智谱")?.id, "zhipu", "旧 alias 继续指向国内一般 API")
-        XCTAssertEqual(ProviderCatalog.find("z.ai")?.id, "zai")
+        XCTAssertEqual(ProviderCatalog.find("智谱")?.id, "zhipu-cn", "旧 alias 继续指向国内一般 API")
+        XCTAssertEqual(ProviderCatalog.find("z.ai")?.id, "zai-global")
         XCTAssertNil(china.validation, "官方未提供可依赖的只读 models 合同")
     }
 

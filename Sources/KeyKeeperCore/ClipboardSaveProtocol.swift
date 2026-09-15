@@ -82,6 +82,7 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
 }
 
 public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError {
+    case invalidProvider
     case invalidReplacement, targetValueChanged, identityMismatch
     case invalidSource, unsupportedSource, sourceParserUnavailable
     case invalidFile, fileChanged, wrongFieldType
@@ -91,6 +92,7 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
     case reservedFieldName, suggestionRequiresCreate, invalidExpiry
     public var errorDescription: String? {
         switch self {
+        case .invalidProvider: return "The provider or field does not match a built-in credential template. Nothing was read or saved. Run keykeeper providers show <id> to check the contract."
         case .invalidReplacement: return "Replacement requires an existing text field, --from-clipboard and --expect. Do not combine with --create."
         case .targetValueChanged: return "The existing value changed while approval was pending. Nothing was replaced. Start a fresh request."
         case .identityMismatch: return "The private key does not match the expected public key. Nothing was saved."

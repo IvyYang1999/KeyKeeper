@@ -5,6 +5,10 @@ import KeyKeeperCore
 final class CredentialDetailViewModel: ObservableObject {
     let credentialId: String
     @Published var credential: Credential
+    /// Resolve a legacy spelling only for the picker; opening a detail must not migrate storage.
+    var providerSelection: String {
+        credential.provider.flatMap(ProviderCatalog.find)?.id ?? credential.provider ?? ""
+    }
     @Published var fields: [FieldEntry]
     @Published var security: SecurityLevel
     @Published var injectOnly: Bool

@@ -234,7 +234,15 @@ final class ProviderMarksTests: XCTestCase {
         let lettermarkIds = catalogIds.subtracting(ProviderMarks.marks.keys)
         XCTAssertEqual(lettermarkIds, [
             "groq", "twilio", "sendgrid", "sendgrid-eu", "mailgun",
+            "atlascloud", "atlascloud-coding-plan", "compshare-modelverse-cn", "compshare-modelverse-global", "compshare-agent-plan",
+            "ccsub", "micu-claude", "micu-codex", "rightcode-codex", "cubence", "crazyrouter", "dmxapi-cn", "dmxapi-global", "dmxapi-ssvip", "aihubmix", "amux", "cherryin",
+            "baidu-qianfan-cn", "baidu-qianfan-global", "baidu-qianfan-token-plan", "nvidia-api-catalog", "nvidia-ngc", "modelscope-cn", "modelscope-global", "novita-ai", "longcat", "stepfun-api", "stepfun-step-plan",
+            "xiaomi-mimo-payg", "xiaomi-mimo-token-plan-cn", "xiaomi-mimo-token-plan-sg", "xiaomi-mimo-token-plan-eu",
+            "opencode-zen", "opencode-go", "pipellm", "relaxycode", "therouter",
         ])
+        for id in ["zhipu-cn", "zhipu-cn-coding", "zai-global", "zai-global-coding", "alibaba-bailian-sg", "aws-bedrock-short-term"] {
+            XCTAssertNotNil(ProviderMarks.image(for: id), "existing official artwork must survive new canonical IDs")
+        }
 
         XCTAssertNotNil(ProviderMarks.image(for: "openai"))
         XCTAssertNotNil(ProviderMarks.image(for: "feishu"))

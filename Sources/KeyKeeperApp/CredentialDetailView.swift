@@ -125,7 +125,7 @@ struct CredentialDetailView: View {
                             // yyt 2026-09-15: binding an existing key to a provider tells an agent how to use it.
                             HStack(spacing: 6) {
                                 Text(L("Provider")).font(.caption).foregroundColor(.secondary)
-                                Picker("", selection: Binding(get: { vm.credential.provider ?? "" }, set: { vm.setProvider($0.isEmpty ? nil : $0) })) {
+                                Picker("", selection: Binding(get: { vm.providerSelection }, set: { vm.setProvider($0.isEmpty ? nil : $0) })) {
                                     Text(L("None")).tag("")
                                     ForEach(ProviderCatalog.all) { template in
                                         Text(template.name).tag(template.id)

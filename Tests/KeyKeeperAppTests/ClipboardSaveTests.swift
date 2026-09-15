@@ -542,6 +542,38 @@ extension ClipboardSaveTests {
             now: { self.clock }, present: { _, _ in }, update: { _ in }, dismiss: {}, probe: probe)
     }
 
+    func test新智谱保存一份值并保留新旧SDK环境变量() throws {
+        controller = providerController { _, _ in .valid }
+        controller.receive(.init(credentialId: "zhipu-fixture", fieldName: "zai-api-key", create: true, provider: "zhipu-cn"),
+            callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.last?.success, true)
+        let saved = try XCTUnwrap(meta.load().credentials["zhipu-fixture"])
+        XCTAssertEqual(saved.fields.count, 1)
+        XCTAssertEqual(saved.environmentNames(forField: "zai-api-key"), ["ZAI_API_KEY", "ZHIPUAI_API_KEY"])
+        XCTAssertEqual(saved.resolveFieldName("zhipuai-api-key"), "zai-api-key")
+        XCTAssertEqual(saved.provider, "zhipu-cn")
+        XCTAssertEqual(io.writes, 1)
+    }
+
+    func test不存在的服务商不能静默当作普通密钥保存() {
+        controller.receive(.init(credentialId: "fixture", fieldName: "key", create: true, provider: "not-a-real-provider"),
+            callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.last?.success, false)
+        XCTAssertEqual(io.writes, 0)
+        XCTAssertEqual(clipboard.reads, 0)
+    }
+
+    func test真实服务商也不能保存不属于模板的字段() {
+        controller.receive(.init(credentialId: "fixture", fieldName: "wrong-key", create: true, provider: "zhipu-cn"),
+            callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.last?.success, false)
+        XCTAssertEqual(io.writes, 0)
+        XCTAssertEqual(clipboard.reads, 0)
+    }
+
     func test带模板保存_保存后用只读请求验证_结果回给调用方_值只进请求头() async throws {
         let value = "sk-proj-" + String(repeating: "x", count: 100)
         clipboard.text = value

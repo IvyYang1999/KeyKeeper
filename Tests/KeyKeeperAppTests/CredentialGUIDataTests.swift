@@ -9,6 +9,19 @@ final class CredentialGUIDataTests: XCTestCase {
     private var directory: URL!
     private var store: MetaStore!
 
+    func test旧Provider只规范化下拉显示而不改存储或密钥() throws {
+        let session = FakeCredentialSession()
+        var credential = makeCredential(fields: ["zhipuai-api-key": CredentialField(secret: true)])
+        credential.provider = "zhipu"
+        try store.save(MetaFile(credentials: ["service": credential]))
+        let vm = CredentialDetailViewModel(credentialId: "service", credential: credential,
+            session: session, store: store, approvals: .inMemory())
+        XCTAssertEqual(vm.providerSelection, "zhipu-cn")
+        XCTAssertEqual(vm.credential.provider, "zhipu")
+        XCTAssertEqual(try store.load().credentials["service"]?.provider, "zhipu")
+        XCTAssertTrue(session.operations.isEmpty)
+    }
+
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("keykeeper-gui-data-tests-\(UUID().uuidString)", isDirectory: true)

@@ -235,7 +235,11 @@ extension ClipboardSaveSource {
             if request.create {
                 let date = ISO8601DateFormatter().string(from: now())
                 metadata.credentials[request.credentialId] = Credential(label: request.credentialId,
-                    notes: "", links: [], fields: [request.fieldName: .init(secret: true, fileFormat: clipboard.fileFormat)],
+                    notes: "", links: [], fields: [request.fieldName: .init(secret: true, fileFormat: clipboard.fileFormat,
+                        aliases: template?.field(named: request.fieldName).flatMap { field in
+                            let aliases = ([field.name] + (field.aliases ?? [])).filter { $0 != request.fieldName }
+                            return aliases.isEmpty ? nil : aliases
+                        })],
                     security: request.security ?? .strict, created: date, updated: date,
                     expires: request.expires,
                     intent: request.intent?.sanitized().map { intent in
@@ -281,6 +285,12 @@ extension ClipboardSaveSource {
     private func validateTarget(_ request: ClipboardSaveRequest, metadata: MetaFile,
                                 fileFormat: CredentialFileFormat?) throws {
         guard metadata.version == 1 else { throw ClipboardSaveError.storageUnavailable }
+        if let providerID = request.provider {
+            guard let template = ProviderCatalog.find(providerID), template.contractProblems.isEmpty,
+                  let field = template.field(named: request.fieldName), field.isSaveableSecret,
+                  !request.create || field.isPrimary else { throw ClipboardSaveError.invalidProvider }
+            guard field.fileFormat == fileFormat else { throw ClipboardSaveError.wrongFieldType }
+        }
         // 【独立审计 2026-09-13】the field name comes straight from the agent's request. Refused
         // before any prompt: nobody should be asked to approve a name that would steer `run`.
         if request.create, EnvironmentVariableName.isReserved(fieldName: request.fieldName) {

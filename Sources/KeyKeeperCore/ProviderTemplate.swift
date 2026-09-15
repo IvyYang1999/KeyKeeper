@@ -66,11 +66,14 @@ public struct ProviderFieldTemplate: Codable, Equatable, Sendable {
     /// examples and observed lengths are not contracts and must not become write blockers.
     public var regularExpression: String?
     public var help: String
+    /// Earlier SDK/client field names for this same value, not additional secrets. Copied into
+    /// signed credential metadata only when the person approves creating the credential.
+    public var aliases: [String]?
 
     public init(name: String, label: String, kind: ProviderFieldKind, required: Bool = true,
                 isPrimary: Bool = false, fileFormat: CredentialFileFormat? = nil,
                 prefixes: [String] = [], minChars: Int? = nil, regularExpression: String? = nil,
-                help: String = "") {
+                help: String = "", aliases: [String]? = nil) {
         self.name = name
         self.label = label
         self.kind = kind
@@ -81,12 +84,21 @@ public struct ProviderFieldTemplate: Codable, Equatable, Sendable {
         self.minChars = minChars
         self.regularExpression = regularExpression
         self.help = help
+        self.aliases = aliases
     }
 
     public var environmentName: String? {
         kind == .localIdentity ? nil : EnvironmentVariableName.from(fieldName: name, prefix: "")
     }
     public var isSaveableSecret: Bool { kind == .secretText || kind == .secretFile }
+
+    public var environmentNames: [String] {
+        guard let environmentName else { return [] }
+        return (aliases ?? []).reduce(into: [environmentName]) { names, alias in
+            let name = EnvironmentVariableName.from(fieldName: alias)
+            if !names.contains(name) { names.append(name) }
+        }
+    }
 
     public func shapeProblem(for value: String, providerName: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -101,6 +113,17 @@ public struct ProviderFieldTemplate: Codable, Equatable, Sendable {
             return "\(providerName) \(label) does not match the provider's documented format."
         }
         return nil
+    }
+}
+
+/// Routing facts for the caller to configure deliberately. These are not probes and are never
+/// automatically injected as BASE_URL. Placeholders must be resolved from the provider console.
+public struct ProviderEndpoint: Codable, Equatable, Sendable {
+    public var protocolName: String
+    public var baseURL: String
+    public var region: String?
+    public init(_ protocolName: String, _ baseURL: String, region: String? = nil) {
+        self.protocolName = protocolName; self.baseURL = baseURL; self.region = region
     }
 }
 
@@ -130,12 +153,15 @@ public struct ProviderTemplate: Codable, Equatable, Sendable, Identifiable {
     public var expiryNote: String?
     /// When this template was last checked against the provider's real pages.
     public var verified: String
+    public var endpoints: [ProviderEndpoint]?
+    public var sources: [String]?
 
     public init(id: String, name: String, aliases: [String] = [], fieldName: String,
                 fields: [ProviderFieldTemplate]? = nil, createURL: String,
                 gates: [String], minimalPermission: String, prefixes: [String] = [], minChars: Int? = nil,
                 shownOnce: Bool, validation: ProviderValidation? = nil, rotateURL: String? = nil,
-                expiryNote: String? = nil, verified: String) {
+                expiryNote: String? = nil, verified: String,
+                endpoints: [ProviderEndpoint]? = nil, sources: [String]? = nil) {
         self.id = id
         self.name = name
         self.aliases = aliases
@@ -152,6 +178,8 @@ public struct ProviderTemplate: Codable, Equatable, Sendable, Identifiable {
         self.rotateURL = rotateURL
         self.expiryNote = expiryNote
         self.verified = verified
+        self.endpoints = endpoints
+        self.sources = sources
     }
 
     /// The environment variable `keykeeper run` sets for this field (no prefix).
@@ -160,7 +188,9 @@ public struct ProviderTemplate: Codable, Equatable, Sendable, Identifiable {
         fields.first(where: \.isPrimary) ?? ProviderFieldTemplate(name: fieldName, label: "API key",
             kind: .secretText, isPrimary: true, prefixes: prefixes, minChars: minChars)
     }
-    public func field(named name: String) -> ProviderFieldTemplate? { fields.first { $0.name == name } }
+    public func field(named name: String) -> ProviderFieldTemplate? {
+        fields.first { $0.name == name } ?? fields.first { $0.aliases?.contains(name) == true }
+    }
 
     public var contractProblems: [String] {
         var problems: [String] = []
@@ -169,12 +199,25 @@ public struct ProviderTemplate: Codable, Equatable, Sendable, Identifiable {
         if Set(fields.map(\.name)).count != fields.count { problems.append("field names must be unique") }
         for field in fields {
             if field.name.isEmpty { problems.append("field name must not be empty") }
+            for alias in field.aliases ?? [] {
+                if !CredentialNames.isValidFieldName(alias) || EnvironmentVariableName.isReserved(fieldName: alias) {
+                    problems.append("\(field.name) has an unsafe alias")
+                }
+                if fields.contains(where: { $0.name == alias && $0.name != field.name }) {
+                    problems.append("\(field.name) alias conflicts with another field")
+                }
+            }
             if (field.kind == .secretFile) != (field.fileFormat != nil) {
                 problems.append("\(field.name) file format does not match its kind")
             }
             if let pattern = field.regularExpression,
                (try? NSRegularExpression(pattern: pattern)) == nil {
                 problems.append("\(field.name) regular expression is invalid")
+            }
+        }
+        for endpoint in endpoints ?? [] {
+            if !endpoint.baseURL.hasPrefix("https://") || endpoint.protocolName.isEmpty {
+                problems.append("endpoint must name a protocol and use HTTPS")
             }
         }
         return problems
@@ -262,7 +305,7 @@ public enum ProviderProbe {
 
 /// Built into the app and the CLI, so an agent can read them offline (`keykeeper providers`).
 public enum ProviderCatalog {
-    public static let all: [ProviderTemplate] = [
+    public static let all: [ProviderTemplate] = ([
         ProviderTemplate(
             id: "openai", name: "OpenAI", aliases: ["gpt", "chatgpt", "openai-api"],
             fieldName: "openai-api-key",
@@ -463,10 +506,12 @@ public enum ProviderCatalog {
             rotateURL: "https://developer.apple.com/account/resources/certificates/list",
             expiryNote: "Developer ID certificates have an Apple-issued expiration date; replace before expiry.",
             verified: "2026-09-15"),
-    ] + AdditionalProviderCatalog.all
+    ] + AdditionalProviderCatalog.all + GatewayModelProviderCatalog.all
+      + CloudModelProviderCatalog.all + RoutingModelProviderCatalog.all
+      + ExistingModelProviderContracts.regionalTemplates).map(ExistingModelProviderContracts.enrich)
 
     public static func find(_ idOrAlias: String) -> ProviderTemplate? {
         let needle = idOrAlias.lowercased().trimmingCharacters(in: .whitespaces)
-        return all.first { $0.id == needle || $0.aliases.contains(needle) }
+        return all.first { $0.id == needle || $0.aliases.contains { $0.lowercased() == needle } }
     }
 }

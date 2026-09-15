@@ -94,29 +94,29 @@ enum AdditionalProviderCatalog {
             permission: "Keep pay-as-you-go and Token Plan keys separate; use the plan-specific key only with its matching endpoint.",
             shownOnce: false),
         token(
-            id: "zhipu", name: "智谱开放平台（中国，兼容旧 SDK）", aliases: ["bigmodel", "glm", "智谱", "zhipu-ai"], field: "zhipuai-api-key",
+            id: "zhipu-cn", name: "智谱开放平台（中国）", aliases: ["zhipu", "bigmodel", "glm", "智谱", "zhipu-ai"], field: "zai-api-key", fieldAliases: ["zhipuai-api-key"],
             createURL: "https://open.bigmodel.cn/usercenter/apikeys",
             gates: ["Sign in to the China Zhipu Open Platform", "Create a general API key", "Activate pay-as-you-go billing or an API usage bundle if needed"],
-            permission: "This is a China general API key for https://open.bigmodel.cn/api/paas/v4, not a Coding Plan key. Keys have no granular scopes; create one per product so it can be revoked independently.",
+            permission: "中国通用 API 使用 https://open.bigmodel.cn/api/paas/v4，按开放平台合同计费。Coding Plan 使用专用 endpoint 和套餐授权，不能按通用 API 路径假定扣套餐额度。每个项目单独建 key，保留独立撤销能力。",
             shownOnce: false),
         token(
-            id: "zhipu-coding", name: "智谱 GLM Coding Plan (China)", aliases: ["zhipu-coding-plan", "glm-coding-cn"], field: "zai-api-key",
+            id: "zhipu-cn-coding", name: "智谱 GLM Coding Plan (China)", aliases: ["zhipu-coding", "zhipu-coding-plan", "glm-coding-cn"], field: "zai-api-key",
             createURL: "https://bigmodel.cn/coding-plan/personal/overview",
             gates: ["Sign in to the China Zhipu Open Platform", "Subscribe to an individual or team GLM Coding Plan", "For an individual plan, create the key under Personal Coding Plan → Plan Overview", "For a team plan, obtain the team key under Team Coding Plan → My Plan"],
             permission: "Use only with officially supported coding tools and the dedicated https://open.bigmodel.cn/api/coding/paas/v4 endpoint (or https://open.bigmodel.cn/api/anthropic for Anthropic Messages). Team Coding Plan keys are not interchangeable with other platform API keys.",
-            shownOnce: true),
+            shownOnce: false),
         token(
-            id: "zai", name: "Z.AI API (Global)", aliases: ["z.ai", "zai-api"], field: "zai-api-key",
+            id: "zai-global", name: "Z.AI API (Global)", aliases: ["zai", "z.ai", "zai-api"], field: "zai-api-key",
             createURL: "https://z.ai/manage-apikey/apikey-list",
             gates: ["Sign in to the global Z.AI Open Platform", "Create a general API key", "Activate pay-as-you-go billing or an API usage bundle if needed"],
-            permission: "This is a global general API key for https://api.z.ai/api/paas/v4, not a Coding Plan key. Create one key per product so it can be revoked independently.",
-            shownOnce: true),
+            permission: "国际 Z.AI 通用 API 使用 https://api.z.ai/api/paas/v4。Coding Plan 的 endpoint、订阅授权与允许用途不同；不能因为格式相同就混用或假定套餐结算。不要把中国平台 key 迁到此模板。",
+            shownOnce: false),
         token(
-            id: "zai-coding", name: "Z.AI GLM Coding Plan", aliases: ["zai-coding-plan", "glm-coding-global"], field: "zai-api-key",
+            id: "zai-global-coding", name: "Z.AI GLM Coding Plan", aliases: ["zai-coding", "zai-coding-plan", "glm-coding-global"], field: "zai-api-key",
             createURL: "https://z.ai/manage-apikey/apikey-list",
-            gates: ["Sign in to the global Z.AI Open Platform", "Subscribe to an individual or team GLM Coding Plan", "Create or obtain the matching Coding Plan API key from the plan dashboard"],
-            permission: "Use only with officially supported coding tools and the dedicated https://api.z.ai/api/coding/paas/v4 endpoint (or https://api.z.ai/api/anthropic for Anthropic Messages). Team Coding Plan keys are not interchangeable with other Z.AI API keys.",
-            shownOnce: true),
+            gates: ["登录国际 Z.AI 平台", "确认个人或团队 Coding Plan 的订阅与 entitlement", "从对应套餐页面获取 key；团队使用团队套餐签发的 key"],
+            permission: "仅用于允许的 coding 场景：OpenAI 协议 https://api.z.ai/api/coding/paas/v4，Anthropic 协议 https://api.z.ai/api/anthropic。团队 key 与其他平台 key not interchangeable；不把团队规则推断为个人 key 有独立前缀或长度。",
+            shownOnce: false),
         token(
             id: "alibaba-bailian", name: "阿里云百炼 · 按量（北京）", aliases: ["dashscope", "qwen", "百炼"], field: "dashscope-api-key",
             createURL: "https://bailian.console.aliyun.com/?tab=model#/api-key",
@@ -350,14 +350,14 @@ enum AdditionalProviderCatalog {
             createURL: "https://platform.minimaxi.com/subscribe/token-plan",
             gates: ["Sign in to the China MiniMax platform", "Subscribe to Token Plan", "Create the plan-specific key"],
             permission: "This subscription key is separate from pay-as-you-go. Use it only with the China Token Plan configuration.",
-            prefixes: ["sk-cp"], shownOnce: true),
+            prefixes: ["sk-cp-"], shownOnce: true),
         token(
             id: "minimax-token-plan-global", name: "MiniMax Token Plan (Global)", aliases: ["minimax-coding-plan-global"],
             field: "minimax-api-key",
             createURL: "https://platform.minimax.io/subscribe/token-plan",
             gates: ["Sign in to the global MiniMax platform", "Subscribe to Token Plan", "Create the plan-specific key"],
             permission: "This subscription key is separate from pay-as-you-go. Use it only with the global Token Plan configuration.",
-            prefixes: ["sk-cp"], shownOnce: true),
+            prefixes: ["sk-cp-"], shownOnce: true),
         token(
             id: "alibaba-bailian-coding-cn", name: "阿里云百炼 · Coding Plan（中国）", aliases: ["bailian-coding-plan"],
             field: "dashscope-api-key",
@@ -552,7 +552,7 @@ enum AdditionalProviderCatalog {
             verified: "2026-09-15")
     }
 
-    private static func token(id: String, name: String, aliases: [String] = [], field: String,
+    private static func token(id: String, name: String, aliases: [String] = [], field: String, fieldAliases: [String]? = nil,
                               createURL: String, gates: [String], permission: String,
                               prefixes: [String] = [], minChars: Int? = nil,
                               regularExpression: String? = nil, shownOnce: Bool,
@@ -560,7 +560,7 @@ enum AdditionalProviderCatalog {
                               fields: [ProviderFieldTemplate] = []) -> ProviderTemplate {
         let primary = ProviderFieldTemplate(name: field, label: "API token", kind: .secretText,
             isPrimary: true, prefixes: prefixes, minChars: minChars,
-            regularExpression: regularExpression)
+            regularExpression: regularExpression, aliases: fieldAliases)
         return ProviderTemplate(
             id: id, name: name, aliases: aliases, fieldName: field, fields: [primary] + fields,
             createURL: createURL, gates: gates, minimalPermission: permission,
