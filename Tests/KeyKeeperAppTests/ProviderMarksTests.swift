@@ -6,25 +6,41 @@ import KeyKeeperCore
 /// yyt 2026-09-15：服务商和调用方要有 logo，一眼认出，别全是小字。
 @MainActor
 final class ProviderMarksTests: XCTestCase {
-    func test有官方标的六家能渲染成模板图_其余退回字母标() {
+    func test每个服务商都有主题色_官方标能渲染_其余明确退回字母标() {
+        let catalogIds = Set(ProviderCatalog.all.map(\.id))
+        XCTAssertEqual(Set(ProviderMarks.brandHexes.keys), catalogIds)
+        XCTAssertEqual(Set(ProviderMarks.sourceURLs.keys), catalogIds)
+
         for template in ProviderCatalog.all {
+            XCTAssertNotNil(ProviderMarks.brandColor(for: template.id), template.id)
+            XCTAssertTrue(ProviderMarks.sourceURLs[template.id]?.hasPrefix("https://") == true, template.id)
             if let image = ProviderMarks.image(for: template.id) {
                 XCTAssertTrue(image.isTemplate, template.id)
                 XCTAssertGreaterThan(image.size.width, 0, template.id)
-                XCTAssertNotNil(ProviderMarks.brandColor(for: template.id), template.id)
+                XCTAssertTrue(ProviderMarks.marks[template.id]?.source.hasPrefix("https://") == true, template.id)
             } else {
                 XCTAssertFalse(ProviderMarks.letter(for: template.id).isEmpty, template.id)
             }
         }
+
+        let lettermarkIds = catalogIds.subtracting(ProviderMarks.marks.keys)
+        XCTAssertEqual(lettermarkIds, [
+            "openai", "groq", "zhipu", "volcengine-ark", "aws", "azure",
+            "twilio", "sendgrid", "slack", "feishu",
+        ])
+
         XCTAssertNotNil(ProviderMarks.image(for: "stripe"))
         XCTAssertNotNil(ProviderMarks.image(for: "github"))
-        // Brand rules: no OpenAI / Google / Anthropic logo in third-party UI; lettermarks instead.
+        XCTAssertNotNil(ProviderMarks.image(for: "gemini"))
+        XCTAssertNotNil(ProviderMarks.image(for: "anthropic"))
+        XCTAssertNotNil(ProviderMarks.image(for: "siliconflow"))
+        // No locally bundled, provider-sourced vector asset yet: use a coloured letter, never a
+        // made-up generic product icon or an untraceable favicon.
         XCTAssertNil(ProviderMarks.image(for: "openai"))
-        XCTAssertNil(ProviderMarks.image(for: "gemini"))
-        XCTAssertNil(ProviderMarks.image(for: "anthropic"))
         XCTAssertEqual(ProviderMarks.letter(for: "openai"), "O")
-        XCTAssertEqual(ProviderMarks.letter(for: "gemini"), "G")
+        XCTAssertNotNil(ProviderMarks.brandColor(for: "openai"))
         XCTAssertNil(ProviderMarks.image(for: "nope"))
+        XCTAssertNil(ProviderMarks.brandColor(for: "nope"))
     }
 
     func test命令行Agent映射到桌面App的图标_没装就字母标() {

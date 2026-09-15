@@ -395,7 +395,7 @@ struct KeyAvatar: View {
     init(credential: Credential, size: CGFloat = 32) {
         let kind: Kind
         if CredentialKind(credential) == .serviceAccountFile { kind = .file }
-        else if let provider = credential.provider, ProviderMarks.image(for: provider) != nil { kind = .provider(provider) }
+        else if let provider = credential.provider, ProviderCatalog.find(provider) != nil { kind = .provider(provider) }
         else { kind = .text }
         self.init(label: credential.label, kind: kind, size: size)
     }
@@ -406,17 +406,17 @@ struct KeyAvatar: View {
             case .provider(let id):
                 // yyt 2026-09-15: a dark mark on the grey tile looked wrong next to the white
                 // letters. A provider tile is white with the mark in its brand colour, like an icon.
-                ProviderMark(providerId: id, size: size * 0.58, colored: true)
+                ProviderMark(providerId: id, size: size * 0.58, colored: true, onLightSurface: true)
             case .text:
                 Text(label.trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "?")
                     .font(.system(size: size * 0.55, weight: .regular))
+                    .foregroundColor(.white)
             case .file:
-                Image(systemName: "doc.text.fill").font(.system(size: size * 0.46))
+                Image(systemName: "doc.text.fill").font(.system(size: size * 0.46)).foregroundColor(.white)
             case .session:
-                Image(systemName: "globe").font(.system(size: size * 0.5))
+                Image(systemName: "globe").font(.system(size: size * 0.5)).foregroundColor(.white)
             }
         }
-        .foregroundColor(.white)
         .frame(width: size, height: size)
         .background(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous).fill(tint))
         .overlay {
