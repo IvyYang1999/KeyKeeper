@@ -3,6 +3,19 @@ import XCTest
 import KeyKeeperCore
 
 final class AccessLogBuilderTests: XCTestCase {
+    /// 【曾经的 bug】显示名不是授权身份：两个同名进程的历史不能合并后拿第一条的指纹审批。
+    func test同名但不同身份的请求绝不合并() {
+        let events = ["app:first", "app:second"].map { fingerprint in
+            ServiceAuditEvent(timestamp: Date(timeIntervalSince1970: 200), credentialId: "fixture", fieldName: "key",
+                              subjectFingerprint: fingerprint, subjectDisplayName: "Same App",
+                              mode: .enforced, decision: "prompt_required")
+        }
+        let groups = AccessLogBuilder.groups(AccessLogBuilder.entries(approvals: [], auditEvents: events))
+        XCTAssertEqual(groups.count, 2, "显示名称相同不能共享历史或审批入口")
+        XCTAssertEqual(Set(groups.map(\.fingerprint)), Set(["app:first", "app:second"]))
+        XCTAssertTrue(groups.allSatisfy { $0.count == 1 })
+    }
+
     func test合并授权使用与审计事件并按时间倒序() {
         let used = Approval(subject: .init(fingerprint: "fp", displayName: "claude"), target: .credential(id: "openai", fields: ["api-key"]),
                             duration: .always, lastUsedAt: Date(timeIntervalSince1970: 300))

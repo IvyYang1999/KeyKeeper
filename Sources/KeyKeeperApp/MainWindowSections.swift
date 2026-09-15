@@ -167,7 +167,9 @@ enum AccessLogBuilder {
         var order: [String] = []
         var byKey: [String: AccessLogGroup] = [:]
         for entry in entries {
-            let key = [entry.who, entry.credentialId, entry.detail, "\(entry.kind)"].joined(separator: "\u{1F}")
+            // Names are presentation, not identity. Unknown identities must not coalesce either.
+            let subject = entry.fingerprint.isEmpty ? entry.id : entry.fingerprint
+            let key = [subject, entry.credentialId, entry.detail, "\(entry.kind)"].joined(separator: "\u{1F}")
             if var group = byKey[key] {
                 group.count += 1
                 if entry.date > group.latest {
@@ -248,12 +250,21 @@ struct PermissiveModeBanner: View {
     }
 }
 
+@MainActor
 struct AccessLogPage: View {
     let credentials: [(id: String, credential: Credential)]
-    @State private var groups: [AccessLogGroup] = []
+    @StateObject private var access: AccessLogApprovalState
     @State private var edits: [MetadataChangeRecord] = []
-    @State private var permissive = false
-    private let approvals = ApprovalStore.shared
+    private let loadEdits: () throws -> [MetadataChangeRecord]
+
+    init(credentials: [(id: String, credential: Credential)], access: AccessLogApprovalState? = nil,
+         loadEdits: @escaping () throws -> [MetadataChangeRecord] = { try MetadataChangeLog.default.records() }) {
+        self.credentials = credentials
+        self._access = StateObject(wrappedValue: access ?? AccessLogApprovalState())
+        self.loadEdits = loadEdits
+    }
+
+    private var groups: [AccessLogGroup] { access.groups }
 
     var body: some View {
         ScrollView {
@@ -262,7 +273,7 @@ struct AccessLogPage: View {
                     title: L("Access log"),
                     subtitle: L("Who read which key, newest first. Repeated reads are folded into one line. The last 500 background reads are kept.")
                 )
-                if permissive && groups.contains(where: { $0.kind == .readWithoutApproval }) {
+                if access.permissive && groups.contains(where: { $0.kind == .readWithoutApproval }) {
                     PermissiveModeBanner(
                         caption: L("Callers below will each be asked once, the next time they read."),
                         onEnforce: load
@@ -292,7 +303,10 @@ struct AccessLogPage: View {
                         .glassCard()
                     }
                 }
-                if groups.isEmpty {
+                if let errorMessage = access.errorMessage {
+                    Text(errorMessage).font(.callout).foregroundColor(.orange)
+                }
+                if groups.isEmpty && access.errorMessage == nil {
                     EmptyGlassCard(
                         symbol: "list.bullet.rectangle",
                         title: L("Nothing recorded yet"),
@@ -317,16 +331,12 @@ struct AccessLogPage: View {
             .frame(maxWidth: 720, alignment: .leading)
         }
         .onAppear(perform: load)
+        .background(AccessLogRefreshObserver(onRefresh: load, canAutoRefresh: { access.errorMessage == nil }))
     }
 
     private func load() {
-        permissive = PermissiveModeBanner.isPermissive
-        edits = Array(((try? MetadataChangeLog.default.records()) ?? []).suffix(20).reversed())
-        groups = AccessLogBuilder.groups(AccessLogBuilder.entries(
-            approvals: (try? approvals.all()) ?? [],
-            auditEvents: (try? approvals.auditEvents()) ?? [],
-            limit: .max
-        ))
+        access.refresh()
+        edits = Array(((try? loadEdits()) ?? []).suffix(20).reversed())
     }
 
     private func row(_ group: AccessLogGroup) -> some View {
@@ -346,13 +356,32 @@ struct AccessLogPage: View {
             }
             Spacer()
             // A request nobody answered in time can be approved from here for the next call.
-            if group.kind == .approvalRequired, let standing = standingRequest(group) {
-                Button(L("Approve now")) { StandingApprovalRequester.shared.handler?(standing) }
+            if group.kind == .approvalRequired, access.status(for: group) == .notApproved,
+               let standing = standingRequest(group) {
+                Button(L("Approve now")) {
+                    // Recheck on click too: another caller may have been approved since this row was drawn.
+                    access.refresh()
+                    guard access.status(for: group) == .notApproved else { return }
+                    StandingApprovalRequester.shared.handler?(standing)
+                }
                     .font(.caption)
                     .buttonStyle(.bordered)
                     .controlSize(.small)
             }
-            tag(group.kind)
+            VStack(alignment: .trailing, spacing: 3) {
+                tag(group.kind)
+                if group.kind == .approvalRequired {
+                    switch access.status(for: group) {
+                    case .approved:
+                        Text(L("Currently approved")).foregroundColor(.green)
+                    case .unavailable:
+                        Text(L("Approval status unavailable")).foregroundColor(.orange)
+                    case .notApproved:
+                        EmptyView()
+                    }
+                }
+            }
+            .font(.caption2.weight(.semibold))
             Text(group.count > 1 ? L("\(group.count) times") : "")
                 .font(.caption.monospacedDigit())
                 .foregroundColor(.secondary)
@@ -368,7 +397,7 @@ struct AccessLogPage: View {
     private func tag(_ kind: AccessLogEntry.Kind) -> some View {
         switch kind {
         case .approvedUse:
-            Text(L("Approved caller")).font(.caption2.weight(.semibold)).foregroundColor(.green)
+            Text(L("Read with approval")).font(.caption2.weight(.semibold)).foregroundColor(.green)
         case .readWithoutApproval:
             Text(L("Read without asking")).font(.caption2.weight(.semibold)).foregroundColor(.orange)
                 .help(L("Background access is set to not ask, so this read went through without a prompt."))
