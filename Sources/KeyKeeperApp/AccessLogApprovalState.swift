@@ -9,13 +9,23 @@ enum AccessLogApprovalStatus: Equatable {
                         processAlive: ProcessAliveCheck = { ProcessLiveness.isAlive(pid: $0, startedAt: $1) }) -> Self {
         guard let approvals else { return .unavailable }
         guard GrantIssuancePolicy.mayRemember(subjectFingerprint: group.fingerprint) else { return .notApproved }
-        return approvals.contains {
-            $0.subject.fingerprint == group.fingerprint
-                && $0.target.covers(credentialId: group.credentialId, field: group.detail)
-                && $0.stillCovers(field: group.detail)
+        return approvals.contains { approval in
+            approval.subject.fingerprint == group.fingerprint
+                && coversRecordedScope(approval, group: group)
                 // Audit events have no terminal-session context. Do not borrow another session's approval.
-                && $0.isValid(now: now, terminalSession: nil, processAlive: processAlive)
+                && approval.isValid(now: now, terminalSession: nil, processAlive: processAlive)
         } ? .approved : .notApproved
+    }
+
+    private static func coversRecordedScope(_ approval: Approval, group: AccessLogGroup) -> Bool {
+        let fields = group.kind == .approvedUse ? group.approvalFields : [group.detail]
+        guard let fields else {
+            guard case .credential(let id, let allowed) = approval.target else { return false }
+            return id == group.credentialId && allowed == nil && approval.onceFieldsRemaining == nil
+        }
+        return !fields.isEmpty && fields.allSatisfy {
+            approval.target.covers(credentialId: group.credentialId, field: $0) && approval.stillCovers(field: $0)
+        }
     }
 }
 

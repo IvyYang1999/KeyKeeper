@@ -16,7 +16,7 @@ final class MainWindowRouter: ObservableObject {
             switch self {
             case .keys: return L("Keys")
             case .sessions: return L("Website sessions")
-            case .access: return L("Who can use them")
+            case .access: return L("Usage permissions")
             case .activity: return L("Access log")
             case .settings: return L("Settings")
             }
@@ -219,9 +219,9 @@ struct MainWindowView: View {
                 UnavailablePage(text: L("The website session store or browser is unavailable. No automatic reset was attempted. Do not blindly retry an uncertain import."))
             }
         case .access:
-            ApprovedCallersPage(credentials: listVM.credentials)
+            ApprovedCallersPage(credentials: listVM.credentials, onOpenCredential: showCredential)
         case .activity:
-            AccessLogPage(credentials: listVM.credentials)
+            AccessLogPage(credentials: listVM.credentials, onOpenCredential: showCredential)
         case .settings:
             SettingsView(
                 updateController: updateController,
@@ -232,6 +232,11 @@ struct MainWindowView: View {
             .padding(.top, 12)
             .frame(maxWidth: 640, alignment: .leading)
         }
+    }
+
+    private func showCredential(_ id: String) {
+        guard let current = listVM.credentials.first(where: { $0.id == id || $0.credential.aliases?.contains(id) == true }) else { return }
+        router.show(section: .keys, credentialId: current.id)
     }
 }
 

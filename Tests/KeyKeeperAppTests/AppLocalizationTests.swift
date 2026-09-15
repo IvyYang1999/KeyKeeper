@@ -3,6 +3,20 @@ import KeyKeeperCore
 @testable import KeyKeeperApp
 
 final class AppLocalizationTests: XCTestCase {
+    func testActivityAndPermissionCopyHasChineseTranslation() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let pattern = try NSRegularExpression(pattern: #"L\("([^"\\]*)"\)"#)
+        for file in ["ActivityPage", "ActivityDetailViews", "ActivityNavigation", "PermissionPage"] {
+            let source = try String(contentsOf: root.appendingPathComponent("Sources/KeyKeeperApp/\(file).swift"), encoding: .utf8)
+            for match in pattern.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
+                let key = (source as NSString).substring(with: match.range(at: 1))
+                XCTAssertNotEqual(AppL10n.render(key, language: "zh-Hans"), key, "\(file): \(key)")
+            }
+        }
+        for key in ["{0} retained records", "Approval reference: {0}", "{0} · {1} · {2}. Only this approval will be removed. It does not erase copies already received or revoke other approvals."] {
+            XCTAssertNotNil(AppL10n.chinese[key], key)
+        }
+    }
     func testSourceImportCopyAndErrorsAreTranslated() {
         let keys = ["Save a source candidate to KeyKeeper?", "Python symbol: {0}",
             "Python source · up to 1 MiB. Only the selected string literal or environment default is extracted after approval. Source code is never executed. This is a candidate, not a verified runtime or provider credential. The original is retained; no value is shown.",
