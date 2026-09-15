@@ -1,6 +1,7 @@
 import XCTest
 @testable import KeyKeeperApp
 import KeyKeeperCore
+import CryptoKit
 
 @MainActor final class CredentialFileSourceTests: XCTestCase {
     private var directory: URL!
@@ -37,6 +38,15 @@ import KeyKeeperCore
         XCTAssertEqual(try source.readText(), String(data: bytes, encoding: .utf8))
         source.clearIfUnchanged(since: source.changeCount)
         XCTAssertEqual(try Data(contentsOf: file), bytes)
+    }
+
+    func testAppleProviderSelectsP8ParserInsteadOfGoogleJSONParser() throws {
+        let document = P256.Signing.PrivateKey().pemRepresentation + "\n"
+        let keyFile = directory.appendingPathComponent("AuthKey_SYNTHETIC.p8")
+        try Data(document.utf8).write(to: keyFile)
+        let source = try CredentialFileSource(filePath: keyFile.path, format: .applePrivateKeyP8)
+        XCTAssertEqual(source.fileFormat, .applePrivateKeyP8)
+        XCTAssertEqual(try source.readText(), document)
     }
     func testReplacementInPlaceModificationSymlinkAndOversizeFailClosed() throws {
         try Data("synthetic".utf8).write(to: file)

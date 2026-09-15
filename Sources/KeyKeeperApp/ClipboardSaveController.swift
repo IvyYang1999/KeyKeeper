@@ -200,7 +200,7 @@ extension ClipboardSaveSource {
             let shape = ValueShape.of(value)
             // The provider's key shape, when the caller named one: refused before a byte is written.
             let template = request.provider.flatMap(ProviderCatalog.find)
-            if let template, let problem = template.shapeProblem(for: value) {
+            if let template, let problem = template.shapeProblem(for: value, fieldName: request.fieldName) {
                 shapeOnFailure = shape
                 refusalDetail = problem
                 throw ClipboardSaveError.shapeMismatch

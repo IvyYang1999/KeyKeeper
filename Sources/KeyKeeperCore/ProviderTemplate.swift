@@ -42,12 +42,67 @@ public struct ProviderValidation: Codable, Equatable, Sendable {
     public var host: String { URL(string: url)?.host ?? url }
 }
 
+public enum ProviderFieldKind: String, Codable, Equatable, Sendable {
+    /// A token/password stored in the Keychain and injected as text.
+    case secretText
+    /// A complete credential document stored in the Keychain and materialized as a temporary file.
+    case secretFile
+    /// A non-secret account/project identifier. It still needs human confirmation before injection.
+    case publicText
+    /// A signing identity that remains in the macOS Keychain; KeyKeeper stores no private material.
+    case localIdentity
+}
+
+public struct ProviderFieldTemplate: Codable, Equatable, Sendable {
+    public var name: String
+    public var label: String
+    public var kind: ProviderFieldKind
+    public var required: Bool
+    public var isPrimary: Bool
+    public var fileFormat: CredentialFileFormat?
+    public var prefixes: [String]
+    public var minChars: Int?
+    public var help: String
+
+    public init(name: String, label: String, kind: ProviderFieldKind, required: Bool = true,
+                isPrimary: Bool = false, fileFormat: CredentialFileFormat? = nil,
+                prefixes: [String] = [], minChars: Int? = nil, help: String = "") {
+        self.name = name
+        self.label = label
+        self.kind = kind
+        self.required = required
+        self.isPrimary = isPrimary
+        self.fileFormat = fileFormat
+        self.prefixes = prefixes
+        self.minChars = minChars
+        self.help = help
+    }
+
+    public var environmentName: String? {
+        kind == .localIdentity ? nil : EnvironmentVariableName.from(fieldName: name, prefix: "")
+    }
+    public var isSaveableSecret: Bool { kind == .secretText || kind == .secretFile }
+
+    public func shapeProblem(for value: String, providerName: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !prefixes.isEmpty, !prefixes.contains(where: { trimmed.hasPrefix($0) }) {
+            return "\(providerName) \(label) starts with \(prefixes.joined(separator: " or ")); this value does not."
+        }
+        if let minChars, trimmed.count < minChars {
+            return "\(providerName) \(label) is at least \(minChars) characters; this value is \(trimmed.count)."
+        }
+        return nil
+    }
+}
+
 public struct ProviderTemplate: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var name: String
     public var aliases: [String]
     /// Suggested field name; its environment variable is what the provider's SDKs read.
     public var fieldName: String
+    /// Complete v2 bundle contract. `fieldName` remains the primary field for old callers.
+    public var fields: [ProviderFieldTemplate]
     /// The official page where the key is created.
     public var createURL: String
     /// Steps only the person can do: login, mfa, billing, org/project choice.
@@ -66,7 +121,8 @@ public struct ProviderTemplate: Codable, Equatable, Sendable, Identifiable {
     /// When this template was last checked against the provider's real pages.
     public var verified: String
 
-    public init(id: String, name: String, aliases: [String] = [], fieldName: String, createURL: String,
+    public init(id: String, name: String, aliases: [String] = [], fieldName: String,
+                fields: [ProviderFieldTemplate]? = nil, createURL: String,
                 gates: [String], minimalPermission: String, prefixes: [String] = [], minChars: Int? = nil,
                 shownOnce: Bool, validation: ProviderValidation? = nil, rotateURL: String? = nil,
                 expiryNote: String? = nil, verified: String) {
@@ -74,6 +130,8 @@ public struct ProviderTemplate: Codable, Equatable, Sendable, Identifiable {
         self.name = name
         self.aliases = aliases
         self.fieldName = fieldName
+        self.fields = fields ?? [ProviderFieldTemplate(name: fieldName, label: "API key",
+            kind: .secretText, isPrimary: true, prefixes: prefixes, minChars: minChars)]
         self.createURL = createURL
         self.gates = gates
         self.minimalPermission = minimalPermission
@@ -88,17 +146,39 @@ public struct ProviderTemplate: Codable, Equatable, Sendable, Identifiable {
 
     /// The environment variable `keykeeper run` sets for this field (no prefix).
     public var environmentName: String { EnvironmentVariableName.from(fieldName: fieldName, prefix: "") }
+    public var primaryField: ProviderFieldTemplate {
+        fields.first(where: \.isPrimary) ?? ProviderFieldTemplate(name: fieldName, label: "API key",
+            kind: .secretText, isPrimary: true, prefixes: prefixes, minChars: minChars)
+    }
+    public func field(named name: String) -> ProviderFieldTemplate? { fields.first { $0.name == name } }
+
+    public var contractProblems: [String] {
+        var problems: [String] = []
+        if fields.filter(\.isPrimary).count != 1 { problems.append("must have exactly one primary field") }
+        if primaryField.name != fieldName { problems.append("primary field must equal fieldName") }
+        if Set(fields.map(\.name)).count != fields.count { problems.append("field names must be unique") }
+        for field in fields {
+            if field.name.isEmpty { problems.append("field name must not be empty") }
+            if (field.kind == .secretFile) != (field.fileFormat != nil) {
+                problems.append("\(field.name) file format does not match its kind")
+            }
+        }
+        return problems
+    }
 
     /// Nil when the value looks like this provider's key; otherwise why not (no value inside).
     public func shapeProblem(for value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !prefixes.isEmpty, !prefixes.contains(where: { trimmed.hasPrefix($0) }) {
-            return "\(name) keys start with \(prefixes.joined(separator: " or ")); this value does not."
-        }
-        if let minChars, trimmed.count < minChars {
-            return "\(name) keys are at least \(minChars) characters; this value is \(trimmed.count)."
-        }
-        return nil
+        // Keep the original mutable properties authoritative for source compatibility. Tests,
+        // SDK users and older call sites can still copy a template and customize these rules.
+        ProviderFieldTemplate(name: fieldName, label: "key", kind: primaryField.kind,
+            isPrimary: true, fileFormat: primaryField.fileFormat,
+            prefixes: prefixes, minChars: minChars).shapeProblem(for: value, providerName: name)
+    }
+
+    public func shapeProblem(for value: String, fieldName: String) -> String? {
+        fieldName == self.fieldName
+            ? shapeProblem(for: value)
+            : field(named: fieldName)?.shapeProblem(for: value, providerName: name)
     }
 }
 
@@ -294,6 +374,74 @@ public enum ProviderCatalog {
                                            description: "lists the models this key can use"),
             rotateURL: "https://cloud.siliconflow.cn/account/ak",
             expiryNote: "No expiry setting; delete and recreate to rotate.",
+            verified: "2026-09-15"),
+        ProviderTemplate(
+            id: "app-store-connect", name: "App Store Connect", aliases: ["asc", "appstoreconnect", "apple-api"],
+            fieldName: "private-key",
+            fields: [
+                .init(name: "private-key", label: "API private key (.p8)", kind: .secretFile,
+                      isPrimary: true, fileFormat: .applePrivateKeyP8,
+                      help: "The downloaded AuthKey file. Apple shows it once; keep the original."),
+                .init(name: "key-id", label: "Key ID", kind: .publicText,
+                      help: "The 10-character ID shown next to the key."),
+                .init(name: "issuer-id", label: "Issuer ID", kind: .publicText,
+                      help: "The issuer UUID shown on the Integrations page for team keys."),
+            ],
+            createURL: "https://appstoreconnect.apple.com/access/integrations/api",
+            gates: ["Sign in to App Store Connect", "An Account Holder or Admin chooses Team Keys and creates the key", "Choose the least privileged role the task needs", "Download the .p8 file immediately; it is shown once"],
+            minimalPermission: "Prefer a team key with the narrowest App Store Connect role that can perform the task. Use an individual key only for app and user endpoints; Apple does not allow individual keys for notarytool.",
+            shownOnce: true,
+            rotateURL: "https://appstoreconnect.apple.com/access/integrations/api",
+            expiryNote: "Keys do not expire automatically; revoke them on the Integrations page.",
+            verified: "2026-09-15"),
+        ProviderTemplate(
+            id: "apple-notary", name: "Apple Notary", aliases: ["notarytool", "apple-notarization"],
+            fieldName: "app-specific-password",
+            fields: [
+                .init(name: "app-specific-password", label: "App-specific password", kind: .secretText,
+                      isPrimary: true, minChars: 19,
+                      help: "A dedicated password from account.apple.com, not the Apple Account password."),
+                .init(name: "apple-id", label: "Apple Account email", kind: .publicText),
+                .init(name: "team-id", label: "Developer Team ID", kind: .publicText),
+            ],
+            createURL: "https://account.apple.com/account/manage",
+            gates: ["Sign in to the Apple Account", "Pass two-factor authentication", "Create a dedicated app-specific password under Sign-In and Security"],
+            minimalPermission: "Use a dedicated app-specific password only for notarization. Keep Apple Account email and Team ID as non-secret fields in the same credential.",
+            minChars: 19, shownOnce: true,
+            rotateURL: "https://account.apple.com/account/manage",
+            expiryNote: "It remains valid until revoked; changing the Apple Account password revokes all app-specific passwords.",
+            verified: "2026-09-15"),
+        ProviderTemplate(
+            id: "apns", name: "Apple Push Notification service", aliases: ["apple-push", "push-notifications"],
+            fieldName: "private-key",
+            fields: [
+                .init(name: "private-key", label: "APNs private key (.p8)", kind: .secretFile,
+                      isPrimary: true, fileFormat: .applePrivateKeyP8,
+                      help: "The downloaded AuthKey file. Apple allows one download."),
+                .init(name: "key-id", label: "Key ID", kind: .publicText),
+                .init(name: "team-id", label: "Developer Team ID", kind: .publicText),
+            ],
+            createURL: "https://developer.apple.com/account/resources/authkeys/add",
+            gates: ["Sign in to the Apple Developer account", "An Account Holder or Admin creates a key", "Enable only Apple Push Notifications service", "Download the .p8 file immediately"],
+            minimalPermission: "Create a key with only Apple Push Notifications service enabled. Use topic restrictions where Apple offers them.",
+            shownOnce: true,
+            rotateURL: "https://developer.apple.com/account/resources/authkeys/list",
+            expiryNote: "Keys do not expire automatically; revoke and replace them from Certificates, Identifiers & Profiles.",
+            verified: "2026-09-15"),
+        ProviderTemplate(
+            id: "developer-id", name: "Apple Developer ID", aliases: ["codesign", "developer-id-application"],
+            fieldName: "signing-identity",
+            fields: [
+                .init(name: "signing-identity", label: "Developer ID Application identity", kind: .localIdentity,
+                      isPrimary: true,
+                      help: "The certificate and private key stay in the macOS Keychain. KeyKeeper must never import or export them."),
+            ],
+            createURL: "https://developer.apple.com/account/resources/certificates/add",
+            gates: ["Sign in to the Apple Developer account", "Choose Developer ID Application", "Create the certificate from a CSR whose private key remains in this Mac's Keychain"],
+            minimalPermission: "Keep the non-exportable signing private key in the macOS Keychain and refer to the Developer ID Application identity by name. Do not copy it into a text credential.",
+            shownOnce: false,
+            rotateURL: "https://developer.apple.com/account/resources/certificates/list",
+            expiryNote: "Developer ID certificates have an Apple-issued expiration date; replace before expiry.",
             verified: "2026-09-15"),
     ]
 

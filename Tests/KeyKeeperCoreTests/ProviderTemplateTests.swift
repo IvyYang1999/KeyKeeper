@@ -3,6 +3,35 @@ import XCTest
 
 /// yyt 2026-09-15：服务商模板——Agent 从「没有 key」走到「key 能用」的地图，以及 KeyKeeper 自己做的、值不经过 Agent 的验证。
 final class ProviderTemplateTests: XCTestCase {
+    func testProviderV2FieldsDescribeAppleBundlesAndLocalIdentity() throws {
+        let appStore = try XCTUnwrap(ProviderCatalog.find("app-store-connect"))
+        XCTAssertEqual(appStore.primaryField.kind, .secretFile)
+        XCTAssertEqual(appStore.primaryField.fileFormat, .applePrivateKeyP8)
+        XCTAssertEqual(Set(appStore.fields.map(\.name)), ["private-key", "key-id", "issuer-id"])
+        XCTAssertEqual(appStore.fields.first(where: { $0.name == "issuer-id" })?.kind, .publicText)
+
+        let notary = try XCTUnwrap(ProviderCatalog.find("apple-notary"))
+        XCTAssertEqual(Set(notary.fields.map(\.name)), ["app-specific-password", "apple-id", "team-id"])
+        XCTAssertEqual(notary.primaryField.kind, .secretText)
+
+        let apns = try XCTUnwrap(ProviderCatalog.find("apns"))
+        XCTAssertEqual(apns.primaryField.fileFormat, .applePrivateKeyP8)
+        XCTAssertEqual(Set(apns.fields.map(\.name)), ["private-key", "key-id", "team-id"])
+
+        let developerID = try XCTUnwrap(ProviderCatalog.find("developer-id"))
+        XCTAssertEqual(developerID.primaryField.kind, .localIdentity)
+        XCTAssertFalse(developerID.primaryField.isSaveableSecret)
+        XCTAssertNil(developerID.primaryField.fileFormat)
+    }
+
+    func testEveryV2TemplateHasOnePrimaryFieldAndNoBrokenFieldContracts() {
+        for template in ProviderCatalog.all {
+            XCTAssertEqual(template.fields.filter(\.isPrimary).count, 1, template.id)
+            XCTAssertEqual(template.primaryField.name, template.fieldName, template.id)
+            XCTAssertEqual(Set(template.fields.map(\.name)).count, template.fields.count, template.id)
+            XCTAssertTrue(template.contractProblems.isEmpty, "\(template.id): \(template.contractProblems)")
+        }
+    }
     func test目录完整_id和别名不重复_地址都是https_验证请求形状合理() {
         var seen = Set<String>()
         for template in ProviderCatalog.all {
@@ -92,7 +121,7 @@ final class ProviderTemplateTests: XCTestCase {
                         "supabase": "SUPABASE_ACCESS_TOKEN", "vercel": "VERCEL_TOKEN", "github": "GITHUB_TOKEN",
                         "cloudflare": "CLOUDFLARE_API_TOKEN", "stripe": "STRIPE_API_KEY", "resend": "RESEND_API_KEY",
                         "siliconflow": "SILICONFLOW_API_KEY"]
-        XCTAssertEqual(ProviderCatalog.all.count, expected.count)
+        XCTAssertGreaterThanOrEqual(ProviderCatalog.all.count, expected.count)
         for (id, env) in expected {
             let template = ProviderCatalog.find(id)
             XCTAssertEqual(template?.environmentName, env, id)

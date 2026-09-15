@@ -1,5 +1,6 @@
 import XCTest
 @testable import KeyKeeperCore
+import CryptoKit
 
 final class CredentialFileTests: XCTestCase {
     static let document = "{\n  \"type\": \"service_account\", \"client_email\": \"fixture@example.invalid\", \"private_key\": \"synthetic-not-a-real-private-key\"\n}\n"
@@ -9,6 +10,17 @@ final class CredentialFileTests: XCTestCase {
         XCTAssertEqual(value, Self.document)
         for invalid in ["{}", "[]", "not-json", "{\"type\":\"other\"}", String(repeating: "x", count: 65_537)] {
             XCTAssertThrowsError(try CredentialFileFormat.serviceAccountJSON.validate(Data(invalid.utf8))) { error in
+                XCTAssertEqual(error as? ClipboardSaveError, .invalidFile)
+            }
+        }
+    }
+
+    func testAppleP8MustBeARealP256PKCS8DocumentAndPreservesBytes() throws {
+        let document = P256.Signing.PrivateKey().pemRepresentation + "\n"
+        XCTAssertEqual(try CredentialFileFormat.applePrivateKeyP8.validate(Data(document.utf8)), document)
+
+        for invalid in [String(document.dropLast(24)), "not-a-key-document"] {
+            XCTAssertThrowsError(try CredentialFileFormat.applePrivateKeyP8.validate(Data(invalid.utf8))) { error in
                 XCTAssertEqual(error as? ClipboardSaveError, .invalidFile)
             }
         }

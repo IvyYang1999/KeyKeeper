@@ -1,7 +1,9 @@
 import Foundation
+import CryptoKit
 
 public enum CredentialFileFormat: String, Codable, Sendable {
     case serviceAccountJSON
+    case applePrivateKeyP8
 
     public static let maximumBytes = 65_536
 
@@ -9,12 +11,29 @@ public enum CredentialFileFormat: String, Codable, Sendable {
     /// Return the original UTF-8 text, never a reserialized/normalized document.
     public func validate(_ data: Data) throws -> String {
         guard !data.isEmpty, data.count <= Self.maximumBytes,
-              let value = String(data: data, encoding: .utf8), !value.contains("\0"),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              object["type"] as? String == "service_account",
-              let email = object["client_email"] as? String, !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let key = object["private_key"] as? String, !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+              let value = String(data: data, encoding: .utf8), !value.contains("\0") else {
             throw ClipboardSaveError.invalidFile
+        }
+        switch self {
+        case .serviceAccountJSON:
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["type"] as? String == "service_account",
+                  let email = object["client_email"] as? String,
+                  !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let key = object["private_key"] as? String,
+                  !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ClipboardSaveError.invalidFile
+            }
+        case .applePrivateKeyP8:
+            // Apple API keys are P-256 signing keys in an unencrypted PKCS#8 PEM document.
+            // Parsing the curve is important: matching BEGIN/END text alone accepted damaged,
+            // RSA and unrelated documents, only to fail much later during a release.
+            let label = ["PRIVATE", "KEY"].joined(separator: " ")
+            guard value.contains("-----BEGIN \(label)-----"),
+                  value.contains("-----END \(label)-----"),
+                  (try? P256.Signing.PrivateKey(pemRepresentation: value)) != nil else {
+                throw ClipboardSaveError.invalidFile
+            }
         }
         return value
     }
@@ -30,7 +49,11 @@ public enum CredentialFileFormat: String, Codable, Sendable {
             } else if let object = node as? [String: Any] { object.values.forEach(visit) }
             else if let array = node as? [Any] { array.forEach(visit) }
         }
-        if let object = try? JSONSerialization.jsonObject(with: Data(value.utf8)) { visit(object) }
+        if self == .serviceAccountJSON,
+           let object = try? JSONSerialization.jsonObject(with: Data(value.utf8)) { visit(object) }
+        else if self == .applePrivateKeyP8 {
+            result += value.components(separatedBy: .newlines).filter { !$0.isEmpty }
+        }
         return Array(Set(result))
     }
 }

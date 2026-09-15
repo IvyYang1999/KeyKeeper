@@ -81,7 +81,18 @@ final class IPCServer: ObservableObject {
         }
         do {
             try request.validate()
-            let source = try CredentialFileSource(filePath: request.filePath)
+            let format: CredentialFileFormat
+            if let provider = request.target.provider {
+                guard let template = ProviderCatalog.find(provider),
+                      let declared = template.field(named: request.target.fieldName),
+                      declared.kind == .secretFile, let declaredFormat = declared.fileFormat else {
+                    throw ClipboardSaveError.wrongFieldType
+                }
+                format = declaredFormat
+            } else {
+                format = .serviceAccountJSON
+            }
+            let source = try CredentialFileSource(filePath: request.filePath, format: format)
             controller.receive(request.target, callerName: callerName, isConnected: isConnected,
                                source: source, completion: completion)
         } catch { completion(.init(success: false, errorCode: error as? ClipboardSaveError ?? .invalidFile)) }

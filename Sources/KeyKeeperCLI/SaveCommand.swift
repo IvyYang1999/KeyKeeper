@@ -14,7 +14,7 @@ struct SaveCommand: ParsableCommand {
     var fromClipboard = false
     @Flag(help: "Print a single-use local receiver URL for paste; keep this command running until confirmation. Do not mix clipboard transports.")
     var fromBrowser = false
-    @Option(help: "Absolute path to a service-account JSON file (up to 64 KiB). App reads it after approval; original is retained.")
+    @Option(help: "Absolute path to a supported credential file (up to 64 KiB). With --provider, the template chooses its exact file type. App reads it after approval; original is retained.")
     var fromFile: String?
     @Option(help: "Absolute path to an owned UTF-8 Python file (up to 1 MiB). App parses it after approval without executing it.")
     var fromSource: String?
@@ -46,6 +46,11 @@ struct SaveCommand: ParsableCommand {
     var template: ProviderTemplate? { provider.flatMap(ProviderCatalog.find) }
     var credentialId: String { credential ?? template?.id ?? "" }
     var fieldName: String { field ?? template?.fieldName ?? "" }
+    var templateField: ProviderFieldTemplate? { template?.field(named: fieldName) }
+    var fileFormat: CredentialFileFormat? {
+        guard fromFile != nil else { return nil }
+        return templateField?.fileFormat ?? (template == nil ? .serviceAccountJSON : nil)
+    }
 
     mutating func validate() throws {
         if let provider, template == nil {
@@ -53,6 +58,25 @@ struct SaveCommand: ParsableCommand {
         }
         guard !credentialId.isEmpty, !fieldName.isEmpty else {
             throw ValidationError("Give -c <credential-id> and --field <field-name>, or --provider <id> to take them from a template.")
+        }
+        if let template {
+            guard let templateField else {
+                throw ValidationError("Provider '\(template.id)' has no field named '\(fieldName)'. Run `keykeeper providers show \(template.id)` to see its fields.")
+            }
+            switch templateField.kind {
+            case .secretFile:
+                guard fromFile != nil else {
+                    throw ValidationError("\(template.name) \(templateField.label) is a credential file. Use --from-file.")
+                }
+            case .secretText:
+                guard fromFile == nil else {
+                    throw ValidationError("\(template.name) \(templateField.label) is text, not a credential file. Use --from-clipboard or --from-browser.")
+                }
+            case .publicText:
+                throw ValidationError("\(template.name) \(templateField.label) is non-secret metadata. Add or confirm it in the KeyKeeper app; do not send it through the secret importer.")
+            case .localIdentity:
+                throw ValidationError("\(template.name) uses a local macOS Keychain identity. KeyKeeper will not import or export its private key.")
+            }
         }
         if (replaceExisting || expectedEd25519PublicKey != nil) && !fromClipboard {
             throw ClipboardSaveError.invalidReplacement
@@ -70,7 +94,10 @@ struct SaveCommand: ParsableCommand {
             throw ValidationError("--expected-caller, --frequency and --background describe a --purpose; add one.")
         }
         try request.validate()
-        if let fromFile { try FileImportRequest(target: request, filePath: fromFile).validate() }
+        if let fromFile {
+            guard fileFormat != nil else { throw ClipboardSaveError.wrongFieldType }
+            try FileImportRequest(target: request, filePath: fromFile).validate()
+        }
         if let fromSource, let pythonSymbol {
             try SourceImportRequest(target: request, filePath: fromSource, pythonSymbol: pythonSymbol).validate()
         }

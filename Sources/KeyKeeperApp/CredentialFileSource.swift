@@ -11,7 +11,8 @@ import KeyKeeperCore
     private let descriptor: Int32
     private let snapshot: stat
 
-    init(filePath: String, pythonSymbol: String? = nil) throws {
+    init(filePath: String, pythonSymbol: String? = nil,
+         format: CredentialFileFormat = .serviceAccountJSON) throws {
         let target = ClipboardSaveRequest(credentialId: "validate", fieldName: "file")
         if let pythonSymbol {
             try SourceImportRequest(target: target, filePath: filePath, pythonSymbol: pythonSymbol).validate()
@@ -19,7 +20,7 @@ import KeyKeeperCore
             try FileImportRequest(target: target, filePath: filePath).validate()
         }
         self.pythonSymbol = pythonSymbol
-        fileFormat = pythonSymbol == nil ? .serviceAccountJSON : nil
+        fileFormat = pythonSymbol == nil ? format : nil
         let invalid: ClipboardSaveError = pythonSymbol == nil ? .invalidFile : .invalidSource
         let fd = open(filePath, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard fd >= 0 else { throw invalid }
@@ -45,7 +46,7 @@ import KeyKeeperCore
         guard count == snapshot.st_size, unchanged() else { throw ClipboardSaveError.fileChanged }
         data.count = count
         if let pythonSymbol { return try PythonSourceExtractor.extract(data, symbol: pythonSymbol) }
-        return try CredentialFileFormat.serviceAccountJSON.validate(data)
+        return try fileFormat!.validate(data)
     }
 
     private func unchanged() -> Bool {

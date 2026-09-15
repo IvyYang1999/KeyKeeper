@@ -51,6 +51,15 @@ final class SaveCommandTests: XCTestCase {
         XCTAssertEqual(decoded, request)
         XCTAssertTrue(IPCLaunchPolicy.shouldLaunchApp(for: .fileImport(request)))
     }
+
+    func testProviderChoosesItsTypedFileAndLocalIdentityCannotBeImported() throws {
+        let appStore = try SaveCommand.parse(["--provider", "app-store-connect", "--from-file", "/tmp/AuthKey_SYNTHETIC.p8", "--create"])
+        XCTAssertEqual(appStore.fieldName, "private-key")
+        XCTAssertEqual(appStore.fileFormat, .applePrivateKeyP8)
+
+        XCTAssertThrowsError(try SaveCommand.parse(["--provider", "app-store-connect", "--from-clipboard", "--create"]))
+        XCTAssertThrowsError(try SaveCommand.parse(["--provider", "developer-id", "--from-file", "/tmp/identity.p12", "--create"]))
+    }
     func testBrowserImportRequiresExactlyOneSourceAndMetadataOnlyIPC() throws {
         let command = try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-browser", "--create"])
         XCTAssertTrue(command.fromBrowser)
