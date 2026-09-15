@@ -227,14 +227,17 @@ When a task needs a service the user has no key for, do not stop and ask them to
 key" — run the flow. `keykeeper providers` lists the templates; `keykeeper providers show <id>`
 prints one as JSON: `createURL` (the official page), `gates` (the steps only the person can do:
 login, MFA, billing, project/workspace choice), `minimalPermission` (what to pick on that page),
-`fields` (the complete credential bundle and each field's kind), `prefixes`/`minChars` (what a
-text key looks like), `shownOnce`, and `validation` (the read-only request KeyKeeper itself makes
-after saving). The built-in catalog covers AI/model vendors, Apple Developer, Google service
+`fields` (the complete credential bundle and each field's kind), documented shape rules,
+`shownOnce` (`true` only when one-time display is confirmed), `expiryNote` (provider policy or an
+explicit unknown), and `validation` (the read-only request KeyKeeper itself makes after saving).
+The built-in catalog covers AI/model vendors, Apple Developer, Google service
 accounts and analytics, deployment/cloud, observability, package publishing and messaging. Then:
 
 1. Open `createURL` for the user (a browser tool if you have one, otherwise give the link) and
-   tell them, in one sentence, what to choose: the `minimalPermission`, and that the key is
-   shown once. The gates are theirs — never try to log in, pass MFA or pay for them.
+   tell them, in one sentence, what to choose: the `minimalPermission`, and — only when
+   `shownOnce` is true — that the key must be copied before leaving. The gates are theirs — never
+   try to log in, pass MFA or pay for them. If the page shows an actual expiration date, retain the
+   date as metadata for the save; never infer one from the provider name or `expiryNote`.
 2. Import the template's **primary** field with the source required by its kind:
    - `secretText`: after the person copies it, run
      `keykeeper save --provider <id> --from-clipboard --create --purpose "<what this task does>"`.
@@ -244,14 +247,17 @@ accounts and analytics, deployment/cloud, observability, package publishing and 
    - `localIdentity`: do not import or export it. It stays in the macOS Keychain; follow the
      template's `gates` to create/select the signing identity locally.
    `-c` and `--field` come from the template. A non-primary field cannot create a half-bundle.
-3. Read the result. KeyKeeper refuses before writing when the value does not look like that
-   provider's key ("OpenAI keys start with sk-; this value does not") — ask the user to copy
-   again. After a save it verifies the key with the provider's read-only request and tells you
+3. Read the result. When a provider publishes a stable shape contract, KeyKeeper refuses before
+   writing if the value does not match it — ask the user to copy again. A provider without such a
+   contract deliberately has no hard length/prefix guess. After a save it verifies the key with
+   the provider's read-only request where one is safe and tells you
    `accepted`, `rejected` or `could not reach`. On `rejected`, ask them to check the account and
    save again with `--replace`; on `could not reach`, go on with the task and watch the first call.
 4. If the success message lists required non-secret fields (account, project, key or team IDs),
    add them with `keykeeper edit <id> --set field=value`; they remain held back until the person
-   confirms them in the App. Never send a second secret through `edit --set`.
+   confirms them in the App. Never send a second secret through `edit --set`. When the provider
+   showed a concrete final working day, include `--expires YYYY-MM-DD` on the initial save or run
+   `keykeeper edit <id> --expires YYYY-MM-DD`; leave it unset when the date is unknown.
 5. Continue the original task with `keykeeper run -c <id> -- <command>`. File credentials need
    the explicit `--file credential:field=ENVIRONMENT_VARIABLE` mapping shown by KeyKeeper. The
    value never reaches you at any step.

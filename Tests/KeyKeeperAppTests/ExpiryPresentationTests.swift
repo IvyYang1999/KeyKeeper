@@ -1,4 +1,6 @@
 import XCTest
+import AppKit
+import SwiftUI
 @testable import KeyKeeperApp
 import KeyKeeperCore
 import KeyKeeperTestSupport
@@ -54,6 +56,38 @@ final class ExpiryPresentationTests: XCTestCase {
                          "Copy it from the provider's page. KeyKeeper shows it here and tells agents once it has passed; it never blocks or deletes the key."] {
             XCTAssertNotEqual(AppL10n.render(template, language: "zh-Hans"), template, template)
         }
+    }
+
+    func test服务商规则与这把Key的实际日期是两个事实() throws {
+        let policy = try XCTUnwrap(ProviderExpiryPolicyLine.text(providerId: "anthropic"))
+        XCTAssertTrue(policy.contains("Anthropic"))
+        XCTAssertTrue(policy.contains("3 hours"))
+        XCTAssertEqual(ExpiryPresentation.line("2026-12-31", today: day("2026-09-15")),
+                       "Last day it works: 2026-12-31 · in 107 days")
+        XCTAssertNil(ProviderExpiryPolicyLine.text(providerId: nil))
+    }
+
+    func testRenderProviderPolicyAndRecordedDate() throws {
+        guard let output = ProcessInfo.processInfo.environment["KEYKEEPER_EXPIRY_PREVIEW"] else {
+            throw XCTSkip("Opt-in visual inspection, synthetic expiry data only")
+        }
+        _ = NSApplication.shared
+        let recorded = ExpiryPresentation.line("2026-12-31", today: day("2026-09-15"))!
+        let root = VStack(alignment: .leading, spacing: 8) {
+            ProviderExpiryPolicyLine(providerId: "anthropic")
+            Label(recorded, systemImage: "calendar")
+                .font(.callout)
+        }
+        .padding(16)
+        .frame(width: 560, alignment: .leading)
+        .background(Color(nsColor: .windowBackgroundColor))
+        let view = NSHostingView(rootView: root)
+        view.frame = NSRect(origin: .zero, size: view.fittingSize)
+        view.layoutSubtreeIfNeeded()
+        let image = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: image)
+        let data = try XCTUnwrap(image.representation(using: .png, properties: [:]))
+        try data.write(to: URL(fileURLWithPath: output).appendingPathComponent("provider-expiry.png"))
     }
 }
 

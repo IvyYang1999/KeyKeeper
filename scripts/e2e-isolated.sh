@@ -91,9 +91,10 @@ echo "==> provider templates: save --provider fills in id/field, checks the shap
 OUT="$("$KK" providers 2>&1)"; expect_contains "providers listed" "openai | OpenAI" "$OUT"
 OUT="$("$KK" providers show claude 2>&1)"; expect_contains "template shown as JSON" "console.anthropic.com" "$OUT"
 printf 'WRONG = "AKIA-not-an-openai-key-at-all-0123456789"\nOK = "sk-proj-synthetic-e2e-%s"\n' "$(printf 'x%.0s' $(seq 1 60))" > "$TMP/providers.py"
-OUT="$("$KK" save --provider openai --from-source "$TMP/providers.py" --python-symbol WRONG --create --purpose "e2e: wrong shape" 2>&1 || true)"
-expect_contains "wrong shape refused before writing" "starts with sk-" "$OUT"
-OUT="$("$KK" list 2>&1)"; expect_not_contains "nothing created for the refused save" "openai |" "$OUT"
+# Telegram documents a bot-id:token grammar; OpenAI does not promise a universal key prefix.
+OUT="$("$KK" save --provider telegram --from-source "$TMP/providers.py" --python-symbol WRONG --create --purpose "e2e: wrong shape" 2>&1 || true)"
+expect_contains "wrong shape refused before writing" "documented format" "$OUT"
+OUT="$("$KK" list 2>&1)"; expect_not_contains "nothing created for the refused save" "telegram |" "$OUT"
 OUT="$("$KK" save --provider openai --from-source "$TMP/providers.py" --python-symbol OK --create --purpose "e2e: synthetic openai key" 2>&1)"
 expect_contains "saved under the template's id" "Saved" "$OUT"
 case "$OUT" in *"rejected the key"*|*"could not reach"*) pass "verification ran (synthetic key: rejected or unreachable)";; *) fail "verification ran" "$OUT";; esac

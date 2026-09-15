@@ -561,15 +561,18 @@ extension ClipboardSaveTests {
     }
 
     func test形状不像这家的key_写入前拒绝_说明不带值() throws {
-        clipboard.text = "AKIA" + String(repeating: "x", count: 100)
+        let wrongValue = "AKIA" + String(repeating: "x", count: 100)
+        clipboard.text = wrongValue
         controller = providerController { _, _ in .valid }
-        controller.receive(.init(credentialId: "openai", fieldName: "openai-api-key", create: true, provider: "openai"),
+        controller.receive(.init(credentialId: "telegram", fieldName: "telegram-bot-token", create: true, provider: "telegram"),
             callerName: "codex", isConnected: { true }, completion: { self.results.append($0) })
         controller.resolve(approved: true)
         XCTAssertEqual(results.first?.errorCode, .shapeMismatch)
-        XCTAssertTrue(results.first!.detail!.contains("sk-") && !results.first!.detail!.contains("AKIA"), results.first!.detail!)
+        let detail = try XCTUnwrap(results.first?.detail)
+        XCTAssertTrue(detail.contains("documented format"), detail)
+        XCTAssertFalse(detail.contains(wrongValue), "shape errors must never echo the clipboard value")
         XCTAssertEqual(io.writes, 0)
-        XCTAssertNil(try? meta.load().credentials["openai"])
+        XCTAssertNil(try? meta.load().credentials["telegram"])
     }
 
     func test验证期间不算超时_验证不可达也算保存成功() async throws {
@@ -608,7 +611,9 @@ extension ClipboardSaveTests {
             let field = template.primaryField
             let prefix = field.prefixes.first ?? ""
             let count = max(field.minChars ?? 24, prefix.count + 8)
-            let value = prefix + String(repeating: "x", count: count - prefix.count)
+            let value = template.id == "telegram"
+                ? "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
+                : prefix + String(repeating: "x", count: count - prefix.count)
             XCTAssertNil(template.shapeProblem(for: value), template.id)
             clipboard.text = value
             controller = providerController { _, _ in .valid }

@@ -37,19 +37,31 @@ import KeyKeeperCore
 }
 
 private struct ProviderMarksContactSheet: View {
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+    private let providers = ProviderCatalog.all
 
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-            ForEach(ProviderCatalog.all) { provider in
-                HStack(spacing: 9) {
-                    KeyAvatar(label: provider.name, kind: .provider(provider.id), size: 32)
-                    ProviderMark(providerId: provider.id, size: 18, colored: true)
-                    Text(provider.name)
-                        .font(.system(size: 12))
-                        .lineLimit(1)
+        // Do not use LazyVGrid here: an off-screen AppKit snapshot does not realize every lazy row,
+        // which used to make valid marks look blank in the dark-mode contact sheet.
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(0..<((providers.count + 2) / 3), id: \.self) { row in
+                HStack(spacing: 12) {
+                    ForEach(0..<3, id: \.self) { column in
+                        let index = row * 3 + column
+                        if index < providers.count {
+                            let provider = providers[index]
+                            HStack(spacing: 9) {
+                                KeyAvatar(label: provider.name, kind: .provider(provider.id), size: 32)
+                                ProviderMark(providerId: provider.id, size: 18, colored: true)
+                                Text(provider.name)
+                                    .font(.system(size: 12))
+                                    .lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            Color.clear.frame(maxWidth: .infinity)
+                        }
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }

@@ -86,6 +86,15 @@ final class TrustPromptModelTests: XCTestCase {
         XCTAssertTrue(model.details.contains { $0.contains("64 KiB") })
     }
 
+    func test服务商行同时说明在线检查和有效期规则() throws {
+        let request = ClipboardSaveRequest(
+            credentialId: "openai", fieldName: "openai-api-key", create: true, provider: "openai")
+        let model = TrustPromptModel.save(.init(request: request, callerName: "codex"))
+        let note = try XCTUnwrap(model.rows.first { $0.label == "Provider" }?.note)
+        XCTAssertTrue(note.contains("api.openai.com"))
+        XCTAssertTrue(note.contains(try XCTUnwrap(ProviderCatalog.find("openai")?.expiryNote)), note)
+    }
+
     func test请求方名字去掉控制字符并截断() {
         let model = TrustPromptModel.save(presentation(caller: "evil\u{1B}[2J" + String(repeating: "x", count: 200)))
         let caller = model.rows[2].value

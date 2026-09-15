@@ -420,6 +420,7 @@ struct CredentialDetailView: View {
                 .textSelection(.enabled)
 
             VStack(alignment: .leading, spacing: 4) {
+                ProviderExpiryPolicyLine(providerId: vm.credential.provider)
                 if let expiry = ExpiryPresentation.line(vm.credential.expires) {
                     Label(expiry, systemImage: "calendar")
                         .font(.callout)
@@ -485,6 +486,28 @@ struct CredentialDetailView: View {
         .padding(layout == .embedded ? 14 : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(EmbeddedCard(layout: layout))
+    }
+}
+
+/// Provider policy and the recorded date are different facts. This line states only the policy;
+/// `ExpiryPresentation.line` below it states what was recorded for this exact credential.
+struct ProviderExpiryPolicyLine: View {
+    let providerId: String?
+
+    static func text(providerId: String?) -> String? {
+        guard let providerId,
+              let template = ProviderCatalog.find(providerId),
+              let policy = template.expiryNote else { return nil }
+        return "\(template.name): \(policy)"
+    }
+
+    @ViewBuilder var body: some View {
+        if let text = Self.text(providerId: providerId) {
+            Label(text, systemImage: "calendar.badge.clock")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

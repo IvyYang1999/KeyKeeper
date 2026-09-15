@@ -3,15 +3,33 @@ import XCTest
 
 /// yyt 2026-09-15：服务商模板——Agent 从「没有 key」走到「key 能用」的地图，以及 KeyKeeper 自己做的、值不经过 Agent 的验证。
 final class ProviderTemplateTests: XCTestCase {
+    func test验证默认不把权限不足误判成坏密钥() {
+        let validation = ProviderValidation(
+            url: "https://example.com/me", header: "Authorization", description: "reads identity")
+        XCTAssertEqual(validation.invalidStatuses, [401])
+        XCTAssertEqual(ProviderProbe.outcome(.init(status: 403), validation: validation), .unreachable)
+    }
+
+    func test官方正则只检查形状且不回显值() {
+        let field = ProviderFieldTemplate(
+            name: "token", label: "Token", kind: .secretText, isPrimary: true,
+            regularExpression: #"^pypi-[A-Za-z0-9_-]{85,}$"#)
+        XCTAssertNil(field.shapeProblem(for: "pypi-" + String(repeating: "a", count: 85), providerName: "PyPI"))
+        let bad = field.shapeProblem(for: "not-a-token", providerName: "PyPI")
+        XCTAssertNotNil(bad)
+        XCTAssertFalse(bad?.contains("not-a-token") == true)
+    }
+
     func testCompleteProviderCatalogCoverage() {
         let expected: Set<String> = [
             "openai", "anthropic", "gemini", "supabase", "vercel", "github", "cloudflare", "stripe", "resend", "siliconflow",
-            "app-store-connect", "apple-notary", "apns", "developer-id",
+            "siliconflow-global", "app-store-connect", "app-store-connect-individual", "apple-notary", "apple-notary-api-key", "apns", "developer-id", "developer-id-installer",
             "google-cloud", "ga4", "firebase-admin", "search-console",
-            "openrouter", "deepseek", "groq", "xai", "kimi", "minimax", "zhipu", "alibaba-bailian", "volcengine-ark",
-            "neon", "railway", "render", "netlify", "flyio", "aws", "azure",
-            "sentry", "posthog", "npm", "pypi", "dockerhub", "gitlab",
-            "twilio", "sendgrid", "mailgun", "slack", "feishu", "telegram",
+            "openrouter", "deepseek", "groq", "xai", "kimi", "kimi-global", "kimi-code", "minimax", "minimax-global", "minimax-token-plan-cn", "minimax-token-plan-global",
+            "zhipu", "zhipu-coding", "zai", "zai-coding", "alibaba-bailian", "alibaba-bailian-coding-cn", "alibaba-bailian-token-cn", "volcengine-ark", "volcengine-ark-coding",
+            "neon", "neon-org", "railway", "railway-api", "render", "netlify", "flyio", "aws", "aws-sts", "azure", "cloudflare-account",
+            "sentry", "posthog", "posthog-eu", "npm", "pypi", "pypi-test", "dockerhub", "dockerhub-oat", "gitlab",
+            "twilio", "sendgrid", "sendgrid-eu", "mailgun", "slack", "slack-oauth-rotating", "feishu", "lark", "telegram",
         ]
         XCTAssertEqual(Set(ProviderCatalog.all.map(\.id)), expected)
         XCTAssertEqual(ProviderCatalog.all.count, expected.count)
@@ -27,6 +45,109 @@ final class ProviderTemplateTests: XCTestCase {
         XCTAssertEqual(try environment("azure", "azure-client-secret"), "AZURE_CLIENT_SECRET")
         XCTAssertEqual(try environment("twilio", "twilio-api-secret"), "TWILIO_API_SECRET")
         XCTAssertEqual(try environment("pypi", "twine-password"), "TWINE_PASSWORD")
+    }
+
+    func testKimi开放平台与Coding服务不会混用密钥或入口() throws {
+        let china = try XCTUnwrap(ProviderCatalog.find("kimi"))
+        XCTAssertEqual(china.name, "Kimi Open Platform (China)")
+        XCTAssertEqual(china.fieldName, "moonshot-api-key")
+        XCTAssertEqual(china.createURL, "https://platform.moonshot.cn/console/api-keys")
+        XCTAssertEqual(china.validation?.url, "https://api.moonshot.cn/v1/models")
+
+        let global = try XCTUnwrap(ProviderCatalog.find("kimi-global"))
+        XCTAssertEqual(global.name, "Kimi API Platform (Global)")
+        XCTAssertEqual(global.fieldName, "moonshot-api-key")
+        XCTAssertEqual(global.createURL, "https://platform.kimi.ai/console/account")
+        XCTAssertEqual(global.validation?.url, "https://api.moonshot.ai/v1/models")
+
+        let coding = try XCTUnwrap(ProviderCatalog.find("kimi-code"))
+        XCTAssertEqual(coding.name, "Kimi Code")
+        XCTAssertEqual(coding.fieldName, "kimi-api-key")
+        XCTAssertEqual(coding.createURL, "https://www.kimi.com/code/console")
+        XCTAssertNil(coding.validation, "没有官方只读验证合同前，不能拿普通开放平台 endpoint 试 Coding key")
+        XCTAssertTrue(coding.minimalPermission.contains("not interchangeable"))
+        XCTAssertTrue(coding.minimalPermission.contains("https://api.kimi.com/coding/v1"))
+        XCTAssertEqual(ProviderCatalog.find("moonshot")?.id, "kimi", "旧 alias 继续指向原来的中国开放平台")
+        XCTAssertEqual(ProviderCatalog.find("kimi-for-coding")?.id, "kimi-code")
+    }
+
+    func test智谱国内海外与CodingPlan是四个明确合同() throws {
+        let china = try XCTUnwrap(ProviderCatalog.find("zhipu"))
+        XCTAssertEqual(china.name, "智谱开放平台（中国，兼容旧 SDK）")
+        XCTAssertEqual(china.fieldName, "zhipuai-api-key", "既有 provider/字段契约不能让旧凭据断链")
+        XCTAssertEqual(china.createURL, "https://open.bigmodel.cn/usercenter/apikeys")
+        XCTAssertTrue(china.minimalPermission.contains("https://open.bigmodel.cn/api/paas/v4"))
+
+        let chinaCoding = try XCTUnwrap(ProviderCatalog.find("zhipu-coding"))
+        XCTAssertEqual(chinaCoding.name, "智谱 GLM Coding Plan (China)")
+        XCTAssertEqual(chinaCoding.fieldName, "zai-api-key")
+        XCTAssertEqual(chinaCoding.createURL, "https://bigmodel.cn/coding-plan/personal/overview")
+        XCTAssertNil(chinaCoding.validation)
+        XCTAssertTrue(chinaCoding.minimalPermission.contains("https://open.bigmodel.cn/api/coding/paas/v4"))
+        XCTAssertTrue(chinaCoding.minimalPermission.contains("not interchangeable"))
+
+        let global = try XCTUnwrap(ProviderCatalog.find("zai"))
+        XCTAssertEqual(global.name, "Z.AI API (Global)")
+        XCTAssertEqual(global.createURL, "https://z.ai/manage-apikey/apikey-list")
+        XCTAssertTrue(global.minimalPermission.contains("https://api.z.ai/api/paas/v4"))
+
+        let globalCoding = try XCTUnwrap(ProviderCatalog.find("zai-coding"))
+        XCTAssertEqual(globalCoding.name, "Z.AI GLM Coding Plan")
+        XCTAssertEqual(globalCoding.createURL, "https://z.ai/manage-apikey/apikey-list")
+        XCTAssertNil(globalCoding.validation)
+        XCTAssertTrue(globalCoding.minimalPermission.contains("https://api.z.ai/api/coding/paas/v4"))
+        XCTAssertTrue(globalCoding.minimalPermission.contains("not interchangeable"))
+        XCTAssertEqual(ProviderCatalog.find("智谱")?.id, "zhipu", "旧 alias 继续指向国内一般 API")
+        XCTAssertEqual(ProviderCatalog.find("z.ai")?.id, "zai")
+        XCTAssertNil(china.validation, "官方未提供可依赖的只读 models 合同")
+    }
+
+
+    func test高风险服务商按凭据身份拆分而不是只靠说明文字() throws {
+        XCTAssertNotNil(ProviderCatalog.find("siliconflow-global"))
+        XCTAssertNotNil(ProviderCatalog.find("minimax-global"))
+        XCTAssertNotNil(ProviderCatalog.find("minimax-token-plan-cn"))
+        XCTAssertNotNil(ProviderCatalog.find("minimax-token-plan-global"))
+        XCTAssertNotNil(ProviderCatalog.find("alibaba-bailian-coding-cn"))
+        XCTAssertNotNil(ProviderCatalog.find("alibaba-bailian-token-cn"))
+        XCTAssertNotNil(ProviderCatalog.find("volcengine-ark-coding"))
+        XCTAssertNotNil(ProviderCatalog.find("cloudflare-account"))
+        XCTAssertNotNil(ProviderCatalog.find("railway-api"))
+        XCTAssertNotNil(ProviderCatalog.find("aws-sts"))
+        XCTAssertNotNil(ProviderCatalog.find("pypi-test"))
+        XCTAssertNotNil(ProviderCatalog.find("dockerhub-oat"))
+        XCTAssertNotNil(ProviderCatalog.find("lark"))
+        XCTAssertNotNil(ProviderCatalog.find("app-store-connect-individual"))
+        XCTAssertNotNil(ProviderCatalog.find("apple-notary-api-key"))
+        XCTAssertNotNil(ProviderCatalog.find("posthog-eu"))
+        XCTAssertNotNil(ProviderCatalog.find("slack-oauth-rotating"))
+
+        let projectRailway = try XCTUnwrap(ProviderCatalog.find("railway"))
+        XCTAssertEqual(projectRailway.environmentName, "RAILWAY_TOKEN")
+        XCTAssertFalse(projectRailway.createURL.contains("/account/tokens"))
+        XCTAssertEqual(ProviderCatalog.find("railway-api")?.environmentName, "RAILWAY_API_TOKEN")
+
+        let longLivedAWS = try XCTUnwrap(ProviderCatalog.find("aws"))
+        XCTAssertEqual(longLivedAWS.field(named: "aws-access-key-id")?.prefixes, ["AKIA"])
+        XCTAssertNil(longLivedAWS.field(named: "aws-session-token"))
+        let temporaryAWS = try XCTUnwrap(ProviderCatalog.find("aws-sts"))
+        XCTAssertEqual(temporaryAWS.field(named: "aws-access-key-id")?.prefixes, ["ASIA"])
+        XCTAssertEqual(temporaryAWS.field(named: "aws-session-token")?.required, true)
+        XCTAssertEqual(longLivedAWS.field(named: "aws-access-key-id")?.regularExpression,
+                       #"^AKIA[A-Z0-9]{16}$"#)
+        XCTAssertEqual(temporaryAWS.field(named: "aws-access-key-id")?.regularExpression,
+                       #"^ASIA[A-Z0-9]{16}$"#)
+
+        let twilio = try XCTUnwrap(ProviderCatalog.find("twilio"))
+        XCTAssertEqual(twilio.field(named: "twilio-api-key")?.regularExpression,
+                       #"^SK[0-9a-fA-F]{32}$"#)
+        XCTAssertEqual(twilio.field(named: "twilio-account-sid")?.regularExpression,
+                       #"^AC[0-9a-fA-F]{32}$"#)
+
+        XCTAssertEqual(ProviderCatalog.find("pypi")?.primaryField.regularExpression,
+                       #"^pypi-[A-Za-z0-9_-]{85,}$"#)
+        XCTAssertEqual(ProviderCatalog.find("telegram")?.primaryField.regularExpression,
+                       #"^[0-9]+:[A-Za-z0-9_-]+$"#)
     }
     func testProviderV2FieldsDescribeAppleBundlesAndLocalIdentity() throws {
         let appStore = try XCTUnwrap(ProviderCatalog.find("app-store-connect"))
@@ -92,11 +213,15 @@ final class ProviderTemplateTests: XCTestCase {
     }
 
     func test形状检查_前缀和最短长度_出错信息不带值() {
-        let openai = ProviderCatalog.find("openai")!
-        XCTAssertNil(openai.shapeProblem(for: "sk-proj-" + String(repeating: "a", count: 100)))
-        let wrongPrefix = openai.shapeProblem(for: "AKIA" + String(repeating: "a", count: 100))!
+        let documentedFixture = ProviderTemplate(
+            id: "fixture", name: "Fixture", fieldName: "api-key",
+            createURL: "https://example.com/keys", gates: ["Create key"],
+            minimalPermission: "Fixture only", prefixes: ["sk-"], minChars: 10,
+            shownOnce: true, verified: "2026-09-15")
+        XCTAssertNil(documentedFixture.shapeProblem(for: "sk-1234567"))
+        let wrongPrefix = documentedFixture.shapeProblem(for: "AKIA1234567890")!
         XCTAssertTrue(wrongPrefix.contains("sk-") && !wrongPrefix.contains("AKIA"), wrongPrefix)
-        let short = openai.shapeProblem(for: "sk-short")!
+        let short = documentedFixture.shapeProblem(for: "sk-short")!
         XCTAssertTrue(short.contains("at least") && !short.contains("sk-short"), short)
     }
 
@@ -161,12 +286,24 @@ final class ProviderTemplateTests: XCTestCase {
             let template = ProviderCatalog.find(id)
             XCTAssertEqual(template?.environmentName, env, id)
             XCTAssertEqual(template?.verified, "2026-09-15", id)
-            XCTAssertNotNil(template?.validation, id)
+            if id == "cloudflare" {
+                XCTAssertNil(template?.validation, "Cloudflare HTTP 200 still needs a JSON active-status check")
+            } else {
+                XCTAssertNotNil(template?.validation, id)
+            }
         }
         XCTAssertEqual(ProviderCatalog.find("硅基流动")?.id, "siliconflow")
         XCTAssertNil(ProviderCatalog.find("github")!.shapeProblem(for: "ghp_" + String(repeating: "a", count: 36)))
         XCTAssertNil(ProviderCatalog.find("stripe")!.shapeProblem(for: "rk_test_" + String(repeating: "a", count: 30)))
         XCTAssertNotNil(ProviderCatalog.find("stripe")!.shapeProblem(for: "pk_test_" + String(repeating: "a", count: 30)), "公开 key 不是密钥")
+    }
+
+    func test所有在线探针都不会把403权限不足当成坏密钥() {
+        for template in ProviderCatalog.all {
+            if let validation = template.validation {
+                XCTAssertFalse(validation.invalidStatuses.contains(403), template.id)
+            }
+        }
     }
 
     func test模板可编码_给Agent读() throws {
