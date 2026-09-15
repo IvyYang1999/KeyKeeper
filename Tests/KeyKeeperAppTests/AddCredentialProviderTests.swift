@@ -148,7 +148,7 @@ import KeyKeeperTestSupport
     }
 
     func test新增模板中文文案与占位符一致() {
-        for key in ["Provider template", "Required", "optional", "Change template?", "Clear values and change",
+        for key in ["Provider", "Required", "optional", "Change template?", "Clear values and change",
                     "Complete the required field: {0}", "Choose the required file: {0}",
                     "Template guidance", "Choose credential file…",
                     "Read only when you click Save. The original file is kept."] {

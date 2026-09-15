@@ -49,16 +49,13 @@ struct CredentialDetailView: View {
     }
 
     private var providerControls: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Text(L("Provider")).font(.caption).foregroundColor(.secondary)
-                ProviderPickerButton(selection: Binding(get: { vm.providerSelection }, set: {
-                    vm.setProvider($0.isEmpty ? nil : $0)
-                }))
-                .font(.caption)
-                .frame(maxWidth: 290, alignment: .leading)
-            }
-            ProviderManagementLink(providerID: vm.credential.provider)
+        HStack(alignment: .center, spacing: 10) {
+            Text(L("Provider")).font(.caption).foregroundColor(.secondary)
+            ProviderPickerButton(selection: Binding(get: { vm.providerSelection }, set: {
+                vm.setProvider($0.isEmpty ? nil : $0)
+            }))
+            .controlSize(.small)
+            ProviderConsoleLink(providerID: vm.credential.provider, purpose: .manage)
         }
     }
 

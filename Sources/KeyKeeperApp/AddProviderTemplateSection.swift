@@ -9,16 +9,18 @@ struct AddProviderTemplateSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            SectionLabel(text: L("Provider template"), hint: L("optional"))
-            ProviderPickerButton(selection: Binding(
-                get: { vm.providerID ?? "" },
-                set: { if !vm.selectProvider($0) { pendingSelection = $0 } }
-            ))
-            if vm.providerID != nil {
-                ProviderManagementLink(providerID: vm.providerID)
-            } else {
-                Text(L("Choose a provider to fill in its fields, or enter a key manually below."))
-                    .font(.caption).foregroundStyle(.secondary)
+            SectionLabel(text: L("Provider"), hint: L("optional"))
+            HStack(spacing: DS.Spacing.md) {
+                ProviderPickerButton(selection: Binding(
+                    get: { vm.providerID ?? "" },
+                    set: { if !vm.selectProvider($0) { pendingSelection = $0 } }
+                ))
+                if vm.providerID != nil {
+                    ProviderConsoleLink(providerID: vm.providerID, purpose: .create)
+                } else {
+                    Text(L("Pick one and the fields fill in; you can also type them below."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
         .alert(L("Change template?"), isPresented: Binding(
@@ -60,14 +62,12 @@ struct AddProviderFields: View {
                         Text(problem).font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    Text(L("Save checks required fields and documented formats, not whether the provider accepts the key."))
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
                 DisclosureGroup(L("Template guidance")) {
                     VStack(alignment: .leading, spacing: DS.Spacing.sm) {
                         Text(template.minimalPermission)
                         ProviderExpiryPolicyLine(providerId: template.id)
+                        Text(L("Save checks required fields and documented formats, not whether the provider accepts the key."))
                     }
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

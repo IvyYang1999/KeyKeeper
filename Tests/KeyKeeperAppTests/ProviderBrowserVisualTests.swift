@@ -9,13 +9,21 @@ import XCTest
             throw XCTSkip("Opt-in synthetic UI snapshots")
         }
         _ = NSApplication.shared
-        for (name, scheme, appearance) in [
-            ("light", ColorScheme.light, NSAppearance.Name.aqua),
-            ("dark", ColorScheme.dark, NSAppearance.Name.darkAqua)
+        for (name, scheme, appearance, query) in [
+            ("light", ColorScheme.light, NSAppearance.Name.aqua, "mimo"),
+            ("dark", ColorScheme.dark, NSAppearance.Name.darkAqua, "")
         ] {
             let root = VStack(spacing: 0) {
-                ProviderPickerView(selectedID: "openai", onSelect: { _ in })
-                ProviderManagementLink(providerID: "openai").padding(14)
+                ProviderPickerView(selectedID: "openai", query: query, onSelect: { _ in })
+                HStack(spacing: 10) {
+                    Text("Provider").font(.caption).foregroundColor(.secondary)
+                    ProviderPickerButton(selection: .constant("resend")).controlSize(.small)
+                    ProviderConsoleLink(providerID: "resend", purpose: .manage)
+                }.padding(14)
+                HStack(spacing: 12) {
+                    ProviderPickerButton(selection: .constant(""))
+                    ProviderConsoleLink(providerID: "openai", purpose: .create)
+                }.padding(14)
             }
             .environment(\.colorScheme, scheme)
             .background(Color(nsColor: .windowBackgroundColor))

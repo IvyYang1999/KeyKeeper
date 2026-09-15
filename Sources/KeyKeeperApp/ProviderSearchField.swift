@@ -13,9 +13,9 @@ struct ProviderSearchField: NSViewRepresentable {
     func makeNSView(context: Context) -> SearchField {
         let field = SearchField()
         field.delegate = context.coordinator
-        field.placeholderString = L("Search name or alias")
+        field.placeholderString = L("Search providers, e.g. OpenAI, Stripe")
         field.setAccessibilityIdentifier("provider-search")
-        field.setAccessibilityLabel(L("Search name or alias"))
+        field.setAccessibilityLabel(L("Search providers, e.g. OpenAI, Stripe"))
         field.recentsAutosaveName = nil
         field.maximumRecents = 0
         field.sendsSearchStringImmediately = true
