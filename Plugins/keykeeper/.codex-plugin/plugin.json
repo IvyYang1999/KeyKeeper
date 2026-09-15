@@ -1,0 +1,18 @@
+{
+  "name": "keykeeper",
+  "version": "0.1.0",
+  "description": "Use API keys through the local KeyKeeper app without placing values in chat.",
+  "author": {
+    "name": "KeyKeeper"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "KeyKeeper",
+    "shortDescription": "Let AI use API keys without pasting them into chat.",
+    "longDescription": "Discover credential metadata, inject keys into authorized commands, and assist safe imports through KeyKeeper on the same Mac. Requires the KeyKeeper app and CLI. Installing this plugin grants no credential access.",
+    "developerName": "KeyKeeper",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "检查 KeyKeeper 是否可用，帮我安全使用 API key，不要读取或显示密钥值。"
+  }
+}

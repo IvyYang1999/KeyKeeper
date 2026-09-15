@@ -6,6 +6,9 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_DIR"
 
+echo "==> Agent plugin package tests..."
+python3 scripts/test-agent-plugins.py
+
 echo "==> 跑测试..."
 swift test --disable-keychain 2>&1
 if [ $? -ne 0 ]; then

@@ -1,0 +1,6 @@
+{
+  "name": "keykeeper-plugins",
+  "owner": {"name": "KeyKeeper"},
+  "plugins": [{"name": "keykeeper", "source": "./Plugins/keykeeper",
+    "description": "Use KeyKeeper safely from Claude Code on the same Mac."}]
+}

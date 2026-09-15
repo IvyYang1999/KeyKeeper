@@ -146,6 +146,17 @@ In **Settings** you can require approval for new background callers and turn on 
 
 ## AI tools
 
+### Codex and Claude Code plugins
+
+Open **Settings → AI tool integration**, choose your tool, and run its copied installation
+command in Terminal. The App carries a self-contained plugin package; no checkout is needed.
+Start a new conversation afterwards. Installing the plugin grants no credential access.
+See the [installation and safety guide](Plugins/keykeeper/README.md) for updates/removal,
+same-Mac requirements and developer installation. Existing standalone skills aren't overwritten.
+
+The standalone skill below remains available for older installations. Prefer one active source
+to avoid conflicting instructions; the plugin doesn't automatically remove existing skills.
+
 ### Claude Code
 
 The [skill](skill/keykeeper.md) teaches Claude Code to discover credentials with `keykeeper list --detail`, run code through `keykeeper run`, offer a prefilled `keykeeper://add?…` link when a key is missing, and never ask for or print values.

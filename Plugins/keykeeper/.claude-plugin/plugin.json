@@ -1,0 +1,10 @@
+{
+  "name": "keykeeper",
+  "version": "0.1.0",
+  "description": "Use API keys through the local KeyKeeper app without placing values in chat.",
+  "author": {"name": "KeyKeeper"},
+  "homepage": "https://github.com/IvyYang1999/KeyKeeper",
+  "repository": "https://github.com/IvyYang1999/KeyKeeper",
+  "license": "MIT",
+  "skills": "./skills/"
+}

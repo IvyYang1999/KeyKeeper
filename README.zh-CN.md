@@ -145,6 +145,15 @@ sequenceDiagram
 
 ## AI 工具
 
+### Codex / Claude Code 插件（推荐）
+
+在 **设置 → AI 工具接入** 选择工具，将安装命令复制到终端运行，再新建对话。
+插件包随 App 附带，不需要下载源码，仅支持同一台 Mac。安装插件不会自动授予密钥权限。
+详见[安装、更新与卸载说明](Plugins/keykeeper/README.md)。
+
+以下独立 skill 继续兼容旧版安装。插件不会覆盖或自动移除已有 skill；确认插件可用后，
+建议只保留一个生效来源，避免规则冲突。
+
 ### Claude Code
 
 [技能文件](skill/keykeeper.md)教会 Claude Code 用 `keykeeper list --detail` 发现凭据、通过 `keykeeper run` 跑代码、缺 key 时给出预填好的 `keykeeper://add?…` 链接，并且永远不索要、不打印值。

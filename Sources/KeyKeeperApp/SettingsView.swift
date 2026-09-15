@@ -60,6 +60,7 @@ struct SettingsView: View {
                     startupCard
                     updatesCard
                     cliCard
+                    AgentPluginsCard()
                     dataCard
                     Text("KeyKeeper \(BuildVersion.identifier)")
                         .font(.caption2)

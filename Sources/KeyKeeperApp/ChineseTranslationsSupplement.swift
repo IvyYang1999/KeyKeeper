@@ -3,6 +3,14 @@
 // collide; `AppL10n.render` consults the main catalog first, then this one.
 extension AppL10n {
     static let chineseSupplement: [String: String] = [
+        "AI tool integration": "AI 工具接入",
+        "Teach your AI tool to use KeyKeeper. Installing a plugin does not grant access to any key.": "让 AI 工具学会使用 KeyKeeper。安装插件不会自动授予任何密钥权限。",
+        "Install the tool first. Copy this command into Terminal, then open a new conversation in that tool.": "请先安装对应工具。将这条命令复制到终端运行，完成后在对应工具中新建对话。",
+        "Then ask: Check KeyKeeper and help me use my API key without showing its value.": "接着告诉 AI：检查 KeyKeeper，帮我使用 API key，不要显示密钥值。",
+        "View plugin in Codex": "在 Codex 中查看插件",
+        "Claude Code plugin guide": "Claude Code 官方插件指南",
+        "Same-Mac use only. If the tool says command not found, use its official installation guide. An existing standalone KeyKeeper skill is not replaced.": "仅支持同一台 Mac。若提示找不到命令，请按对应工具的官方指南安装 CLI。已有的 KeyKeeper 独立 skill 不会被覆盖。",
+        "This build does not include the plugin package. Install a packaged KeyKeeper update to get it.": "此构建未包含插件包，请安装包含插件的 KeyKeeper 更新版。",
         "AI models": "AI 模型",
         "AI gateways": "AI 聚合与网关",
         "Cloud & databases": "云平台与数据库",

@@ -65,6 +65,7 @@ chmod 755 "$APP_BUNDLE/Contents/Resources/browser-native-host"
 if [ -f "$PROJECT_DIR/skill/keykeeper.md" ]; then
     cp "$PROJECT_DIR/skill/keykeeper.md" "$APP_BUNDLE/Contents/Resources/keykeeper.md"
 fi
+python3 "$PROJECT_DIR/scripts/package-agent-plugins.py" "$APP_BUNDLE/Contents/Resources/AgentPlugins"
 ditto "$SPARKLE_FRAMEWORK_SOURCE" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
 printf 'APPL????' > "$APP_BUNDLE/Contents/PkgInfo"
 
