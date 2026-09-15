@@ -125,7 +125,7 @@ struct AccessHistoryDetail: View {
     var body: some View {
         Text(L("Access details")).font(.title2.weight(.semibold))
         ActivityFact(label: L("Caller"), value: ActivityDetailCopy.text(group.who))
-        ActivityFact(label: L("Credential"), value: label + " · " + group.credentialId)
+        ActivityFact(label: L("Credential"), value: ActivityDetailCopy.credential(label: label, id: group.credentialId))
         if let openCredential { Button(L("View credential"), action: openCredential) }
         ActivityFact(label: group.kind == .approvedUse ? L("Scope of the recorded approval") : L("Recorded fields"),
             value: group.kind == .approvedUse && group.approvalFields == nil ? L("every secret field") : ActivityDetailCopy.text(group.detail))
@@ -162,7 +162,7 @@ struct MetadataHistoryDetail: View {
     var body: some View {
         Text(L("Change details")).font(.title2.weight(.semibold))
         ActivityFact(label: L("Caller"), value: ActivityDetailCopy.text(record.caller))
-        ActivityFact(label: L("Credential"), value: ActivityDetailCopy.text(record.label) + " · " + record.groupId)
+        ActivityFact(label: L("Credential"), value: ActivityDetailCopy.credential(label: ActivityDetailCopy.text(record.label), id: record.groupId))
         if let openCredential { Button(L("View credential"), action: openCredential) }
         ActivityFact(label: L("Recorded time"), value: ActivityDetailCopy.absolute(record.timestamp))
         Divider()

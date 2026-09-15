@@ -58,7 +58,7 @@ import KeyKeeperCore
                 Text(L("Permission details")).font(.title2.weight(.semibold))
                 ActivityFact(label: L("Caller"), value: AccessEntryBuilder.who(displayed))
                 ActivityFact(label: L("Identity"), value: AccessEntryBuilder.details(displayed, now: state.now).first?.value ?? L("Not recorded"))
-                ActivityFact(label: L("Credential"), value: label(displayed.target.credentialId ?? "") + " · " + (displayed.target.credentialId ?? ""))
+                ActivityFact(label: L("Credential"), value: ActivityDetailCopy.credential(label: label(displayed.target.credentialId ?? ""), id: displayed.target.credentialId ?? ""))
                 if let id = displayed.target.credentialId, hasCredential(id), let onOpenCredential {
                     Button(L("View credential")) { onOpenCredential(id) }
                 }

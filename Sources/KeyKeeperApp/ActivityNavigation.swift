@@ -77,6 +77,11 @@ struct PermissionGroup: Identifiable {
 }
 
 enum ActivityDetailCopy {
+    /// "Resend · resend" says nothing twice; the id only when it differs from the name.
+    static func credential(label: String, id: String) -> String {
+        label == id || id.isEmpty ? label : label + " · " + id
+    }
+
     static func absolute(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = AppL10n.locale
