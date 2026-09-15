@@ -371,6 +371,14 @@ struct AuthorizationView: View {
     @ViewBuilder
     private var callerKindIcon: some View {
         if let caller = prompt.callerIdentity {
+            // The real icon when the Mac has it: a command-line agent (Claude Code, Codex CLI)
+            // shows the desktop app it belongs to. yyt 2026-09-15: "一目了然".
+            if let image = CallerAppIcon.image(for: caller.bundleIdentifier ?? caller.subject.displayName) {
+                Image(nsImage: image)
+                    .resizable()
+                    .frame(width: 40, height: 40)
+                    .cornerRadius(8)
+            } else {
             switch caller.subject.kind {
             case .app:
                 if let path = caller.executablePath,
@@ -392,6 +400,7 @@ struct AuthorizationView: View {
                 Image(systemName: "terminal.fill")
                     .font(.system(size: 32))
                     .foregroundColor(.purple)
+            }
             }
         } else {
             Image(systemName: "questionmark.app")

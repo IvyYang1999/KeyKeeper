@@ -13,10 +13,17 @@ import KeyKeeperCore
 struct TrustPromptModel: Equatable {
     enum Tone: Equatable { case reassuring, caution, destructive }
 
+    enum RowIcon: Equatable {
+        case provider(String)
+        case caller(String)
+    }
+
     struct Row: Equatable {
         var label: String
         var value: String
         var monospaced = false
+        /// A mark drawn before the value: the provider's brand mark, or the calling app's icon.
+        var icon: RowIcon?
         /// Full text on hover when `value` is shortened (e.g. a file path).
         var help: String?
         /// One short line under the value, in the body font (never monospaced).
@@ -115,7 +122,7 @@ struct TrustPromptModel: Equatable {
         var rows = [
             Row(label: L("Save as"), value: target, monospaced: true, note: saveAsNote),
             source,
-            Row(label: L("Requested by"), value: caller),
+            Row(label: L("Requested by"), value: caller, icon: .caller(info.callerName)),
         ]
         var looksLikeProse = false
         if let preview = info.preview {
@@ -135,7 +142,7 @@ struct TrustPromptModel: Equatable {
             rows.append(Row(label: L("Expires"), value: expires, monospaced: true, note: L("Suggested by \(caller)")))
         }
         if let template = request.provider.flatMap(ProviderCatalog.find) {
-            rows.append(Row(label: L("Provider"), value: template.name,
+            rows.append(Row(label: L("Provider"), value: template.name, icon: .provider(template.id),
                             note: template.validation.map { L("Checked after saving with a read-only request to \($0.host).") }))
         }
         // The caller's declaration, and what the rules make of the protection it suggested.
@@ -256,11 +263,18 @@ struct TrustPromptView: View {
                             .foregroundColor(.secondary)
                             .frame(width: 64, alignment: .leading)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(row.value)
-                                .font(row.monospaced ? .callout.monospaced() : .callout)
-                                .lineLimit(2)
-                                .truncationMode(.middle)
-                                .help(row.help ?? row.value)
+                            HStack(spacing: 6) {
+                                switch row.icon {
+                                case .provider(let id): ProviderMark(providerId: id, size: 18, colored: true)
+                                case .caller(let id): CallerMark(callerId: id, size: 18)
+                                case nil: EmptyView()
+                                }
+                                Text(row.value)
+                                    .font(row.monospaced ? .callout.monospaced() : .callout)
+                                    .lineLimit(2)
+                                    .truncationMode(.middle)
+                                    .help(row.help ?? row.value)
+                            }
                             if let note = row.note {
                                 Text(note).font(.caption).foregroundColor(.secondary)
                             }

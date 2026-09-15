@@ -380,7 +380,7 @@ struct PopoverBackButton: View {
 /// get a document on blue and website sessions a globe on teal, so a file key never looks
 /// like a key whose value went missing (yyt 2026-09-11).
 struct KeyAvatar: View {
-    enum Kind { case text, file, session }
+    enum Kind: Equatable { case text, file, session, provider(String) }
 
     let label: String
     var kind: Kind = .text
@@ -393,12 +393,19 @@ struct KeyAvatar: View {
     }
 
     init(credential: Credential, size: CGFloat = 32) {
-        self.init(label: credential.label, kind: CredentialKind(credential) == .serviceAccountFile ? .file : .text, size: size)
+        let kind: Kind
+        if CredentialKind(credential) == .serviceAccountFile { kind = .file }
+        else if let provider = credential.provider, ProviderMarks.image(for: provider) != nil { kind = .provider(provider) }
+        else { kind = .text }
+        self.init(label: credential.label, kind: kind, size: size)
     }
 
     var body: some View {
         Group {
             switch kind {
+            case .provider(let id):
+                // Monochrome, like everything else in the list: the mark in the avatar's white.
+                ProviderMark(providerId: id, size: size * 0.55)
             case .text:
                 Text(label.trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "?")
                     .font(.system(size: size * 0.55, weight: .regular))
@@ -416,7 +423,7 @@ struct KeyAvatar: View {
 
     private var tint: Color {
         switch kind {
-        case .text: return Color.gray.opacity(0.6)
+        case .text, .provider: return Color.gray.opacity(0.6)
         case .file: return Color.blue.opacity(0.72)
         case .session: return Color.teal.opacity(0.8)
         }
