@@ -29,7 +29,19 @@ struct ProvidersCommand: ParsableCommand {
 
     static func listText() -> String {
         ProviderCatalog.all.map { template in
-            "\(template.id) | \(template.name) | field \(template.fieldName) → \(template.environmentName)"
+            let fields = template.fields.map { field in
+                let destination = field.environmentName.map { " → \($0)" } ?? ""
+                let kind: String
+                switch field.kind {
+                case .secretText: kind = "secret text"
+                case .secretFile: kind = "credential file"
+                case .publicText: kind = "non-secret"
+                case .localIdentity: kind = "local identity"
+                }
+                return "\(field.name)\(destination) [\(kind)]"
+            }.joined(separator: ", ")
+            let fieldLabel = template.fields.count == 1 ? "field" : "\(template.fields.count) fields"
+            return "\(template.id) | \(template.name) | \(fieldLabel): \(fields)"
                 + (template.aliases.isEmpty ? "" : " | also: \(template.aliases.joined(separator: ", "))")
                 + (template.validation == nil ? "" : " | verified after saving")
         }.joined(separator: "\n")

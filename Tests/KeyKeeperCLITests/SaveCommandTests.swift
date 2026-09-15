@@ -75,6 +75,9 @@ final class SaveCommandTests: XCTestCase {
             }
             XCTAssertNoThrow(try SaveCommand.parse(arguments), template.id)
         }
+        XCTAssertThrowsError(try SaveCommand.parse([
+            "--provider", "aws", "--field", "aws-session-token", "--from-clipboard", "--create",
+        ]), "a provider bundle must be created from its primary secret")
     }
     func testBrowserImportRequiresExactlyOneSourceAndMetadataOnlyIPC() throws {
         let command = try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-browser", "--create"])

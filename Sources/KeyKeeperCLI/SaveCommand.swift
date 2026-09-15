@@ -63,6 +63,9 @@ struct SaveCommand: ParsableCommand {
             guard let templateField else {
                 throw ValidationError("Provider '\(template.id)' has no field named '\(fieldName)'. Run `keykeeper providers show \(template.id)` to see its fields.")
             }
+            if create, templateField.name != template.primaryField.name {
+                throw ValidationError("Create \(template.name) from its primary field '\(template.primaryField.name)' first. Add the other fields afterward.")
+            }
             switch templateField.kind {
             case .secretFile:
                 guard fromFile != nil else {
@@ -125,6 +128,24 @@ struct SaveCommand: ParsableCommand {
         return " Runtime/provider access is not verified."
     }
 
+    /// A provider bundle is deliberately created from one secret at a time. Say what is still
+    /// required instead of letting a successful primary save masquerade as a usable bundle.
+    var remainingFieldsNote: String {
+        guard create, let template else { return "" }
+        let remaining = template.fields.filter { $0.required && $0.name != fieldName }
+        guard !remaining.isEmpty else { return "" }
+        let publicFields = remaining.filter { $0.kind == .publicText }.map(\.name)
+        let secretFields = remaining.filter { $0.kind == .secretText || $0.kind == .secretFile }.map(\.name)
+        var notes: [String] = []
+        if !publicFields.isEmpty {
+            notes.append("Add and confirm required non-secret fields: \(publicFields.joined(separator: ", ")).")
+        }
+        if !secretFields.isEmpty {
+            notes.append("Add required secret fields through KeyKeeper's safe importer: \(secretFields.joined(separator: ", ")).")
+        }
+        return notes.isEmpty ? "" : " " + notes.joined(separator: " ")
+    }
+
     /// What the provider said about the saved key, for the caller. Never a value.
     static func validationNote(_ validation: CredentialValidation, provider: String) -> String {
         switch validation {
@@ -157,13 +178,17 @@ struct SaveCommand: ParsableCommand {
             guard result.success else { throw CommandFailure(Self.failureMessage(result)) }
             var note = "Saved source candidate. Original retained. No read permission was granted."
             note += verificationSuffix(result)
+            note += remainingFieldsNote
             print(note)
             return
         }
         if let fromFile {
             let result = try IPCClient.requestFileImport(.init(target: request, filePath: fromFile))
             guard result.success else { throw CommandFailure(Self.failureMessage(result)) }
-            print("Saved credential file. Original file retained. No read permission was granted.")
+            var note = "Saved credential file. Original file retained. No read permission was granted."
+            note += verificationSuffix(result)
+            note += remainingFieldsNote
+            print(note)
             return
         }
         if fromClipboard {
@@ -185,6 +210,7 @@ struct SaveCommand: ParsableCommand {
         if let validation = result.validation, validation != .skipped, let template {
             note += " " + Self.validationNote(validation, provider: template.name)
         }
+        note += remainingFieldsNote
         print(note)
     }
 }

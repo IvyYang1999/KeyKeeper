@@ -69,8 +69,24 @@ extension SaveSuggestionCommandTests {
     func testProviders命令列出并输出模板() {
         let list = ProvidersCommand.listText()
         XCTAssertTrue(list.contains("openai") && list.contains("anthropic") && list.contains("OPENAI_API_KEY"), list)
+        XCTAssertTrue(list.contains("app-store-connect") && list.contains("3 fields"), list)
+        XCTAssertTrue(list.contains("AWS_SECRET_ACCESS_KEY") && list.contains("AWS_ACCESS_KEY_ID"), list)
         let shown = ProvidersCommand.showText("claude")!
         XCTAssertTrue(shown.contains("console.anthropic.com") && shown.contains("\"validation\""), shown)
         XCTAssertNil(ProvidersCommand.showText("nope"))
+    }
+
+    func testProvider保存后明确列出还缺的必填字段() throws {
+        let appStore = try SaveCommand.parse(["--provider", "app-store-connect", "--from-file", "/tmp/AuthKey.p8", "--create"])
+        let appleNote = appStore.remainingFieldsNote
+        XCTAssertTrue(appleNote.contains("key-id") && appleNote.contains("issuer-id"), appleNote)
+        XCTAssertTrue(appleNote.contains("non-secret"), appleNote)
+
+        let aws = try SaveCommand.parse(["--provider", "aws", "--from-clipboard", "--create"])
+        XCTAssertTrue(aws.remainingFieldsNote.contains("aws-access-key-id"), aws.remainingFieldsNote)
+        XCTAssertFalse(aws.remainingFieldsNote.contains("aws-session-token"), "optional fields must not block first use")
+
+        let openAI = try SaveCommand.parse(["--provider", "openai", "--from-clipboard", "--create"])
+        XCTAssertEqual(openAI.remainingFieldsNote, "")
     }
 }
