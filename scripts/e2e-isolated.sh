@@ -92,7 +92,7 @@ OUT="$("$KK" providers 2>&1)"; expect_contains "providers listed" "openai | Open
 OUT="$("$KK" providers show claude 2>&1)"; expect_contains "template shown as JSON" "console.anthropic.com" "$OUT"
 printf 'WRONG = "AKIA-not-an-openai-key-at-all-0123456789"\nOK = "sk-proj-synthetic-e2e-%s"\n' "$(printf 'x%.0s' $(seq 1 60))" > "$TMP/providers.py"
 OUT="$("$KK" save --provider openai --from-source "$TMP/providers.py" --python-symbol WRONG --create --purpose "e2e: wrong shape" 2>&1 || true)"
-expect_contains "wrong shape refused before writing" "start with sk-" "$OUT"
+expect_contains "wrong shape refused before writing" "starts with sk-" "$OUT"
 OUT="$("$KK" list 2>&1)"; expect_not_contains "nothing created for the refused save" "openai |" "$OUT"
 OUT="$("$KK" save --provider openai --from-source "$TMP/providers.py" --python-symbol OK --create --purpose "e2e: synthetic openai key" 2>&1)"
 expect_contains "saved under the template's id" "Saved" "$OUT"
