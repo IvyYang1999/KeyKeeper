@@ -36,6 +36,9 @@ class AddCredentialViewModel: ObservableObject {
     @Published var sourceFile: URL?
     /// Set when the first value came from the clipboard, so a successful save can clear it.
     @Published var clipboardChangeCount: Int?
+    @Published private(set) var providerID: String?
+    @Published private(set) var providerFiles: [String: URL] = [:]
+    private var providerFileSources: [String: CredentialFileSource] = [:]
     /// IDs already in the metadata store, so a duplicate is caught before it overwrites.
     @Published private(set) var existingIds: Set<String> = []
 
@@ -56,6 +59,9 @@ class AddCredentialViewModel: ObservableObject {
     static let defaultFieldName = "api-key"
 
     var isValid: Bool {
+        if providerID != nil {
+            return !label.isEmpty && idProblem == nil && providerProblem == nil
+        }
         if sourceFile != nil { return !label.isEmpty && idProblem == nil }
         return !label.isEmpty
             && idProblem == nil
@@ -65,6 +71,7 @@ class AddCredentialViewModel: ObservableObject {
     /// A pristine form is not a draft — the pre-filled default key name must not by itself
     /// make the list show a "continue editing draft" chip.
     var hasDraft: Bool {
+        if providerID != nil { return true }
         if !label.isEmpty || !notes.isEmpty || sourceFile != nil { return true }
         if fields.count > 1 { return true }
         guard let only = fields.first else { return false }
@@ -116,6 +123,9 @@ class AddCredentialViewModel: ObservableObject {
     }
 
     func reset() {
+        providerID = nil
+        providerFiles = [:]
+        providerFileSources = [:]
         label = ""
         credentialId = ""
         notes = ""
@@ -193,6 +203,89 @@ class AddCredentialViewModel: ObservableObject {
 
     private var previousAutoId = ""
 
+    var provider: ProviderTemplate? { providerID.flatMap(ProviderCatalog.find) }
+
+    /// No value is ever carried across contracts implicitly, including China/global variants.
+    @discardableResult
+    func selectProvider(_ id: String, discardValues: Bool = false) -> Bool {
+        let next = id.isEmpty ? nil : ProviderCatalog.find(id)
+        guard id.isEmpty || next != nil else { return false }
+        if next?.id == providerID { return true }
+        guard discardValues || !hasEnteredProviderValues else { return false }
+        let oldName = provider?.name
+        providerID = next?.id
+        providerFiles = [:]
+        providerFileSources = [:]
+        sourceFile = nil
+        clipboardChangeCount = nil
+        fields = next?.fields.map {
+            FieldEntry(name: $0.name, fileFormat: $0.fileFormat,
+                       displayName: $0.label, isSecret: $0.isSaveableSecret)
+        } ?? [FieldEntry(name: Self.defaultFieldName)]
+        if label.isEmpty || label == oldName {
+            label = next?.name ?? ""
+            autoGenerateId()
+        }
+        errorMessage = nil
+        return true
+    }
+
+    var hasEnteredProviderValues: Bool {
+        sourceFile != nil || !providerFiles.isEmpty || fields.contains { !$0.value.isEmpty }
+    }
+
+    @discardableResult
+    func setProviderFile(_ url: URL, fieldName: String) -> Bool {
+        do {
+            guard let field = provider?.field(named: fieldName), field.kind == .secretFile,
+                  let format = field.fileFormat else { throw ClipboardSaveError.wrongFieldType }
+            let source = try CredentialFileSource(filePath: url.path, format: format)
+            providerFileSources[fieldName] = source
+            providerFiles[fieldName] = url
+            errorMessage = nil
+            return true
+        } catch {
+            errorMessage = L("Could not select this credential file. Choose an owned regular JSON or .p8 file, at most 64 KiB.")
+            return false
+        }
+    }
+
+    func removeProviderFile(_ fieldName: String) {
+        providerFileSources[fieldName] = nil
+        providerFiles[fieldName] = nil
+    }
+
+    var providerProblem: String? {
+        guard let providerID else { return nil }
+        guard let template = ProviderCatalog.find(providerID), template.contractProblems.isEmpty else {
+            return L("The selected template is unavailable. Choose another provider.")
+        }
+        if template.fields.contains(where: { $0.kind == .localIdentity }) {
+            return L("This is a signing identity in the macOS Keychain, not an API key. Manage it with Apple; do not paste or export its private key here.")
+        }
+        guard fields.map(\.name) == template.fields.map(\.name), sourceFile == nil else {
+            return L("Fields no longer match this template. Select the template again.")
+        }
+        for (entry, field) in zip(fields, template.fields) {
+            guard entry.isSecret == field.isSaveableSecret, entry.fileFormat == field.fileFormat else {
+                return L("Fields no longer match this template. Select the template again.")
+            }
+            if field.kind == .secretFile {
+                guard entry.value.isEmpty else { return L("Choose a file; do not paste file contents into a text field.") }
+                if field.required && providerFileSources[field.name] == nil {
+                    return L("Choose the required file: \(field.label)")
+                }
+                continue
+            }
+            if field.required && entry.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return L("Complete the required field: \(field.label)")
+            }
+            if !entry.value.isEmpty,
+               let problem = template.shapeProblem(for: entry.value, fieldName: field.name) { return AppL10n.text(problem) }
+        }
+        return nil
+    }
+
     @discardableResult
     func save() -> Bool {
         do {
@@ -203,7 +296,19 @@ class AddCredentialViewModel: ObservableObject {
             guard !label.isEmpty, idFormatProblem == nil else { throw ClipboardSaveError.invalidTarget }
             // A new credential under a reused ID must not inherit what was given to the old one.
             guard try !approvals.hasApprovals(forCredential: credentialId) else { throw ClipboardSaveError.staleGrants }
-            let named = fields.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+            if let providerProblem { errorMessage = providerProblem; return false }
+            // The Save button is the user's approval to read the files shown in this form.
+            // Validate every file before any Keychain write; no file contents enter UI state.
+            var inputs = fields
+            for i in inputs.indices {
+                if let source = providerFileSources[inputs[i].name] {
+                    guard let value = try source.readText() else { throw ClipboardSaveError.invalidFile }
+                    inputs[i].value = value
+                }
+            }
+            let named = inputs.filter {
+                !$0.name.trimmingCharacters(in: .whitespaces).isEmpty && (providerID == nil || !$0.value.isEmpty)
+            }
             let machineNames = named.map { Self.machineFieldName($0.name) }
             guard Set(machineNames).count == machineNames.count else { throw ClipboardSaveError.invalidTarget }
             if let reserved = machineNames.first(where: { EnvironmentVariableName.isReserved(fieldName: $0) }) {
@@ -217,6 +322,11 @@ class AddCredentialViewModel: ObservableObject {
             for (entry, machine) in zip(named, machineNames) {
                 let typed = entry.name.trimmingCharacters(in: .whitespacesAndNewlines)
                 if typed != machine { plan.metadata.fields[machine]?.displayName = typed }
+                if let field = provider?.field(named: machine) {
+                    plan.metadata.fields[machine]?.aliases = field.aliases
+                    plan.metadata.fields[machine]?.displayName = field.label
+                    plan.metadata.fields[machine]?.fileFormat = field.fileFormat
+                }
             }
             var values: [String: String] = [:]
             for write in plan.valueWrites {
@@ -241,7 +351,7 @@ class AddCredentialViewModel: ObservableObject {
                 label: label, notes: notes,
                 links: [],
                 fields: plan.metadata.fields, security: plan.metadata.security,
-                created: now, updated: now, expires: expires, injectOnly: injectOnly
+                created: now, updated: now, expires: expires, injectOnly: injectOnly, provider: providerID
             )
             do { try store.save(meta) }
             catch { throw ClipboardSaveError.metadataCommitFailed }

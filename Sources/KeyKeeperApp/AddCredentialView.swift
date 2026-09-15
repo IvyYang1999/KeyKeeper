@@ -27,11 +27,16 @@ struct AddCredentialView: View {
     var body: some View {
         Group {
             if layout == .popover {
+                if vm.providerID != nil {
+                    ScrollView { form.padding(14) }
+                        .frame(width: DS.Popover.width, height: 560)
+                } else {
                 // As tall as the form, like the other menu bar pages.
                 form
                     .padding(14)
                     .frame(width: DS.Popover.width)
                     .fixedSize(horizontal: false, vertical: true)
+                }
             } else {
                 ScrollView { form.padding() }
                     .panelFrame()
@@ -49,8 +54,11 @@ struct AddCredentialView: View {
     private var form: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.lg) {
             header
+            AddProviderTemplateSection(vm: vm)
             nameSection
-            if let file = vm.sourceFile {
+            if vm.providerID != nil {
+                AddProviderFields(vm: vm, afterFilePicker: afterFilePicker)
+            } else if let file = vm.sourceFile {
                 fileRow(file)
             } else {
                 KeyFieldsEditor(fields: $vm.fields)
@@ -214,7 +222,7 @@ struct AddCredentialView: View {
                 DescriptionEditor(text: $vm.notes)
                 ExpiryEditor(expires: $vm.expires)
                 AdvancedSecuritySection(security: $vm.security, injectOnly: $vm.injectOnly)
-                if onImportFile != nil, vm.sourceFile == nil {
+                if onImportFile != nil, vm.sourceFile == nil, vm.providerID == nil {
                     Button(L("Import a service-account JSON file instead…")) {
                         Self.pickServiceAccountFile { vm.useFile($0); afterFilePicker() }
                     }
