@@ -9,12 +9,21 @@ public enum IPCConstants {
 
     /// A separate socket is admitted only together with isolated data and a test Keychain service.
     static func resolveSocketPath(environment: [String: String]) -> String {
+        let isolationKeys = ["KEYKEEPER_TEST_SOCKET", KeyKeeperPaths.dataDirectoryEnvironmentKey,
+                             SecItemBlobIO.serviceEnvironmentKey]
         if let candidate = environment["KEYKEEPER_TEST_SOCKET"],
            candidate.hasPrefix("/tmp/keykeeper-test-"), candidate.utf8.count <= 103,
            !candidate.dropFirst(5).contains("/"), !candidate.contains("\0"),
            environment[KeyKeeperPaths.dataDirectoryEnvironmentKey]?.isEmpty == false,
            environment[SecItemBlobIO.serviceEnvironmentKey]?.hasPrefix("com.keykeeper.test.") == true {
             return candidate
+        }
+        // 【曾经的 bug】A misspelled/incomplete E2E triple used to become the production socket.
+        // The CLI then talked to the real App while the test believed it was isolated. Give any
+        // invalid isolation attempt a per-process dead end: the App and CLI have different PIDs,
+        // so they cannot accidentally meet, while repeated lookups inside one process stay stable.
+        if isolationKeys.contains(where: { environment[$0] != nil }) {
+            return "/tmp/keykeeper-test-invalid-\(ProcessInfo.processInfo.processIdentifier).sock"
         }
         return "/tmp/keykeeper-\(NSUserName()).sock"
     }
