@@ -38,8 +38,8 @@ private enum ActivitySelection {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         MainPageHeader(title: tab.title, subtitle: tab == .access
-                            ? L("Recorded requests and last uses. Select a row for details; historical results and current permissions are separate.")
-                            : L("Names, notes and other metadata changed by callers. These are not key reads. The latest 200 changes are retained."))
+                            ? L("Who used which key, and when. Select a row for details.")
+                            : L("Names and notes changed by callers. Not key reads."))
                         if tab == .access { accessList } else { changesList }
                     }
                     .padding(.horizontal, 28).padding(.bottom, 24)
@@ -54,8 +54,7 @@ private enum ActivitySelection {
             case .access(let snapshot):
                 let group = access.groups.first { $0.id == snapshot.id } ?? snapshot
                 AccessHistoryDetail(group: group, currentStatus: access.status(for: group), label: label(group.credentialId),
-                    openCredential: openAction(group.credentialId))
-                approveButton(group)
+                    openCredential: openAction(group.credentialId), approve: approveAction(group))
             case .change(let record):
                 MetadataHistoryDetail(record: record, openCredential: openAction(record.groupId))
             case nil: EmptyView()
@@ -94,7 +93,7 @@ private enum ActivitySelection {
                                 if group.kind == .approvalRequired, access.status(for: group) == .approved {
                                     Text(L("Currently approved")).font(.caption).foregroundColor(.green)
                                 }
-                                if group.count > 1 { Text(L("\(group.count) retained records")).font(.caption).foregroundColor(.secondary) }
+                                if group.count > 1 { Text(L("\(group.count) records")).font(.caption).foregroundColor(.secondary) }
                             }
                         }
                         approveButton(group).padding(.trailing, 10)
@@ -132,14 +131,18 @@ private enum ActivitySelection {
     }
 
     @ViewBuilder private func approveButton(_ group: AccessLogGroup) -> some View {
-        if group.kind == .approvalRequired, access.status(for: group) == .notApproved,
-           let standing = standingRequest(group) {
-            Button(L("Approve now")) {
-                access.refresh()
-                guard access.status(for: group) == .notApproved else { return }
-                StandingApprovalRequester.shared.handler?(standing)
-            }
-            .font(.caption).controlSize(.small)
+        if let approve = approveAction(group) {
+            Button(L("Approve now"), action: approve).font(.caption).controlSize(.small)
+        }
+    }
+
+    private func approveAction(_ group: AccessLogGroup) -> (() -> Void)? {
+        guard group.kind == .approvalRequired, access.status(for: group) == .notApproved,
+              let standing = standingRequest(group) else { return nil }
+        return {
+            access.refresh()
+            guard access.status(for: group) == .notApproved else { return }
+            StandingApprovalRequester.shared.handler?(standing)
         }
     }
 

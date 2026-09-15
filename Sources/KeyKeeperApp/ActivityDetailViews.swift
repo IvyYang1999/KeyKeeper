@@ -82,14 +82,20 @@ struct ActivityFact: View {
     }
 }
 
+/// Only what the caller actually wrote. An empty reason is not a fact worth a row; the
+/// authorization window already told the person, in orange, that none was given.
 struct ActivityRequestFacts: View {
     let reason: String?
     let command: String?
+    private var hasReason: Bool { !(reason ?? "").isEmpty }
+    private var hasCommand: Bool { !(command ?? "").isEmpty }
     var body: some View {
-        ActivityFact(label: L("Stated reason · unverified"), value: ActivityDetailCopy.text(reason))
-        ActivityFact(label: L("Recorded command summary · unverified"), value: ActivityDetailCopy.command(command))
-        Text(L("The caller supplied these words. The command may already be shortened; common sensitive arguments are hidden. This is not a full command or a verified account of what ran."))
-            .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+        if hasReason { ActivityFact(label: L("Reason given by the caller"), value: ActivityDetailCopy.text(reason)) }
+        if hasCommand { ActivityFact(label: L("Command"), value: ActivityDetailCopy.command(command)) }
+        if hasReason || hasCommand {
+            Text(L("Written by the caller itself, not verified. Commands are shortened and common secrets hidden."))
+                .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
@@ -113,6 +119,8 @@ struct AccessHistoryDetail: View {
     let currentStatus: AccessLogApprovalStatus
     let label: String
     var openCredential: (() -> Void)?
+    /// Present when this request can still be approved as a standing permission.
+    var approve: (() -> Void)?
 
     var body: some View {
         Text(L("Access details")).font(.title2.weight(.semibold))
@@ -123,21 +131,27 @@ struct AccessHistoryDetail: View {
             value: group.kind == .approvedUse && group.approvalFields == nil ? L("every secret field") : ActivityDetailCopy.text(group.detail))
         ActivityFact(label: L("What happened then"), value: AccessHistoryTag.text(group.kind))
         ActivityFact(label: L("Permission now"), value: currentStatus == .approved ? L("Currently approved") : currentStatus == .unavailable ? L("Approval status unavailable") : L("No matching current approval"))
+        if let approve, currentStatus == .notApproved {
+            Button(L("Approve now"), action: approve).controlSize(.small)
+        }
         ActivityFact(label: L("Latest recorded time"), value: ActivityDetailCopy.absolute(group.latest))
         ActivityRequestFacts(reason: group.reason, command: group.command)
-        Divider()
-        Text(L("Retained records")).font(.headline)
-        Text(L("Approved reads retain the last use per approval, not every read. Background events keep the latest 500. Counts below describe retained records, not total lifetime usage."))
-            .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-        ForEach(group.entries) { event in
-            VStack(alignment: .leading, spacing: 6) {
-                Text(ActivityDetailCopy.absolute(event.date)).font(.callout)
-                AccessHistoryTag(kind: event.kind)
-                if event.reason != group.reason || event.command != group.command {
-                    ActivityRequestFacts(reason: event.reason, command: event.command)
+        // One record is the summary above; a list only earns its place with two or more.
+        if group.entries.count > 1 {
+            Divider()
+            Text(L("\(group.entries.count) records")).font(.headline)
+            ForEach(group.entries) { event in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(ActivityDetailCopy.absolute(event.date)).font(.callout)
+                        Spacer()
+                        AccessHistoryTag(kind: event.kind)
+                    }
+                    if event.reason != group.reason || event.command != group.command {
+                        ActivityRequestFacts(reason: event.reason, command: event.command)
+                    }
                 }
             }
-            Divider()
         }
     }
 }
@@ -156,7 +170,7 @@ struct MetadataHistoryDetail: View {
             Text(verbatim: ActivityDetailCopy.text(MetadataEditCopy.text(change)))
                 .font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
         }
-        Text(L("Only the recorded changes are shown. Note contents and some previous values were not retained; opening this page does not modify the credential."))
+        Text(L("Only the recorded changes are shown; note contents and some previous values were not kept."))
             .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
     }
 }

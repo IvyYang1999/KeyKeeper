@@ -19,7 +19,7 @@ import KeyKeeperCore
         ActivityDetailLayout(hasSelection: selected != nil, selectionID: selected?.id, onBack: { selected = nil }) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    MainPageHeader(title: L("Usage permissions"), subtitle: L("Who has permission, not who is running right now. Select an approval to see its exact scope or revoke it."))
+                    MainPageHeader(title: L("Usage permissions"), subtitle: L("Who may use which key. Select one to see its scope or revoke it."))
                     if state.permissive { PermissiveModeBanner(onEnforce: state.refresh) }
                     if let error = state.errorMessage {
                         Text(error).font(.callout).foregroundColor(.orange)
@@ -38,7 +38,6 @@ import KeyKeeperCore
                                         VStack(alignment: .leading, spacing: 4) {
                                             Text(verbatim: label(approval.target.credentialId ?? "")).font(.callout.weight(.semibold))
                                             Text(AccessEntryBuilder.scopeLabel(approval, now: state.now)).font(.caption).foregroundColor(.secondary)
-                                            Text(L("Approval reference: \(approval.id.prefix(8))")).font(.caption2).foregroundColor(.secondary)
                                             Text(permissionStatus(approval)).font(.caption)
                                                 .foregroundColor(state.available && state.isActive(approval) ? .green : .secondary)
                                         }

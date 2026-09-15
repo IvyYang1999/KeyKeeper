@@ -13,7 +13,7 @@ final class AppLocalizationTests: XCTestCase {
                 XCTAssertNotEqual(AppL10n.render(key, language: "zh-Hans"), key, "\(file): \(key)")
             }
         }
-        for key in ["{0} retained records", "Approval reference: {0}", "{0} · {1} · {2}. Only this approval will be removed. It does not erase copies already received or revoke other approvals."] {
+        for key in ["{0} records", "{0} · {1} · {2}. Only this approval will be removed. It does not erase copies already received or revoke other approvals."] {
             XCTAssertNotNil(AppL10n.chinese[key], key)
         }
     }
