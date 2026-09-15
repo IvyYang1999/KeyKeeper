@@ -48,6 +48,20 @@ struct CredentialDetailView: View {
         self.onRenamed = onRenamed
     }
 
+    private var providerControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text(L("Provider")).font(.caption).foregroundColor(.secondary)
+                ProviderPickerButton(selection: Binding(get: { vm.providerSelection }, set: {
+                    vm.setProvider($0.isEmpty ? nil : $0)
+                }))
+                .font(.caption)
+                .frame(maxWidth: 290, alignment: .leading)
+            }
+            ProviderManagementLink(providerID: vm.credential.provider)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -122,23 +136,7 @@ struct CredentialDetailView: View {
                                 Text(L("Also answers to \(aliases.joined(separator: ", ")) (old IDs keep working)"))
                                     .font(.caption).foregroundColor(.secondary)
                             }
-                            // yyt 2026-09-15: binding an existing key to a provider tells an agent how to use it.
-                            HStack(spacing: 6) {
-                                Text(L("Provider")).font(.caption).foregroundColor(.secondary)
-                                Picker("", selection: Binding(get: { vm.providerSelection }, set: { vm.setProvider($0.isEmpty ? nil : $0) })) {
-                                    Text(L("None")).tag("")
-                                    ForEach(ProviderCatalog.all) { template in
-                                        Text(template.name).tag(template.id)
-                                    }
-                                }
-                                .labelsHidden()
-                                .frame(maxWidth: 180)
-                                if let provider = vm.credential.provider {
-                                    ProviderMark(providerId: provider, size: 16, colored: true)
-                                        .help(L("The key's shape, verification and the guidance agents get come from this template."))
-                                }
-                            }
-                            .padding(.top, 2)
+                            providerControls.padding(.top, 2)
                         }
                     }
                 } else {
@@ -154,6 +152,7 @@ struct CredentialDetailView: View {
                             .font(.caption.monospaced())
                             .foregroundColor(.secondary)
                             .textSelection(.enabled)
+                        providerControls
                     }
                 }
 

@@ -22,6 +22,26 @@ final class CredentialGUIDataTests: XCTestCase {
         XCTAssertTrue(session.operations.isEmpty)
     }
 
+    func test选择服务商只更新绑定而不改凭据字段或读取秘密() throws {
+        let session = FakeCredentialSession()
+        var credential = makeCredential(fields: ["token": CredentialField(secret: true)])
+        credential.provider = "zhipu"
+        try store.save(MetaFile(credentials: ["service": credential]))
+        let vm = CredentialDetailViewModel(credentialId: "service", credential: credential,
+            session: session, store: store, approvals: .inMemory())
+        vm.setProvider("zai-global-coding")
+        var expected = credential
+        expected.provider = "zai-global-coding"
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        XCTAssertEqual(try encoder.encode(store.load().credentials["service"]), try encoder.encode(expected))
+        XCTAssertEqual(vm.providerSelection, "zai-global-coding")
+        vm.setProvider(nil)
+        expected.provider = nil
+        XCTAssertEqual(try encoder.encode(store.load().credentials["service"]), try encoder.encode(expected))
+        XCTAssertTrue(session.operations.isEmpty)
+    }
+
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("keykeeper-gui-data-tests-\(UUID().uuidString)", isDirectory: true)
