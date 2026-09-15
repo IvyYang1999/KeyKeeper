@@ -83,7 +83,7 @@ final class AuthorizationWindowController {
 
         // Frosted, title-less like a system prompt; the title stays for accessibility and
         // for the "N more waiting" count, shown small in the transparent bar. Hosted as the
-        // content view (not a content view controller) so the glass runs under the title bar.
+        // full-frame container (not a content view controller) so glass runs under the title bar.
         // Same order as the trust prompt panel: make the title bar transparent before the
         // SwiftUI content is installed, or the content keeps an opaque-bar safe area and the
         // traffic lights end up floating over a clear strip.
@@ -98,12 +98,7 @@ final class AuthorizationWindowController {
         win.backgroundColor = .clear
         win.level = .floating
         win.isReleasedWhenClosed = false
-        let hosting = NSHostingView(rootView: view)
-        // Let the SwiftUI content (and its glass) fill the whole frame, under the title bar;
-        // the view keeps its own top padding for the traffic lights.
-        hosting.safeAreaRegions = []
-        win.contentView = hosting
-        win.setContentSize(hosting.fittingSize)
+        Self.installContent(view, in: win)
         win.center()
 
         // Keep a strong reference to the delegate
@@ -121,6 +116,53 @@ final class AuthorizationWindowController {
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    /// The root is full-window content, including the traffic-light padding. AppKit's
+    /// automatic content-size animation adds title-bar height back while resizing it.
+    /// One owner sizes the *frame* from the root's measured size, without that extra band.
+    @discardableResult
+    static func installContent<Content: View>(_ content: Content, in window: NSWindow) -> NSHostingView<AuthorizationWindowContent<Content>> {
+        let hosting = NSHostingView(rootView: AuthorizationWindowContent(content: content) { [weak window] size in
+            guard let window else { return }
+            fit(window, to: size)
+        })
+        hosting.safeAreaRegions = []
+        let initial = hosting.fittingSize
+        // The measured root below now owns resizing, including shrinking. Leaving the
+        // default min/max constraints enabled lets two independent owners resize the window.
+        hosting.sizingOptions = []
+        // A hosting view installed directly as contentView also participates in AppKit's
+        // animated window sizing, even with sizing constraints disabled. Keep that bridge
+        // out of this full-frame panel: the ordinary container only follows our frame size.
+        let container = NSView(frame: NSRect(origin: .zero, size: initial))
+        hosting.frame = container.bounds
+        hosting.autoresizingMask = [.width, .height]
+        container.addSubview(hosting)
+        window.contentView = container
+        fit(window, to: initial)
+        return hosting
+    }
+
+    private static func fit(_ window: NSWindow, to size: CGSize) {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return }
+        let size = NSSize(width: ceil(size.width), height: ceil(size.height))
+        guard window.frame.size != size else { return }
+        var frame = window.frame
+        frame.origin.y += frame.height - size.height // keep the top/title controls in place
+        frame.size = size
+        window.setFrame(frame, display: true, animate: false)
+    }
+}
+
+struct AuthorizationWindowContent<Content: View>: View {
+    let content: Content
+    let onSizeChange: (CGSize) -> Void
+
+    var body: some View {
+        content
+            .fixedSize(horizontal: true, vertical: true)
+            .environment(\.authorizationPanelSizeChanged, onSizeChange)
+    }
 }
 
 /// Detects when user closes the authorization window via the red button.
@@ -134,4 +176,5 @@ private final class WindowCloseDelegate: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         onClose()
     }
+
 }

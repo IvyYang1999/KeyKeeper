@@ -150,3 +150,90 @@ final class AuthorizationPanelHeightTests: XCTestCase {
         }
     }
 }
+
+/// 【曾经的 bug】2026-09-15: the production authorizationPanel, unlike glassPanel, kept
+/// transparent strips around its background after a disclosure resized the hosting window.
+@MainActor
+final class AuthorizationPanelResizeTests: XCTestCase {
+    private struct Panel: View {
+        @ObservedObject var model: AuthorizationWindowChromeTests.PanelToggle
+        let cap: CGFloat
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Synthetic authorization window")
+                Text("Allow / Deny")
+                DisclosureGroup(isExpanded: $model.expanded) {
+                    Text(String(repeating: "Synthetic caller details that wrap over several lines. ", count: 16))
+                        .fixedSize(horizontal: false, vertical: true)
+                } label: {
+                    Text("Details")
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 40)
+            .padding(.bottom, 22)
+            .authorizationPanel(width: 440, maxHeight: cap)
+        }
+    }
+
+    func test反复展开收起真实面板容器背景不露直边() throws {
+        _ = NSApplication.shared
+        for cap in [CGFloat(700), 240] {
+            let model = AuthorizationWindowChromeTests.PanelToggle()
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 200),
+                                  styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.isReleasedWhenClosed = false
+            let hosting = AuthorizationWindowController.installContent(Panel(model: model, cap: cap), in: window)
+            // Keep a real screen association: AppKit does not run the same resize constraints
+            // for an off-screen window. Order behind other windows without activating the app.
+            window.center()
+            window.orderBack(nil)
+            defer { window.close() }
+            var collapsedHeight: CGFloat?
+
+            for expanded in [false, true, false, true, false] {
+                withAnimation(.easeInOut(duration: 0.3)) { model.expanded = expanded }
+                for _ in 0..<12 {
+                    runApplicationLoop(for: 0.035)
+                    hosting.layoutSubtreeIfNeeded()
+                    let content = try XCTUnwrap(window.contentView)
+                    let glass = try XCTUnwrap(AuthorizationWindowChromeTests.visualEffectViews(in: hosting).first)
+                    let rect = glass.convert(glass.bounds, to: content)
+                    let inWindow = glass.convert(glass.bounds, to: nil)
+                    XCTAssertEqual(rect.minY, content.bounds.minY, accuracy: 1, "cap=\(cap), expanded=\(expanded)")
+                    XCTAssertEqual(rect.maxY, content.bounds.maxY, accuracy: 1, "cap=\(cap), expanded=\(expanded)")
+                    XCTAssertEqual(rect.width, content.bounds.width, accuracy: 1)
+                    XCTAssertEqual(inWindow.minY, 0, accuracy: 1, "Glass must reach the native window bottom")
+                    XCTAssertEqual(inWindow.maxY, window.frame.height, accuracy: 1,
+                                   "Glass must reach the native window top, not just the hosting view bounds")
+                }
+                XCTAssertLessThanOrEqual(window.frame.height, cap + 1)
+                if !expanded {
+                    if let collapsedHeight {
+                        XCTAssertEqual(window.frame.height, collapsedHeight, accuracy: 1,
+                                       "Repeated collapses must not accumulate title-bar height")
+                    } else { collapsedHeight = window.frame.height }
+                }
+            }
+        }
+    }
+
+    /// A plain RunLoop skips NSApplication's updateWindows/hosting-window resize pass.
+    /// The bounded app loop reproduces what actually happens after clicking a disclosure.
+    private func runApplicationLoop(for duration: TimeInterval) {
+        Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { _ in
+            NSApp.stop(nil)
+            if let wake = NSEvent.otherEvent(with: .applicationDefined, location: .zero,
+                                              modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                              context: nil, subtype: 0, data1: 0, data2: 0) {
+                NSApp.postEvent(wake, atStart: false)
+            }
+        }
+        NSApp.run()
+    }
+}

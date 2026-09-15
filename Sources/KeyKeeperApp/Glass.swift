@@ -180,6 +180,7 @@ private struct MeasuredScrollPanel<Content: View>: View {
     let intensity: Double
     @ViewBuilder let content: () -> Content
     @State private var contentHeight: CGFloat = 0
+    @Environment(\.authorizationPanelSizeChanged) private var reportSize
 
     private var measured: some View {
         content()
@@ -199,8 +200,22 @@ private struct MeasuredScrollPanel<Content: View>: View {
                 measured.fixedSize(horizontal: false, vertical: true)
             }
         }
-        .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
+        .onPreferenceChange(ContentHeightKey.self) {
+            contentHeight = $0
+            reportSize?(CGSize(width: width, height: min($0, maxHeight)))
+        }
         .glassWindowBackground(intensity: intensity)
+    }
+}
+
+private struct AuthorizationPanelSizeHandlerKey: EnvironmentKey {
+    static let defaultValue: ((CGSize) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var authorizationPanelSizeChanged: ((CGSize) -> Void)? {
+        get { self[AuthorizationPanelSizeHandlerKey.self] }
+        set { self[AuthorizationPanelSizeHandlerKey.self] = newValue }
     }
 }
 
