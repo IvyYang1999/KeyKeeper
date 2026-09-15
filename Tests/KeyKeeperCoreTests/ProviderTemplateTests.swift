@@ -3,6 +3,31 @@ import XCTest
 
 /// yyt 2026-09-15：服务商模板——Agent 从「没有 key」走到「key 能用」的地图，以及 KeyKeeper 自己做的、值不经过 Agent 的验证。
 final class ProviderTemplateTests: XCTestCase {
+    func testCompleteProviderCatalogCoverage() {
+        let expected: Set<String> = [
+            "openai", "anthropic", "gemini", "supabase", "vercel", "github", "cloudflare", "stripe", "resend", "siliconflow",
+            "app-store-connect", "apple-notary", "apns", "developer-id",
+            "google-cloud", "ga4", "firebase-admin", "search-console",
+            "openrouter", "deepseek", "groq", "xai", "kimi", "minimax", "zhipu", "alibaba-bailian", "volcengine-ark",
+            "neon", "railway", "render", "netlify", "flyio", "aws", "azure",
+            "sentry", "posthog", "npm", "pypi", "dockerhub", "gitlab",
+            "twilio", "sendgrid", "mailgun", "slack", "feishu", "telegram",
+        ]
+        XCTAssertEqual(Set(ProviderCatalog.all.map(\.id)), expected)
+        XCTAssertEqual(ProviderCatalog.all.count, expected.count)
+    }
+
+    func testRepresentativeBundleFieldsUseOfficialEnvironmentNames() throws {
+        func environment(_ provider: String, _ field: String) throws -> String? {
+            try XCTUnwrap(ProviderCatalog.find(provider)).field(named: field)?.environmentName
+        }
+        XCTAssertEqual(try environment("google-cloud", "google-application-credentials"), "GOOGLE_APPLICATION_CREDENTIALS")
+        XCTAssertEqual(try environment("aws", "aws-secret-access-key"), "AWS_SECRET_ACCESS_KEY")
+        XCTAssertEqual(try environment("aws", "aws-access-key-id"), "AWS_ACCESS_KEY_ID")
+        XCTAssertEqual(try environment("azure", "azure-client-secret"), "AZURE_CLIENT_SECRET")
+        XCTAssertEqual(try environment("twilio", "twilio-api-secret"), "TWILIO_API_SECRET")
+        XCTAssertEqual(try environment("pypi", "twine-password"), "TWINE_PASSWORD")
+    }
     func testProviderV2FieldsDescribeAppleBundlesAndLocalIdentity() throws {
         let appStore = try XCTUnwrap(ProviderCatalog.find("app-store-connect"))
         XCTAssertEqual(appStore.primaryField.kind, .secretFile)
@@ -11,7 +36,7 @@ final class ProviderTemplateTests: XCTestCase {
         XCTAssertEqual(appStore.fields.first(where: { $0.name == "issuer-id" })?.kind, .publicText)
 
         let notary = try XCTUnwrap(ProviderCatalog.find("apple-notary"))
-        XCTAssertEqual(Set(notary.fields.map(\.name)), ["app-specific-password", "apple-id", "team-id"])
+        XCTAssertEqual(Set(notary.fields.map(\.name)), ["apple-app-specific-password", "apple-id", "apple-team-id"])
         XCTAssertEqual(notary.primaryField.kind, .secretText)
 
         let apns = try XCTUnwrap(ProviderCatalog.find("apns"))

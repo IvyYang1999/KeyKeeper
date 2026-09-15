@@ -60,6 +60,22 @@ final class SaveCommandTests: XCTestCase {
         XCTAssertThrowsError(try SaveCommand.parse(["--provider", "app-store-connect", "--from-clipboard", "--create"]))
         XCTAssertThrowsError(try SaveCommand.parse(["--provider", "developer-id", "--from-file", "/tmp/identity.p12", "--create"]))
     }
+
+    func testEveryProviderPrimaryFieldRoutesToTheRightSafeImporter() throws {
+        for template in ProviderCatalog.all {
+            let arguments: [String]
+            switch template.primaryField.kind {
+            case .secretText:
+                arguments = ["--provider", template.id, "--from-clipboard", "--create"]
+            case .secretFile:
+                arguments = ["--provider", template.id, "--from-file", "/tmp/synthetic-credential", "--create"]
+            case .publicText, .localIdentity:
+                XCTAssertThrowsError(try SaveCommand.parse(["--provider", template.id, "--from-clipboard", "--create"]), template.id)
+                continue
+            }
+            XCTAssertNoThrow(try SaveCommand.parse(arguments), template.id)
+        }
+    }
     func testBrowserImportRequiresExactlyOneSourceAndMetadataOnlyIPC() throws {
         let command = try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-browser", "--create"])
         XCTAssertTrue(command.fromBrowser)

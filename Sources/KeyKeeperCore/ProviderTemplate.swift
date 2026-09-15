@@ -396,13 +396,13 @@ public enum ProviderCatalog {
             verified: "2026-09-15"),
         ProviderTemplate(
             id: "apple-notary", name: "Apple Notary", aliases: ["notarytool", "apple-notarization"],
-            fieldName: "app-specific-password",
+            fieldName: "apple-app-specific-password",
             fields: [
-                .init(name: "app-specific-password", label: "App-specific password", kind: .secretText,
+                .init(name: "apple-app-specific-password", label: "App-specific password", kind: .secretText,
                       isPrimary: true, minChars: 19,
                       help: "A dedicated password from account.apple.com, not the Apple Account password."),
                 .init(name: "apple-id", label: "Apple Account email", kind: .publicText),
-                .init(name: "team-id", label: "Developer Team ID", kind: .publicText),
+                .init(name: "apple-team-id", label: "Developer Team ID", kind: .publicText),
             ],
             createURL: "https://account.apple.com/account/manage",
             gates: ["Sign in to the Apple Account", "Pass two-factor authentication", "Create a dedicated app-specific password under Sign-In and Security"],
@@ -443,7 +443,7 @@ public enum ProviderCatalog {
             rotateURL: "https://developer.apple.com/account/resources/certificates/list",
             expiryNote: "Developer ID certificates have an Apple-issued expiration date; replace before expiry.",
             verified: "2026-09-15"),
-    ]
+    ] + AdditionalProviderCatalog.all
 
     public static func find(_ idOrAlias: String) -> ProviderTemplate? {
         let needle = idOrAlias.lowercased().trimmingCharacters(in: .whitespaces)
