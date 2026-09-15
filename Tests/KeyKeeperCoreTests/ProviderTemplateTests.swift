@@ -141,6 +141,16 @@ final class ProviderTemplateTests: XCTestCase {
         XCTAssertEqual(ProviderProbe.outcome(.init(status: 403), validation: stripe), .unreachable, "受限 key 缺 Balance:Read 不算错 key")
     }
 
+    /// A scoped Supabase PAT can be genuine while lacking projects:read. A 403 must not tell the
+    /// user that the copied token is wrong; only 401 proves authentication failed.
+    func testSupabase受限令牌403不误判成假密钥() throws {
+        let supabase = try XCTUnwrap(ProviderCatalog.find("supabase"))
+        let validation = try XCTUnwrap(supabase.validation)
+        XCTAssertEqual(ProviderProbe.outcome(.init(status: 401), validation: validation), .invalid)
+        XCTAssertEqual(ProviderProbe.outcome(.init(status: 403), validation: validation), .unreachable)
+        XCTAssertTrue(supabase.minimalPermission.lowercased().contains("scoped"))
+    }
+
     func test十个模板都在_字段名就是SDK读的变量() {
         let expected = ["openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "gemini": "GEMINI_API_KEY",
                         "supabase": "SUPABASE_ACCESS_TOKEN", "vercel": "VERCEL_TOKEN", "github": "GITHUB_TOKEN",
