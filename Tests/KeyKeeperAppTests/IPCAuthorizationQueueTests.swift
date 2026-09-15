@@ -286,19 +286,15 @@ private final class QueueSession: SessionControlling, @unchecked Sendable {
 }
 
 extension IPCAuthorizationQueueTests {
-    /// yyt 2026-09-14：初次请求授权时「备注」应该是必填项。没有理由的首次请求在弹窗前就被拒，
-    /// 已经批准过的调用方照常不问。
-    func test首次请求没有理由就不弹窗直接拒() throws {
+    /// yyt 2026-09-15：没带理由的首次请求照样进队列弹窗（窗口里标出「没说理由」）；0.3.4 里直接拒的做法
+    /// 把 0.3.4 之前写好的后台集成全都静默弄挂了。
+    func test首次请求没有理由也弹窗() throws {
         let server = makeServer()
         let fd = try sendValueRequest(server: server, caller: makeCaller("silent"), reason: nil)
         defer { close(fd) }
         drainMainQueue()
-        XCTAssertNil(server.pendingServiceRequest, "不该进队列")
-        guard hasResponse(fd) else { return XCTFail("拒绝应当立刻回包，而不是让调用方干等") }
-        let response = try readValueResponse(fd)
-        XCTAssertFalse(response.success)
-        XCTAssertEqual(response.errorCode, .noAuthorization)
-        XCTAssertTrue(response.error?.contains("--reason") == true, response.error ?? "")
+        XCTAssertNotNil(server.pendingServiceRequest, "该进队列让人看见")
+        XCTAssertFalse(hasResponse(fd), "没答复之前调用方等着")
     }
 
     func test已批准的调用方没有理由也照常放行() throws {
@@ -313,7 +309,7 @@ extension IPCAuthorizationQueueTests {
         XCTAssertTrue(try readValueResponse(fd).success)
     }
 
-    func teststrict凭据的授权请求没有理由也被拒() throws {
+    func teststrict凭据的授权请求没有理由也弹窗() throws {
         try metaStore.save(MetaFile(credentials: [
             "strict-a": Credential(label: "Strict A", notes: "", links: [], fields: ["key": CredentialField(secret: true)],
                                    security: .strict, created: "2026-09-03", updated: "2026-09-03"),
@@ -326,13 +322,7 @@ extension IPCAuthorizationQueueTests {
                                              sessionId: nil, sessionLabel: nil, pid: 1),
                                  clientFd: descriptors[0], callerIdentity: makeCaller("mute"))
         drainMainQueue()
-        XCTAssertNil(server.pendingRequest)
-        var pollDescriptor = pollfd(fd: descriptors[1], events: Int16(POLLIN), revents: 0)
-        guard poll(&pollDescriptor, 1, 500) > 0 else { return XCTFail("拒绝应当立刻回包，而不是让调用方干等") }
-        guard let envelope = IPCMessage.readMessage(fd: descriptors[1], as: IPCResponse.self),
-              case .auth(let response) = envelope else { return XCTFail("no auth response") }
-        XCTAssertFalse(response.granted)
-        XCTAssertTrue(response.error?.contains("--reason") == true, response.error ?? "")
+        XCTAssertNotNil(server.pendingRequest, "该进队列让人看见")
     }
 }
 

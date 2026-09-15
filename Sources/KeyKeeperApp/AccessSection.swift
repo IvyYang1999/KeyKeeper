@@ -18,6 +18,13 @@ struct AccessEntry: Identifiable, Equatable {
     let activity: String
     let isActive: Bool
     let sortDate: Date
+    /// Everything behind the one line, for the disclosure. yyt 2026-09-15: "下钻展开看详情".
+    var details: [Detail] = []
+
+    struct Detail: Equatable {
+        let label: String
+        let value: String
+    }
 
     var symbolName: String {
         switch kind {
@@ -39,10 +46,50 @@ enum AccessEntryBuilder {
                 activity: approval.lastUsedAt.map { L("Used \(relative($0, now: now))") }
                     ?? L("Approved \(relative(approval.createdAt, now: now))"),
                 isActive: isActive(approval, now: now),
-                sortDate: approval.lastUsedAt ?? approval.createdAt
+                sortDate: approval.lastUsedAt ?? approval.createdAt,
+                details: details(approval, now: now)
             )
         }
         .sorted { $0.sortDate > $1.sortDate }
+    }
+
+    static func details(_ approval: Approval, now: Date) -> [AccessEntry.Detail] {
+        var rows: [AccessEntry.Detail] = []
+        let assurance = CallerAssurance.of(CallerSubject(kind: .executable, fingerprint: approval.subject.fingerprint,
+                                                         displayName: approval.subject.displayName, detail: ""))
+        rows.append(.init(label: "Identity", value: identityWords(assurance)))
+        if case .credential(_, let fields) = approval.target {
+            rows.append(.init(label: "Keys", value: fields.map { $0.joined(separator: ", ") } ?? L("every secret field")))
+        }
+        if let reason = approval.reason, !reason.isEmpty {
+            rows.append(.init(label: "Reason", value: CallerStatedReason.printableLine(reason, limit: 200)))
+        }
+        if let command = approval.command, !command.isEmpty {
+            rows.append(.init(label: "Command", value: CallerStatedReason.printableLine(command, limit: 200)))
+        }
+        rows.append(.init(label: "Approved", value: absolute(approval.createdAt)))
+        if let used = approval.lastUsedAt {
+            rows.append(.init(label: "Last used", value: absolute(used)))
+        }
+        return rows
+    }
+
+    /// The tier in plain words: what this approval is actually tied to.
+    static func identityWords(_ assurance: CallerAssurance) -> String {
+        switch assurance {
+        case .signed: return L("Signed app: this app and code it runs.")
+        case .unsigned: return L("Unsigned: the file it runs from.")
+        case .relayed: return L("Via the keykeeper command: the app or file it was started from.")
+        case .unverified: return L("Unidentified: matches nobody.")
+        }
+    }
+
+    private static func absolute(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = AppL10n.locale
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 
     static func kind(_ approval: Approval) -> AccessEntry.Kind {
@@ -102,6 +149,7 @@ struct AccessSection: View {
     let security: SecurityLevel
     @State private var entries: [AccessEntry] = []
     @State private var errorMessage: String?
+    @State private var expanded: Set<String> = []
 
     private let approvals = ApprovalStore.shared
 
@@ -147,8 +195,29 @@ struct AccessSection: View {
                             .font(.caption)
                             .foregroundColor(.red)
                             .buttonStyle(.plain)
+                        Button {
+                            if expanded.contains(entry.id) { expanded.remove(entry.id) } else { expanded.insert(entry.id) }
+                        } label: {
+                            Image(systemName: expanded.contains(entry.id) ? "chevron.down" : "chevron.right")
+                                .font(.caption2).foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(L("Details"))
                     }
                     .padding(.vertical, 4)
+                    if expanded.contains(entry.id) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(entry.details, id: \.label) { detail in
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text(AppL10n.text(detail.label)).font(.caption2).foregroundColor(.secondary).frame(width: 64, alignment: .leading)
+                                    Text(verbatim: detail.value).font(.caption2).textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+                        .padding(.leading, 24)
+                        .padding(.bottom, 6)
+                    }
 
                     if entry.id != entries.last?.id {
                         Divider()

@@ -17,6 +17,29 @@ final class AccessLogBuilderTests: XCTestCase {
         let entries = AccessLogBuilder.entries(approvals: [used, neverUsed], auditEvents: events)
         XCTAssertEqual(entries.map(\.who), ["claude", "node", "python"])
         XCTAssertEqual(entries.map(\.kind), [.approvedUse, .approvalRequired, .readWithoutApproval])
+        XCTAssertEqual(entries.map(\.fingerprint), ["fp", "y", "x"], "每条都带主体指纹，这样「请求了批准」的能原地批准")
+    }
+
+    /// yyt 2026-09-15：「未批准也没有拒绝的请求，能不能点击重新打开弹窗审批」。审计条目变成一个可以
+    /// 重新发起的常设授权请求；认不出的主体不能。
+    func test请求了批准的条目可以变成常设授权请求() {
+        let event = ServiceAuditEvent(timestamp: Date(timeIntervalSince1970: 200), credentialId: "feisou-admin", fieldName: "ADMIN_KEY",
+                                      subjectFingerprint: "relayed:app:unsigned:path=abc", subjectDisplayName: "com.darkconstant.console",
+                                      mode: .enforced, decision: "prompt_required", reason: "nightly sync", command: "node live.js")
+        let group = AccessLogBuilder.groups(AccessLogBuilder.entries(approvals: [], auditEvents: [event]))[0]
+        let request = try! XCTUnwrap(StandingApprovalRequest(group: group, credentialLabel: "飞搜 admin", fieldNames: ["ADMIN_KEY"]))
+        XCTAssertEqual(request.callerIdentity.subject.fingerprint, "relayed:app:unsigned:path=abc")
+        XCTAssertEqual(request.callerIdentity.subject.kind, .app)
+        XCTAssertEqual(request.reason, "nightly sync")
+        XCTAssertEqual(request.command, "node live.js")
+        let prompt = AuthorizationPrompt.standing(request)
+        XCTAssertEqual(prompt.credentialLabel, "飞搜 admin")
+        XCTAssertEqual(prompt.statedReason?.text, "nightly sync")
+        XCTAssertFalse(prompt.hasTerminalSession)
+        let unverified = ServiceAuditEvent(timestamp: Date(), credentialId: "c", fieldName: "f", subjectFingerprint: CallerSubject.unverifiedPrefix + "x",
+                                           subjectDisplayName: "?", mode: .enforced, decision: "prompt_required")
+        let g2 = AccessLogBuilder.groups(AccessLogBuilder.entries(approvals: [], auditEvents: [unverified]))[0]
+        XCTAssertNil(StandingApprovalRequest(group: g2, credentialLabel: "c", fieldNames: ["f"]), "认不出的主体存不了授权，也就没有按钮")
     }
 
     func test同一调用方反复读同一字段合并成一行并带次数和最近时间() {

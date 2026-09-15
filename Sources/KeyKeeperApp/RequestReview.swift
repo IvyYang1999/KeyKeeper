@@ -106,6 +106,7 @@ extension AuthorizationPrompt {
         switch self {
         case .strict(let request): return request.requestedDuration
         case .service(let request): return request.request.requestedDuration
+        case .standing: return nil
         }
     }
 
@@ -115,6 +116,7 @@ extension AuthorizationPrompt {
         switch self {
         case .strict(let request): raw = request.commandSummary
         case .service(let request): raw = request.request.commandSummary
+        case .standing(let request): raw = request.command
         }
         guard let raw else { return nil }
         let line = CallerStatedReason.printableLine(raw, limit: 200)

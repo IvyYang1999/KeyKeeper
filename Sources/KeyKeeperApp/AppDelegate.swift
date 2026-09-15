@@ -30,6 +30,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
+        StandingApprovalRequester.shared.handler = { [weak self] request in self?.handleStandingApproval(request) }
         ipcServer = IPCServer(session: credentialService, approvals: .shared,
             clipboardSaveController: ClipboardSaveController(service: credentialService, approvals: .shared),
             browserSessionController: browserSessions.controller)
@@ -318,6 +319,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.ipcServer.denyServiceRequest(pending)
             }
         )
+    }
+
+    /// From the access log: a caller asked, nobody answered in time — approve it now so the next
+    /// call goes through. Same window, same answers, no live request waiting behind it.
+    private func handleStandingApproval(_ request: StandingApprovalRequest) {
+        let authorize: (AuthorizationView.DurationChoice) throws -> Void = { choice in
+            let duration = try DurationResolution.issued(choice, sessionId: nil, identity: request.callerIdentity)
+            try ApprovalStore.shared.add(Approval(
+                subject: ApprovalSubject(fingerprint: request.callerIdentity.subject.fingerprint,
+                                         displayName: request.callerIdentity.displayName),
+                target: .credential(id: request.credentialId, fields: nil),
+                duration: duration,
+                onceFieldsRemaining: duration == .once ? request.fieldNames : nil,
+                reason: request.reason, command: request.command))
+            NotificationCenter.default.post(name: .credentialsChanged, object: nil)
+        }
+        authWindowController.show(standing: request, review: requestReview(for: .standing(request)), onAuthorize: authorize, onDeny: {})
     }
 
     /// The declared use and expiry come from meta.json; a missing or unreadable file just means

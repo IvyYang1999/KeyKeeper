@@ -19,6 +19,11 @@ final class AuthorizationDurationTests: XCTestCase {
         XCTAssertEqual(Choice.recommended(canRemember: false, canBindToRun: true, review: nil), .once)
     }
 
+    func test没说理由_推荐退到仅这一次() {
+        XCTAssertEqual(Choice.recommended(canRemember: true, canBindToRun: true, review: nil, reasonMissing: true), .once)
+        XCTAssertEqual(Choice.recommended(canRemember: true, canBindToRun: true, review: nil, reasonMissing: false), .thisRun)
+    }
+
     func test旧的时长愿望折进三档() {
         XCTAssertEqual(Choice(requested: .session), .thisRun)
         XCTAssertEqual(Choice(requested: .oneHour), .thisRun)

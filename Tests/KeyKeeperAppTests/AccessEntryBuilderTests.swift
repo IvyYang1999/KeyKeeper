@@ -26,6 +26,20 @@ final class AccessEntryBuilderTests: XCTestCase {
         XCTAssertEqual(entries[2].kind, .terminalSession)
     }
 
+    /// yyt 2026-09-15：「正在使用的、已经授权的凭据，是否能下钻展开看详情」。
+    func test每条授权带可展开的详情() {
+        let approval = Approval(subject: .init(fingerprint: "relayed:app:unsigned:path=abc", displayName: "com.openai.codex"),
+                                target: .credential(id: "vercel", fields: nil), duration: .always,
+                                createdAt: Date(timeIntervalSince1970: 1_000), lastUsedAt: Date(timeIntervalSince1970: 2_000),
+                                reason: "deploy preview", command: "vercel deploy --prod")
+        let entry = AccessEntryBuilder.entries(approvals: [approval], now: Date(timeIntervalSince1970: 3_000))[0]
+        let labels = entry.details.map(\.label)
+        XCTAssertTrue(labels.contains("Reason") && labels.contains("Command") && labels.contains("Identity") && labels.contains("Approved") && labels.contains("Last used"), "\(labels)")
+        XCTAssertEqual(entry.details.first { $0.label == "Reason" }?.value, "deploy preview")
+        XCTAssertEqual(entry.details.first { $0.label == "Command" }?.value, "vercel deploy --prod")
+        XCTAssertTrue(entry.details.first { $0.label == "Identity" }!.value.contains("keykeeper"), "档位用人话")
+    }
+
     func test过期与已消费的授权不再标为活跃() {
         let expired = Approval(id: "g", subject: cron, target: .credential(id: "c", fields: nil), duration: .timed(now.addingTimeInterval(-1)))
         let consumed = Approval(id: "g2", subject: cron, target: .credential(id: "c", fields: nil), duration: .once, consumed: true)

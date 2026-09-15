@@ -138,8 +138,9 @@ decides where the key is sent. Ask the user to confirm it; do not work around it
 
 Whenever KeyKeeper would have to ask the user — a key set to ask every time, or the first time
 you use a "Background OK" key while the user has background reads set to ask first — the request
-**must** carry `--reason`. Without it KeyKeeper refuses before showing anything and tells you to
-add one. Once the user has approved you, later calls need no reason and show no window.
+**must** carry `--reason`. Without it the person still gets the window, but it says in orange
+that you gave no reason and recommends allowing you only once — so a missing reason costs the
+user a prompt every time. Once the user has approved you, later calls need no reason and show no window.
 
 ```bash
 keykeeper run -c cloudflare-billing --reason "Checking this month's bill; one read-only call, then done" -- python bill.py

@@ -576,12 +576,14 @@ public enum AccessPolicy {
 /// necessary" by, so an agent asking for the first time must give one. Callers already approved
 /// never see a prompt and are not asked; cron jobs keep running.
 public enum ReasonPolicy {
-    public static func refusal(statedReason: CallerStatedReason?, callerName: String, credentialLabel: String) -> String? {
-        // 【曾经的 bug】the first draft of this guard was inverted and let every reason-less request through.
+    /// What the window says when a caller gave no reason. 0.3.4 refused such requests outright;
+    /// that silently broke every integration written before 0.3.4 (they carry no --reason and
+    /// discard stderr) the moment the identity change made them "first requests" again. The
+    /// person now still sees the window, told plainly that nothing was said, with "just this
+    /// once" recommended. The skill keeps --reason as a hard rule for agents.
+    public static func missingReasonNote(statedReason: CallerStatedReason?, callerName: String) -> String? {
         if let text = statedReason?.text, !text.isEmpty { return nil }
-        do {
-            return "First request from \(callerName) for '\(credentialLabel)': say why in one line with --reason \"…\" and run again. The person approving reads it. Callers already approved never need it."
-        }
+        return "\(callerName) gave no reason for this request."
     }
 }
 

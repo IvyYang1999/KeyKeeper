@@ -2,9 +2,41 @@ import SwiftUI
 import LocalAuthentication
 import KeyKeeperCore
 
+/// An approval raised from the access log rather than from a live request: "this caller asked
+/// and nobody answered in time — approve it now, so the next call goes through". yyt 2026-09-15.
+struct StandingApprovalRequest {
+    let credentialId: String
+    let credentialLabel: String
+    let fieldNames: [String]
+    let callerIdentity: CallerIdentity
+    let reason: String?
+    let command: String?
+
+    /// Nil when the subject could never hold an approval (unverified).
+    init?(group: AccessLogGroup, credentialLabel: String, fieldNames: [String]) {
+        guard GrantIssuancePolicy.mayRemember(subjectFingerprint: group.fingerprint) else { return nil }
+        let kind: CallerSubject.Kind = group.fingerprint.contains("app:") ? .app : group.fingerprint.contains("script:") ? .script : .executable
+        self.credentialId = group.credentialId
+        self.credentialLabel = credentialLabel
+        self.fieldNames = fieldNames
+        self.callerIdentity = CallerIdentity(peerPID: 0, subject: CallerSubject(kind: kind, fingerprint: group.fingerprint,
+                                                                                 displayName: group.who, detail: ""))
+        self.reason = group.reason
+        self.command = group.command
+    }
+}
+
+/// How the access log reaches the authorization window, which the app delegate owns.
+@MainActor
+final class StandingApprovalRequester {
+    static let shared = StandingApprovalRequester()
+    var handler: ((StandingApprovalRequest) -> Void)?
+}
+
 enum AuthorizationPrompt {
     case strict(AuthRequest)
     case service(IPCServer.PendingServiceRequest)
+    case standing(StandingApprovalRequest)
 
     var title: String {
         switch self {
@@ -12,6 +44,8 @@ enum AuthorizationPrompt {
             return L("Authorization Request")
         case .service:
             return L("Service Authorization Request")
+        case .standing:
+            return L("Approve for next time")
         }
     }
 
@@ -32,6 +66,8 @@ enum AuthorizationPrompt {
             return request.credentialId
         case .service(let request):
             return request.credentialId
+        case .standing(let request):
+            return request.credentialId
         }
     }
 
@@ -40,6 +76,8 @@ enum AuthorizationPrompt {
         case .strict(let request):
             return request.credentialLabel
         case .service(let request):
+            return request.credentialLabel
+        case .standing(let request):
             return request.credentialLabel
         }
     }
@@ -52,6 +90,8 @@ enum AuthorizationPrompt {
             return CallerStatedReason.sanitize(request.statedReason?.text)
         case .service(let request):
             return CallerStatedReason.sanitize(request.request.statedReason?.text)
+        case .standing(let request):
+            return CallerStatedReason.sanitize(request.reason)
         }
     }
 
@@ -65,6 +105,8 @@ enum AuthorizationPrompt {
         case .strict(let request):
             return request.fieldNames
         case .service(let request):
+            return request.fieldNames
+        case .standing(let request):
             return request.fieldNames
         }
     }
@@ -91,6 +133,8 @@ enum AuthorizationPrompt {
             return request.callerIdentity?.peerPID ?? request.pid
         case .service(let request):
             return request.callerIdentity.peerPID
+        case .standing:
+            return 0
         }
     }
 
@@ -100,8 +144,13 @@ enum AuthorizationPrompt {
             return request.callerIdentity
         case .service(let request):
             return request.callerIdentity
+        case .standing(let request):
+            return request.callerIdentity
         }
     }
+
+    /// The caller said nothing about why. Shown plainly; the recommended answer drops to once.
+    var reasonMissing: Bool { statedReason == nil }
 }
 
 struct AuthorizationView: View {
@@ -264,8 +313,9 @@ struct AuthorizationView: View {
 
         /// The one drawn prominent: the rules' suggestion when they made one, the agent's own
         /// wish when they did not, otherwise "while it runs" — never an answer not on offer.
-        static func recommended(canRemember: Bool, canBindToRun: Bool, review: RequestReview?) -> DurationChoice {
+        static func recommended(canRemember: Bool, canBindToRun: Bool, review: RequestReview?, reasonMissing: Bool = false) -> DurationChoice {
             let offered = available(canRemember: canRemember, canBindToRun: canBindToRun)
+            if reasonMissing { return .once }
             let wanted = review?.rules.suggestedDuration ?? review?.input.requestedDuration
             if let wanted, offered.contains(DurationChoice(requested: wanted)) { return DurationChoice(requested: wanted) }
             return offered.contains(.thisRun) ? .thisRun : .once
@@ -279,7 +329,7 @@ struct AuthorizationView: View {
 
     private var canBindToRun: Bool { prompt.hasTerminalSession || prompt.callerIdentity?.subjectPID != nil }
     private var choices: [DurationChoice] { DurationChoice.available(canRemember: callerAssurance.canRemember, canBindToRun: canBindToRun) }
-    private var recommended: DurationChoice { DurationChoice.recommended(canRemember: callerAssurance.canRemember, canBindToRun: canBindToRun, review: review) }
+    private var recommended: DurationChoice { DurationChoice.recommended(canRemember: callerAssurance.canRemember, canBindToRun: canBindToRun, review: review, reasonMissing: prompt.reasonMissing) }
 
     // yyt 2026-09-14: one thing per band, top to bottom — who wants what; what it says; what
     // KeyKeeper thinks; the three answers. Everything else is behind "Details".
@@ -414,6 +464,18 @@ struct AuthorizationView: View {
     /// command line under it in small type when the caller reported one.
     @ViewBuilder
     private var statedReasonSection: some View {
+        if prompt.reasonMissing {
+            // yyt 2026-09-15: silence is shown, not punished. The recommended answer is "once".
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.bubble").foregroundColor(.orange)
+                Text(L("\(callerName) gave no reason for this request."))
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .surface(.card)
+        }
         if prompt.statedReason != nil || review?.input.command != nil {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {

@@ -17,6 +17,13 @@ final class AuthorizationWindowController {
         show(prompt: .strict(request), waiting: waiting, review: review, onAuthorize: onAuthorize, onDeny: onDeny)
     }
 
+    func show(standing request: StandingApprovalRequest,
+              review: RequestReview? = nil,
+              onAuthorize: @escaping (AuthorizationView.DurationChoice) throws -> Void,
+              onDeny: @escaping () -> Void) {
+        show(prompt: .standing(request), waiting: 0, review: review, onAuthorize: onAuthorize, onDeny: onDeny)
+    }
+
     func show(serviceRequest: IPCServer.PendingServiceRequest,
               waiting: Int = 0,
               review: RequestReview? = nil,

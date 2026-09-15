@@ -566,12 +566,6 @@ final class IPCServer: ObservableObject {
             send(.auth(AuthResponse(granted: false, error: refusal)), clientFd: clientFd)
             return
         }
-        if let refusal = ReasonPolicy.refusal(statedReason: enrichedRequest.statedReason,
-                                              callerName: callerIdentity.displayName, credentialLabel: credential.label) {
-            send(.auth(AuthResponse(granted: false, error: refusal)), clientFd: clientFd)
-            return
-        }
-
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard self.clipboardSaveController?.isPending != true, self.browserSessionController?.isPending != true else {
@@ -741,13 +735,7 @@ final class IPCServer: ObservableObject {
                 Self.writeAndClose(IPCResponse.value(ValueResponse(
                     success: false, error: "No valid grant", errorCode: .noAuthorization)), clientFd: clientFd)
             case .needsApproval:
-                // A first request has to say why before anyone is shown a window.
-                if let refusal = ReasonPolicy.refusal(statedReason: request.statedReason,
-                                                      callerName: callerIdentity.displayName, credentialLabel: cred.label) {
-                    Self.writeAndClose(IPCResponse.value(ValueResponse(
-                        success: false, error: refusal, errorCode: .noAuthorization)), clientFd: clientFd)
-                    return
-                }
+                // A request with no stated reason still gets its window; the window says so.
                 enqueueServiceRequest(request, credential: cred, clientFd: clientFd, callerIdentity: callerIdentity)
             }
         } catch {

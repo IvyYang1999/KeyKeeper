@@ -122,9 +122,10 @@ expect_not_contains "and not injected" "REGION=us-east-1" "$OUT"
 echo "==> strict credential: every run asks, the instance answers 'once'"
 OUT="$("$KK" save -c strict1 --field key --from-source "$TMP/config.py" --python-symbol STRICT_KEY --create 2>&1)"
 expect_contains "save strict" "Saved" "$OUT"
-OUT="$("$KK" run -c strict1 -- sh -c 'test "$KEY" = synthetic-strict-e2e && echo MATCH' 2>&1 || true)"
-expect_contains "a first request without a reason is refused" "--reason" "$OUT"
-expect_not_contains "and nothing is handed out" "MATCH" "$OUT"
+# 2026-09-15: a request without a reason still gets its window (the window says so); the
+# isolated instance answers it like any other, so the run goes through.
+OUT="$("$KK" run -c strict1 -- sh -c 'test "$KEY" = synthetic-strict-e2e && echo MATCH' 2>&1)"
+expect_contains "a first request without a reason still reaches the window" "MATCH" "$OUT"
 OUT="$("$KK" run -c strict1 --reason "e2e: checking the key is injected" -- sh -c 'test "$KEY" = synthetic-strict-e2e && echo MATCH' 2>&1)"
 expect_contains "strict run after approval" "MATCH" "$OUT"
 OUT="$("$KK" run -c strict1 --reason "e2e: second run" --duration always -- sh -c 'test "$KEY" = synthetic-strict-e2e && echo MATCH' 2>&1)"

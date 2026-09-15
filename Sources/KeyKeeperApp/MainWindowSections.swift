@@ -136,6 +136,10 @@ struct AccessLogEntry: Identifiable, Equatable {
     let credentialId: String
     let detail: String
     let kind: Kind
+    /// The subject as the store knows it: what an approval raised from this row would be for.
+    var fingerprint: String = ""
+    var reason: String?
+    var command: String?
 }
 
 enum AccessLogBuilder {
@@ -145,12 +149,14 @@ enum AccessLogBuilder {
             return AccessLogEntry(id: "use:\(approval.id)", date: used,
                                   who: CallerStatedReason.printableLine(approval.subject.displayName, limit: 80),
                                   credentialId: id, detail: (fields ?? []).joined(separator: ", "),
-                                  kind: .approvedUse)
+                                  kind: .approvedUse, fingerprint: approval.subject.fingerprint,
+                                  reason: approval.reason, command: approval.command)
         }
         let events = auditEvents.enumerated().map { index, event in
             AccessLogEntry(id: "audit:\(index):\(event.timestamp.timeIntervalSince1970)", date: event.timestamp,
                            who: event.subjectDisplayName, credentialId: event.credentialId, detail: event.fieldName,
-                           kind: event.decision == "allowed_without_grant" ? .readWithoutApproval : .approvalRequired)
+                           kind: event.decision == "allowed_without_grant" ? .readWithoutApproval : .approvalRequired,
+                           fingerprint: event.subjectFingerprint, reason: event.reason, command: event.command)
         }
         return Array((uses + events).sorted { $0.date > $1.date }.prefix(limit))
     }
@@ -164,12 +170,17 @@ enum AccessLogBuilder {
             let key = [entry.who, entry.credentialId, entry.detail, "\(entry.kind)"].joined(separator: "\u{1F}")
             if var group = byKey[key] {
                 group.count += 1
-                group.latest = max(group.latest, entry.date)
+                if entry.date > group.latest {
+                    group.latest = entry.date
+                    group.reason = entry.reason ?? group.reason
+                    group.command = entry.command ?? group.command
+                }
                 byKey[key] = group
             } else {
                 order.append(key)
                 byKey[key] = AccessLogGroup(id: key, who: entry.who, credentialId: entry.credentialId,
-                                            detail: entry.detail, kind: entry.kind, count: 1, latest: entry.date)
+                                            detail: entry.detail, kind: entry.kind, count: 1, latest: entry.date,
+                                            fingerprint: entry.fingerprint, reason: entry.reason, command: entry.command)
             }
         }
         return order.compactMap { byKey[$0] }.sorted {
@@ -186,6 +197,9 @@ struct AccessLogGroup: Identifiable, Equatable {
     let kind: AccessLogEntry.Kind
     var count: Int
     var latest: Date
+    var fingerprint: String = ""
+    var reason: String?
+    var command: String?
 }
 
 /// Shown while background reads need no approval ("permissive" mode, the default). It says
@@ -320,8 +334,24 @@ struct AccessLogPage: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(group.who) · \(label(for: group.credentialId))").lineLimit(1).truncationMode(.middle)
                 Text(group.detail).font(.caption.monospaced()).foregroundColor(.secondary)
+                // yyt 2026-09-15: what it said and ran, right here — no second page.
+                if let reason = group.reason, !reason.isEmpty {
+                    Text(verbatim: "\u{201C}" + CallerStatedReason.printableLine(reason, limit: 120) + "\u{201D}")
+                        .font(.caption).foregroundColor(.secondary).lineLimit(1).truncationMode(.tail)
+                }
+                if let command = group.command, !command.isEmpty {
+                    Text(verbatim: "$ " + CallerStatedReason.printableLine(command, limit: 120))
+                        .font(.caption2.monospaced()).foregroundColor(.secondary).lineLimit(1).truncationMode(.middle)
+                }
             }
             Spacer()
+            // A request nobody answered in time can be approved from here for the next call.
+            if group.kind == .approvalRequired, let standing = standingRequest(group) {
+                Button(L("Approve now")) { StandingApprovalRequester.shared.handler?(standing) }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
             tag(group.kind)
             Text(group.count > 1 ? L("\(group.count) times") : "")
                 .font(.caption.monospacedDigit())
@@ -350,6 +380,12 @@ struct AccessLogPage: View {
     private func label(for id: String) -> String {
         (credentials.first { $0.id == id } ?? credentials.first { $0.credential.aliases?.contains(id) == true })?
             .credential.label ?? id
+    }
+
+    private func standingRequest(_ group: AccessLogGroup) -> StandingApprovalRequest? {
+        let credential = (credentials.first { $0.id == group.credentialId } ?? credentials.first { $0.credential.aliases?.contains(group.credentialId) == true })?.credential
+        let fields = credential.map { $0.fields.filter(\.value.secret).map(\.key).sorted() } ?? [group.detail]
+        return StandingApprovalRequest(group: group, credentialLabel: label(for: group.credentialId), fieldNames: fields)
     }
 
     private func relative(_ date: Date) -> String {
