@@ -124,6 +124,7 @@ The moat is the fourth row. Token-based tools hand out a reusable secret that an
 | `keykeeper list` | IDs and labels |
 | `keykeeper list --detail` | plus notes and field names (secrets shown as `********`) |
 | `keykeeper meta <id>` | one credential as JSON, no values |
+| `keykeeper providers` / `providers show <id>` | built-in provider contracts: official creation page, complete fields, least privilege and safe validation |
 | `keykeeper run -c <id> [-c <id2>] [--prefix PREFIX_] [--verbose] [--tty] -- <command>` | run a command with the keys injected |
 | `keykeeper status` | is the app reachable (it starts on demand anyway) |
 | `keykeeper grants list` / `grants revoke <id>` | approvals: which callers may use which keys or logins, for how long |

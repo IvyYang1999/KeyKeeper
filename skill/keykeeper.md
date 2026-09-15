@@ -226,23 +226,39 @@ When a task needs a service the user has no key for, do not stop and ask them to
 key" — run the flow. `keykeeper providers` lists the templates; `keykeeper providers show <id>`
 prints one as JSON: `createURL` (the official page), `gates` (the steps only the person can do:
 login, MFA, billing, project/workspace choice), `minimalPermission` (what to pick on that page),
-`prefix`/`minChars` (what the key looks like), `shownOnce`, and `validation` (the read-only
-request KeyKeeper itself makes after saving). Then:
+`fields` (the complete credential bundle and each field's kind), `prefixes`/`minChars` (what a
+text key looks like), `shownOnce`, and `validation` (the read-only request KeyKeeper itself makes
+after saving). The built-in catalog covers AI/model vendors, Apple Developer, Google service
+accounts and analytics, deployment/cloud, observability, package publishing and messaging. Then:
 
 1. Open `createURL` for the user (a browser tool if you have one, otherwise give the link) and
    tell them, in one sentence, what to choose: the `minimalPermission`, and that the key is
    shown once. The gates are theirs — never try to log in, pass MFA or pay for them.
-2. Once they have copied the key, run
-   `keykeeper save --provider <id> --from-clipboard --create --purpose "<what this task does>"`.
-   `-c` and `--field` come from the template (`openai` → `openai-api-key` → `OPENAI_API_KEY`),
-   so the SDK's own environment variable is set by `keykeeper run -c openai -- …` with no mapping.
+2. Import the template's **primary** field with the source required by its kind:
+   - `secretText`: after the person copies it, run
+     `keykeeper save --provider <id> --from-clipboard --create --purpose "<what this task does>"`.
+   - `secretFile`: pass only the downloaded file's absolute path:
+     `keykeeper save --provider <id> --from-file /absolute/path/to/file --create --purpose "<what this task does>"`.
+     The App, not the Agent, reads and validates the file after confirmation.
+   - `localIdentity`: do not import or export it. It stays in the macOS Keychain; follow the
+     template's `gates` to create/select the signing identity locally.
+   `-c` and `--field` come from the template. A non-primary field cannot create a half-bundle.
 3. Read the result. KeyKeeper refuses before writing when the value does not look like that
    provider's key ("OpenAI keys start with sk-; this value does not") — ask the user to copy
    again. After a save it verifies the key with the provider's read-only request and tells you
    `accepted`, `rejected` or `could not reach`. On `rejected`, ask them to check the account and
    save again with `--replace`; on `could not reach`, go on with the task and watch the first call.
-4. Continue the original task with `keykeeper run -c <id> -- <command>`. The value never
-   reaches you at any step.
+4. If the success message lists required non-secret fields (account, project, key or team IDs),
+   add them with `keykeeper edit <id> --set field=value`; they remain held back until the person
+   confirms them in the App. Never send a second secret through `edit --set`.
+5. Continue the original task with `keykeeper run -c <id> -- <command>`. File credentials need
+   the explicit `--file credential:field=ENVIRONMENT_VARIABLE` mapping shown by KeyKeeper. The
+   value never reaches you at any step.
+
+Some providers intentionally have no automatic online validation: their only check requires a
+POST body, request signing, a tenant-specific host, or putting the secret in the URL. In that case
+KeyKeeper reports that runtime/provider access is not verified. Do not replace that honest result
+with an unsafe probe; verify through the first authorized task call.
 
 No template for the service? Fall back to the plain `save --create` flow below with `-c`,
 `--field` and, when the provider documents the key's shape, `--expect`.
@@ -334,6 +350,8 @@ For an explicitly authorized service-account JSON file, pass only the exact abso
 
 ```bash
 keykeeper save -c ga4-service --field credentials-json --from-file /absolute/path/download.json --create
+# With a built-in provider contract, the file type and primary field come from the template:
+keykeeper save --provider ga4 --from-file /absolute/path/download.json --create
 ```
 
 The App reads the owned regular UTF-8 file after native confirmation, validates its shape
@@ -369,6 +387,13 @@ Downloaded originals may still contain plaintext. Report that they remain; do no
 delete, move or edit them, and do not include them in git, screenshots or logs. Removal needs
 explicit authorization for the exact original. After safe import/use verification, resume
 the original task with a minimal read-only provider check, without printing secrets.
+
+Apple App Store Connect and APNs `.p8` files use the same typed file path with
+`--provider app-store-connect` or `--provider apns`. KeyKeeper accepts only a bounded UTF-8 PEM
+document that parses as a P-256 private key; it never prints the key. Apple Notary is a text-secret
+bundle (`APPLE_APP_SPECIFIC_PASSWORD` plus non-secret `APPLE_ID` and `APPLE_TEAM_ID`). A Developer
+ID signing identity is `localIdentity`: its private key must remain in the macOS Keychain and is
+never an import target.
 
 ### Website Copy → KeyKeeper: native Chrome (verified on macOS)
 
