@@ -36,6 +36,9 @@ KeyKeeper 是一个小小的 macOS 菜单栏应用，外加 `keykeeper` 命令�
 
 ## 目录
 
+**文档：[keykeeper.dev/docs](https://keykeeper.dev/docs)**（英文）——开始使用、授权、服务商模板、安全模型、给 Agent 的规则。
+
+
 - [快速开始](#快速开始)
 - [工作原理](#工作原理)
 - [为什么不直接用 .env](#为什么不直接用-env)

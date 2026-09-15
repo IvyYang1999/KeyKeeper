@@ -36,6 +36,9 @@ There is no master password, no vault to unlock, no `.env` to leak into git or c
 
 ## Contents
 
+**Docs: [keykeeper.dev/docs](https://keykeeper.dev/docs)** — getting started, approvals, provider templates, the security model, and the rules agents follow.
+
+
 - [Quick start](#quick-start)
 - [How it works](#how-it-works)
 - [Why not just .env?](#why-not-just-env)
