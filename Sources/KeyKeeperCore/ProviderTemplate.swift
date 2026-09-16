@@ -426,7 +426,7 @@ public enum ProviderCatalog {
             expiryNote: "Keys do not expire; Resend suggests removing keys unused for 30 days.",
             verified: "2026-09-15"),
         ProviderTemplate(
-            id: "siliconflow", name: "SiliconFlow · China (硅基流动)", aliases: ["硅基流动", "siliconflow-cn"],
+            id: "siliconflow", name: "SiliconFlow · China", aliases: ["硅基流动", "siliconflow-cn"],
             fieldName: "siliconflow-api-key",
             createURL: "https://cloud.siliconflow.cn/account/ak",
             gates: ["Log in with phone or email", "Some models require real-name verification first"],
