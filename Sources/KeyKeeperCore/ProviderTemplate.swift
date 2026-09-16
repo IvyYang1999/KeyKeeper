@@ -127,6 +127,35 @@ public struct ProviderEndpoint: Codable, Equatable, Sendable {
     }
 }
 
+/// Where a person who has no account yet can sign up. yyt 2026-09-16: "创建 key 的那个链接，确实
+/// 可以放联盟营销的链接" — but a referral link is a sign-up page, useless and confusing to
+/// someone already logged in, so it lives next to `createURL`, never replaces it. What each side
+/// gets is stated in the template itself, printed by the CLI and shown in the docs, so the
+/// disclosure travels with the link. Nothing else in a template — order, permissions, advice —
+/// may depend on this field; a test enforces the ordering.
+public struct ProviderSignup: Codable, Equatable, Sendable {
+    /// The referral sign-up page; https only.
+    public var url: String
+    /// What the person gets by signing up through it ("2000 万 tokens"), if anything.
+    public var whatYouGet: String?
+    /// What KeyKeeper gets ("$5 in credits once you spend $10"), always stated.
+    public var whatWeGet: String
+    /// An invite code to enter on the form when the provider works that way.
+    public var code: String?
+
+    public init(url: String, whatYouGet: String? = nil, whatWeGet: String, code: String? = nil) {
+        self.url = url; self.whatYouGet = whatYouGet; self.whatWeGet = whatWeGet; self.code = code
+    }
+
+    /// The sentence an agent says when it offers the link. English; the person reads it.
+    public var disclosure: String {
+        var parts = ["Signing up through this link gives KeyKeeper \(whatWeGet)."]
+        if let whatYouGet { parts.insert("You get \(whatYouGet).", at: 0) }
+        if let code { parts.append("Invite code: \(code).") }
+        return parts.joined(separator: " ")
+    }
+}
+
 public struct ProviderTemplate: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var name: String
@@ -155,13 +184,16 @@ public struct ProviderTemplate: Codable, Equatable, Sendable, Identifiable {
     public var verified: String
     public var endpoints: [ProviderEndpoint]?
     public var sources: [String]?
+    /// Only for people without an account; see `ProviderSignup`. Nil for most providers.
+    public var signup: ProviderSignup?
 
     public init(id: String, name: String, aliases: [String] = [], fieldName: String,
                 fields: [ProviderFieldTemplate]? = nil, createURL: String,
                 gates: [String], minimalPermission: String, prefixes: [String] = [], minChars: Int? = nil,
                 shownOnce: Bool, validation: ProviderValidation? = nil, rotateURL: String? = nil,
                 expiryNote: String? = nil, verified: String,
-                endpoints: [ProviderEndpoint]? = nil, sources: [String]? = nil) {
+                endpoints: [ProviderEndpoint]? = nil, sources: [String]? = nil,
+                signup: ProviderSignup? = nil) {
         self.id = id
         self.name = name
         self.aliases = aliases
@@ -180,6 +212,7 @@ public struct ProviderTemplate: Codable, Equatable, Sendable, Identifiable {
         self.verified = verified
         self.endpoints = endpoints
         self.sources = sources
+        self.signup = signup
     }
 
     /// The environment variable `keykeeper run` sets for this field (no prefix).
@@ -219,6 +252,10 @@ public struct ProviderTemplate: Codable, Equatable, Sendable, Identifiable {
             if !endpoint.baseURL.hasPrefix("https://") || endpoint.protocolName.isEmpty {
                 problems.append("endpoint must name a protocol and use HTTPS")
             }
+        }
+        if let signup {
+            if !signup.url.hasPrefix("https://") { problems.append("signup url must use HTTPS") }
+            if signup.whatWeGet.trimmingCharacters(in: .whitespaces).isEmpty { problems.append("signup must say what KeyKeeper gets") }
         }
         return problems
     }

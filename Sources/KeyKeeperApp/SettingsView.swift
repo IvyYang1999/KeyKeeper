@@ -61,6 +61,7 @@ struct SettingsView: View {
                     updatesCard
                     cliCard
                     AgentPluginsCard()
+                    referralCard
                     dataCard
                     Text("KeyKeeper \(BuildVersion.identifier)")
                         .font(.caption2)
@@ -258,6 +259,20 @@ struct SettingsView: View {
             if let launchAtLoginError {
                 Text(launchAtLoginError).font(.caption2).foregroundColor(.red)
             }
+        }
+        .dsCard(padding: DS.Spacing.md)
+    }
+
+    private var referralCard: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+            SectionLabel(text: L("Sign-up links"))
+            Toggle(L("Show a provider's referral sign-up link when adding a key"), isOn: Binding(
+                get: { ReferralPreference.isEnabled() }, set: { ReferralPreference.set($0) }))
+                .font(.callout)
+            Text(L("Only for providers you have no account with, next to the normal key page, never instead of it. What KeyKeeper gets is stated on the link. Which providers are listed, and in what order, does not depend on it."))
+                .font(.caption2).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Link(L("Referral policy"), destination: URL(string: "https://keykeeper.dev/docs/referrals")!).font(.caption)
         }
         .dsCard(padding: DS.Spacing.md)
     }

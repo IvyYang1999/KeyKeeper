@@ -236,7 +236,11 @@ accounts and analytics, deployment/cloud, observability, package publishing and 
 1. Open `createURL` for the user (a browser tool if you have one, otherwise give the link) and
    tell them, in one sentence, what to choose: the `minimalPermission`, and — only when
    `shownOnce` is true — that the key must be copied before leaving. The gates are theirs — never
-   try to log in, pass MFA or pay for them. If the page shows an actual expiration date, retain the
+   try to log in, pass MFA or pay for them. If the template has a `signup` entry and the person
+   says they have no account there, offer `signup.url` as a second link and say
+   `signup.disclosure` word for word (what they get, what KeyKeeper gets, any invite code). Never
+   send someone who already has an account there, never present it instead of `createURL`, and
+   drop it if they say they would rather not use referral links. If the page shows an actual expiration date, retain the
    date as metadata for the save; never infer one from the provider name or `expiryNote`.
 2. Import the template's **primary** field with the source required by its kind:
    - `secretText`: after the person copies it, run
