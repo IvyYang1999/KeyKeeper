@@ -8,7 +8,7 @@ final class RoutingModelProviderTests: XCTestCase {
 
     func testOpenCodeConsole保留Zen路由且不用上游厂商变量() throws {
         let provider = try XCTUnwrap(find("opencode-zen"))
-        XCTAssertEqual(provider.name, "OpenCode Console (Zen endpoint)")
+        XCTAssertEqual(provider.name, "OpenCode · Zen (Console)")
         XCTAssertEqual(provider.environmentName, "OPENCODE_API_KEY")
         XCTAssertEqual(provider.createURL, "https://opencode.ai/console/")
         XCTAssertEqual(provider.endpoints, [

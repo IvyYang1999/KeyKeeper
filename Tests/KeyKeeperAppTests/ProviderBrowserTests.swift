@@ -12,7 +12,7 @@ final class ProviderBrowserTests: XCTestCase {
 
     func test搜索名称中文旧别名和多关键词不混淆地区套餐() {
         XCTAssertEqual(ProviderBrowser.results(query: "  cHaTgPt  ").map(\.id), ["openai"])
-        XCTAssertEqual(ProviderBrowser.results(query: "飞书").map(\.id), ["feishu", "lark"])
+        XCTAssertEqual(ProviderBrowser.results(query: "飞书").map(\.id), ["feishu"])
         XCTAssertEqual(ProviderBrowser.results(query: "zhipu coding").map(\.id), ["zhipu-cn-coding"])
         XCTAssertEqual(ProviderBrowser.results(query: "mimo europe").map(\.id), ["xiaomi-mimo-token-plan-eu"])
         XCTAssertEqual(ProviderBrowser.results(query: "does-not-exist"), [])
@@ -95,7 +95,7 @@ final class ProviderBrowserTests: XCTestCase {
         XCTAssertEqual(try label("zhipu-cn"), "开放平台 (中国)")
         XCTAssertEqual(try label("aws-sts"), "STS · Temporary credentials")
         XCTAssertEqual(try label("dockerhub-oat"), "Organization access token")
-        XCTAssertEqual(try label("lark"), "(Global)")
+        XCTAssertEqual(try label("lark"), "Lark (Global)")
         XCTAssertEqual(ProviderBrowser.variantLabel("Stripe", stripping: ["Stripe"]), "Stripe")
         XCTAssertEqual(ProviderBrowser.environmentSummary(try XCTUnwrap(ProviderCatalog.find("openai"))), "OPENAI_API_KEY")
         XCTAssertEqual(ProviderBrowser.environmentSummary(try XCTUnwrap(ProviderCatalog.find("vercel"))), "VERCEL_TOKEN +2")
@@ -108,7 +108,7 @@ final class ProviderBrowserTests: XCTestCase {
         XCTAssertEqual(template.id, "xiaomi-mimo-token-plan-eu")
         XCTAssertEqual(family.id, "xiaomi-mimo")
         XCTAssertFalse(nested)
-        XCTAssertEqual(variant, "Token Plan (欧洲)")
+        XCTAssertEqual(variant, "Token Plan (Europe)")
 
         let many = ProviderBrowser.rows(query: "mimo", expanded: [])
         XCTAssertEqual(many.map(\.id), ["family:xiaomi-mimo", "template:xiaomi-mimo-payg", "template:xiaomi-mimo-token-plan-cn",

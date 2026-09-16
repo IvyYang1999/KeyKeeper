@@ -40,7 +40,7 @@ enum CloudModelProviderCatalog {
             context: [regionField(name: "aws-region", label: "AWS Region")]),
         ModelProviderTemplate.make(
             id: "baidu-qianfan-cn",
-            name: "百度千帆（中国）",
+            name: "百度千帆 · 中国站",
             aliases: ["Baidu Qianfan", "Qianfan CN"],
             env: "QIANFAN_API_KEY",
             createURL: "https://console.bce.baidu.com/iam/",
@@ -58,7 +58,7 @@ enum CloudModelProviderCatalog {
             context: [qianfanAppID]),
         ModelProviderTemplate.make(
             id: "baidu-qianfan-global",
-            name: "Baidu AI Cloud Qianfan（International）",
+            name: "百度千帆 · 国际站 (Baidu AI Cloud Qianfan)",
             aliases: ["Qianfan Global", "Baidu Qianfan International"],
             env: "QIANFAN_API_KEY",
             createURL: "https://console.bce.baidu.com/iam/",
@@ -92,7 +92,7 @@ enum CloudModelProviderCatalog {
             expiry: "当前 Token 福利包文档列出的套餐有效期为 1 个月；API Key 本身是否随套餐到期未单独确认。"),
         ModelProviderTemplate.make(
             id: "nvidia-api-catalog",
-            name: "NVIDIA API Catalog",
+            name: "NVIDIA · API Catalog",
             aliases: ["NVIDIA hosted NIM", "build.nvidia.com"],
             env: "NVIDIA_API_KEY",
             createURL: "https://build.nvidia.com/settings/api-keys",
@@ -109,7 +109,7 @@ enum CloudModelProviderCatalog {
             ]),
         ModelProviderTemplate.make(
             id: "nvidia-ngc",
-            name: "NVIDIA NGC",
+            name: "NVIDIA · NGC",
             aliases: ["NGC API key", "NVIDIA GPU Cloud"],
             env: "NGC_API_KEY",
             createURL: "https://org.ngc.nvidia.com/setup/api-keys",
@@ -130,7 +130,7 @@ enum CloudModelProviderCatalog {
             ]),
         ModelProviderTemplate.make(
             id: "modelscope-cn",
-            name: "ModelScope 魔搭社区（中国）",
+            name: "ModelScope 魔搭 · 魔搭社区 (中国)",
             aliases: ["魔搭", "ModelScope CN"],
             env: "MODELSCOPE_API_TOKEN",
             envAliases: ["MODELSCOPE_API_KEY", "MODELSCOPE_SDK_TOKEN"],
@@ -148,7 +148,7 @@ enum CloudModelProviderCatalog {
             ]),
         ModelProviderTemplate.make(
             id: "modelscope-global",
-            name: "ModelScope（Global）",
+            name: "ModelScope 魔搭 · Global",
             aliases: ["ModelScope International", "ModelScope AI"],
             env: "MODELSCOPE_API_TOKEN",
             envAliases: ["MODELSCOPE_API_KEY"],
@@ -180,7 +180,7 @@ enum CloudModelProviderCatalog {
         longCat,
         ModelProviderTemplate.make(
             id: "stepfun-api",
-            name: "StepFun API",
+            name: "StepFun · API",
             aliases: ["StepFun pay-as-you-go", "阶跃星辰 API"],
             env: "STEP_API_KEY",
             createURL: "https://platform.stepfun.ai/interface-key",
@@ -231,21 +231,21 @@ enum CloudModelProviderCatalog {
             prefixes: ["sk-"]),
         mimoTokenPlan(
             id: "xiaomi-mimo-token-plan-cn",
-            name: "Xiaomi MiMo · Token Plan（中国）",
+            name: "Xiaomi MiMo · Token Plan (China)",
             aliases: ["MiMo Token Plan CN"],
             cluster: "中国",
             openAIBase: "https://token-plan-cn.xiaomimimo.com/v1",
             anthropicBase: "https://token-plan-cn.xiaomimimo.com/anthropic"),
         mimoTokenPlan(
             id: "xiaomi-mimo-token-plan-sg",
-            name: "Xiaomi MiMo · Token Plan（新加坡）",
+            name: "Xiaomi MiMo · Token Plan (Singapore)",
             aliases: ["MiMo Token Plan Singapore"],
             cluster: "新加坡",
             openAIBase: "https://token-plan-sgp.xiaomimimo.com/v1",
             anthropicBase: "https://token-plan-sgp.xiaomimimo.com/anthropic"),
         mimoTokenPlan(
             id: "xiaomi-mimo-token-plan-eu",
-            name: "Xiaomi MiMo · Token Plan（欧洲）",
+            name: "Xiaomi MiMo · Token Plan (Europe)",
             aliases: ["MiMo Token Plan Europe"],
             cluster: "欧洲",
             openAIBase: "https://token-plan-ams.xiaomimimo.com/v1",

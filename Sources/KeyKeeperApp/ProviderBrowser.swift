@@ -100,9 +100,9 @@ enum ProviderBrowser {
         ("alibaba-bailian", "阿里云百炼", ["阿里云百炼"], ["alibaba-bailian", "alibaba-bailian-sg", "alibaba-bailian-us", "alibaba-bailian-hk", "alibaba-bailian-coding-cn", "alibaba-bailian-token-cn"]),
         ("volcengine-ark", "火山方舟", ["火山方舟"], ["volcengine-ark", "volcengine-ark-coding"]),
         ("aws-bedrock", "Amazon Bedrock", ["Amazon Bedrock"], ["aws-bedrock-long-term", "aws-bedrock-short-term"]),
-        ("baidu-qianfan", "百度千帆", ["百度千帆", "Baidu AI Cloud Qianfan"], ["baidu-qianfan-cn", "baidu-qianfan-global", "baidu-qianfan-token-plan"]),
+        ("baidu-qianfan", "百度千帆", ["百度千帆"], ["baidu-qianfan-cn", "baidu-qianfan-global", "baidu-qianfan-token-plan"]),
         ("nvidia", "NVIDIA", ["NVIDIA"], ["nvidia-api-catalog", "nvidia-ngc"]),
-        ("modelscope", "ModelScope 魔搭", ["ModelScope 魔搭社区", "ModelScope"], ["modelscope-cn", "modelscope-global"]),
+        ("modelscope", "ModelScope 魔搭", ["ModelScope 魔搭"], ["modelscope-cn", "modelscope-global"]),
         ("stepfun", "StepFun 阶跃", ["StepFun"], ["stepfun-api", "stepfun-step-plan"]),
         ("xiaomi-mimo", "Xiaomi MiMo", ["Xiaomi MiMo"], ["xiaomi-mimo-payg", "xiaomi-mimo-token-plan-cn", "xiaomi-mimo-token-plan-sg", "xiaomi-mimo-token-plan-eu"]),
         ("siliconflow", "SiliconFlow 硅基流动", ["SiliconFlow"], ["siliconflow", "siliconflow-global"]),
@@ -123,7 +123,7 @@ enum ProviderBrowser {
         ("posthog", "PostHog", ["PostHog"], ["posthog", "posthog-eu"]),
         ("sendgrid", "Twilio SendGrid", ["Twilio SendGrid"], ["sendgrid", "sendgrid-eu"]),
         ("slack", "Slack", ["Slack"], ["slack", "slack-oauth-rotating"]),
-        ("feishu", "飞书 · Lark", ["Feishu", "Lark"], ["feishu", "lark"]),
+        ("feishu", "Feishu / Lark", [], ["feishu", "lark"]),
     ]
 
     static let families: [ProviderFamily] = {

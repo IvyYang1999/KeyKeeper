@@ -388,7 +388,7 @@ public enum ProviderCatalog {
             expiryNote: "Fine-grained tokens expire on the date chosen (1–366 days, or never); classic tokens unused for a year are deleted.",
             verified: "2026-09-15"),
         ProviderTemplate(
-            id: "cloudflare", name: "Cloudflare User API Token", aliases: ["cf", "cloudflare-token", "wrangler"],
+            id: "cloudflare", name: "Cloudflare · User API Token", aliases: ["cf", "cloudflare-token", "wrangler"],
             fieldName: "cloudflare-api-token",
             createURL: "https://dash.cloudflare.com/profile/api-tokens",
             gates: ["Log in to dash.cloudflare.com (2FA if enabled)", "Choose Create Token → a template or Create Custom Token", "Pick permissions, the zone/account resources, optionally a TTL"],
@@ -426,7 +426,7 @@ public enum ProviderCatalog {
             expiryNote: "Keys do not expire; Resend suggests removing keys unused for 30 days.",
             verified: "2026-09-15"),
         ProviderTemplate(
-            id: "siliconflow", name: "SiliconFlow（中国）", aliases: ["硅基流动", "siliconflow-cn"],
+            id: "siliconflow", name: "SiliconFlow · China (硅基流动)", aliases: ["硅基流动", "siliconflow-cn"],
             fieldName: "siliconflow-api-key",
             createURL: "https://cloud.siliconflow.cn/account/ak",
             gates: ["Log in with phone or email", "Some models require real-name verification first"],
@@ -492,7 +492,7 @@ public enum ProviderCatalog {
             expiryNote: "Keys do not expire automatically; revoke and replace them from Certificates, Identifiers & Profiles.",
             verified: "2026-09-15"),
         ProviderTemplate(
-            id: "developer-id", name: "Apple Developer ID Application", aliases: ["codesign", "developer-id-application"],
+            id: "developer-id", name: "Apple Developer ID · Application", aliases: ["codesign", "developer-id-application"],
             fieldName: "signing-identity",
             fields: [
                 .init(name: "signing-identity", label: "Developer ID Application identity", kind: .localIdentity,

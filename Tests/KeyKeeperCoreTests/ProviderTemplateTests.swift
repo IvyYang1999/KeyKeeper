@@ -56,19 +56,19 @@ final class ProviderTemplateTests: XCTestCase {
 
     func testKimi开放平台与Coding服务不会混用密钥或入口() throws {
         let china = try XCTUnwrap(ProviderCatalog.find("kimi"))
-        XCTAssertEqual(china.name, "Kimi Open Platform (China)")
+        XCTAssertEqual(china.name, "Kimi · Open Platform (China)")
         XCTAssertEqual(china.fieldName, "moonshot-api-key")
         XCTAssertEqual(china.createURL, "https://platform.moonshot.cn/console/api-keys")
         XCTAssertEqual(china.validation?.url, "https://api.moonshot.cn/v1/models")
 
         let global = try XCTUnwrap(ProviderCatalog.find("kimi-global"))
-        XCTAssertEqual(global.name, "Kimi API Platform (Global)")
+        XCTAssertEqual(global.name, "Kimi · API Platform (Global)")
         XCTAssertEqual(global.fieldName, "moonshot-api-key")
         XCTAssertEqual(global.createURL, "https://platform.kimi.ai/console/account")
         XCTAssertEqual(global.validation?.url, "https://api.moonshot.ai/v1/models")
 
         let coding = try XCTUnwrap(ProviderCatalog.find("kimi-code"))
-        XCTAssertEqual(coding.name, "Kimi Code")
+        XCTAssertEqual(coding.name, "Kimi · Kimi Code")
         XCTAssertEqual(coding.fieldName, "kimi-api-key")
         XCTAssertEqual(coding.createURL, "https://www.kimi.com/code/console")
         XCTAssertNil(coding.validation, "没有官方只读验证合同前，不能拿普通开放平台 endpoint 试 Coding key")
@@ -80,14 +80,14 @@ final class ProviderTemplateTests: XCTestCase {
 
     func test智谱国内海外与CodingPlan是四个明确合同() throws {
         let china = try XCTUnwrap(ProviderCatalog.find("zhipu"))
-        XCTAssertEqual(china.name, "智谱开放平台（中国）")
+        XCTAssertEqual(china.name, "智谱 · 开放平台 (中国)")
         XCTAssertEqual(china.fieldName, "zai-api-key")
         XCTAssertEqual(china.field(named: "zhipuai-api-key")?.name, "zai-api-key", "旧字段名仍解析到同一份值")
         XCTAssertEqual(china.createURL, "https://bigmodel.cn/usercenter/proj-mgmt/apikeys")
         XCTAssertTrue(china.minimalPermission.contains("https://open.bigmodel.cn/api/paas/v4"))
 
         let chinaCoding = try XCTUnwrap(ProviderCatalog.find("zhipu-coding"))
-        XCTAssertEqual(chinaCoding.name, "智谱 GLM Coding Plan (China)")
+        XCTAssertEqual(chinaCoding.name, "智谱 · GLM Coding Plan (中国)")
         XCTAssertEqual(chinaCoding.fieldName, "zai-api-key")
         XCTAssertEqual(chinaCoding.createURL, "https://bigmodel.cn/coding-plan/personal/overview")
         XCTAssertNil(chinaCoding.validation)
@@ -95,12 +95,12 @@ final class ProviderTemplateTests: XCTestCase {
         XCTAssertTrue(chinaCoding.minimalPermission.contains("not interchangeable"))
 
         let global = try XCTUnwrap(ProviderCatalog.find("zai"))
-        XCTAssertEqual(global.name, "Z.AI API (Global)")
+        XCTAssertEqual(global.name, "Z.AI · API (Global)")
         XCTAssertEqual(global.createURL, "https://z.ai/manage-apikey/apikey-list")
         XCTAssertTrue(global.minimalPermission.contains("https://api.z.ai/api/paas/v4"))
 
         let globalCoding = try XCTUnwrap(ProviderCatalog.find("zai-coding"))
-        XCTAssertEqual(globalCoding.name, "Z.AI GLM Coding Plan")
+        XCTAssertEqual(globalCoding.name, "Z.AI · GLM Coding Plan (Global)")
         XCTAssertEqual(globalCoding.createURL, "https://z.ai/manage-apikey/apikey-list")
         XCTAssertNil(globalCoding.validation)
         XCTAssertTrue(globalCoding.minimalPermission.contains("https://api.z.ai/api/coding/paas/v4"))

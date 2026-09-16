@@ -12,7 +12,7 @@ enum GatewayModelProviderCatalog {
 
     private static let atlasCloud = ModelProviderTemplate.make(
         id: "atlascloud",
-        name: "Atlas Cloud API（按量）",
+        name: "Atlas Cloud · API (Pay-as-you-go)",
         aliases: ["atlas-cloud"],
         env: "ATLASCLOUD_API_KEY",
         createURL: "https://www.atlascloud.ai/console/api-keys",
@@ -27,7 +27,7 @@ enum GatewayModelProviderCatalog {
 
     private static let atlasCloudCoding = ModelProviderTemplate.make(
         id: "atlascloud-coding-plan",
-        name: "Atlas Cloud Coding Plan",
+        name: "Atlas Cloud · Coding Plan",
         aliases: ["atlascloud-coding", "atlas-cloud-coding"],
         env: "ATLASCLOUD_CODING_API_KEY",
         envAliases: ["OPENAI_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
@@ -42,7 +42,7 @@ enum GatewayModelProviderCatalog {
 
     private static let compshareModelVerseCN = ModelProviderTemplate.make(
         id: "compshare-modelverse-cn",
-        name: "Compshare ModelVerse（中国）",
+        name: "Compshare · ModelVerse (China)",
         aliases: ["modelverse", "compshare-cn"],
         env: "COMPSHARE_API_KEY",
         createURL: "https://console.compshare.cn/",
@@ -60,7 +60,7 @@ enum GatewayModelProviderCatalog {
 
     private static let compshareModelVerseGlobal = ModelProviderTemplate.make(
         id: "compshare-modelverse-global",
-        name: "Compshare ModelVerse（海外入口）",
+        name: "Compshare · ModelVerse (Global)",
         aliases: ["umodelverse", "compshare-global"],
         env: "COMPSHARE_API_KEY",
         createURL: "https://console.compshare.cn/",
@@ -78,7 +78,7 @@ enum GatewayModelProviderCatalog {
 
     private static let compshareAgentPlan = ModelProviderTemplate.make(
         id: "compshare-agent-plan",
-        name: "Compshare Agent Plan",
+        name: "Compshare · Agent Plan",
         aliases: ["compshare-coding", "compshare-coding-plan"],
         env: "COMPSHARE_AGENT_PLAN_API_KEY",
         envAliases: ["OPENAI_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
@@ -192,15 +192,15 @@ enum GatewayModelProviderCatalog {
         prefixes: ["sk-"])
 
     private static let dmxapiCN = dmx(
-        id: "dmxapi-cn", name: "DMXAPI 国内站", createURL: "https://www.dmxapi.cn",
+        id: "dmxapi-cn", name: "DMXAPI · 国内站", createURL: "https://www.dmxapi.cn",
         root: "https://www.dmxapi.cn", region: "China · CNY discounted")
 
     private static let dmxapiGlobal = dmx(
-        id: "dmxapi-global", name: "DMXAPI 国际站", createURL: "https://www.dmxapi.com",
+        id: "dmxapi-global", name: "DMXAPI · 国际站", createURL: "https://www.dmxapi.com",
         root: "https://www.dmxapi.com", region: "Global · USD discounted")
 
     private static let dmxapiSSVIP = dmx(
-        id: "dmxapi-ssvip", name: "DMXAPI SSVIP 国际服", createURL: "https://ssvip.dmxapi.com",
+        id: "dmxapi-ssvip", name: "DMXAPI · SSVIP 国际服", createURL: "https://ssvip.dmxapi.com",
         root: "https://ssvip.dmxapi.com", region: "Global · USD undiscounted")
 
     private static func dmx(id: String, name: String, createURL: String,

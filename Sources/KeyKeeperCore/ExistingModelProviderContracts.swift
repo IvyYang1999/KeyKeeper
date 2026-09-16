@@ -12,7 +12,7 @@ enum ExistingModelProviderContracts {
         ("alibaba-bailian-hk", "中国香港", "cn-hongkong", "cn-hongkong.dashscope.aliyuncs.com"),
     ]
     static let regionalTemplates: [ProviderTemplate] = regions.map { item in
-        ModelProviderTemplate.make(id: item.id, name: "阿里云百炼 · 按量（\(item.name)）",
+        ModelProviderTemplate.make(id: item.id, name: "阿里云百炼 · 按量 (\(item.name))",
             env: "DASHSCOPE_API_KEY", createURL: "https://bailian.console.aliyun.com/",
             endpoints: bailianEndpoints(host: item.host, region: item.region),
             gates: ["登录阿里云，选择 \(item.name)（\(item.region)）与对应业务空间", "在 API Key 管理中创建该地区的按量 key；不要复制 Coding / Token Plan key", "配置同地区 endpoint；业务空间专属域名需从控制台确认 WorkspaceId"],

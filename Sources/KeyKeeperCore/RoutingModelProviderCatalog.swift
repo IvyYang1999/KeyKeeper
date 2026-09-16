@@ -8,7 +8,7 @@ enum RoutingModelProviderCatalog {
 
     private static let openCodeConsole = ModelProviderTemplate.make(
         id: "opencode-zen",
-        name: "OpenCode Console (Zen endpoint)",
+        name: "OpenCode · Zen (Console)",
         aliases: ["opencode-console"],
         env: "OPENCODE_API_KEY",
         createURL: "https://opencode.ai/console/",
@@ -27,7 +27,7 @@ enum RoutingModelProviderCatalog {
 
     private static let openCodeGo = ModelProviderTemplate.make(
         id: "opencode-go",
-        name: "OpenCode Go",
+        name: "OpenCode · Go",
         env: "OPENCODE_API_KEY",
         createURL: "https://opencode.ai/console/",
         endpoints: [

@@ -68,63 +68,63 @@ enum AdditionalProviderCatalog {
             shownOnce: true,
             validation: bearer("https://api.x.ai/v1/models", description: "lists available models")),
         token(
-            id: "kimi", name: "Kimi Open Platform (China)", aliases: ["moonshot", "moonshot-cn"], field: "moonshot-api-key",
+            id: "kimi", name: "Kimi · Open Platform (China)", aliases: ["moonshot", "moonshot-cn"], field: "moonshot-api-key",
             createURL: "https://platform.moonshot.cn/console/api-keys",
             gates: ["Sign in to the China Kimi Open Platform", "Create a separate API key", "Make sure the pay-as-you-go account has balance"],
             permission: "This is a pay-as-you-go China Open Platform key for https://api.moonshot.cn/v1. It is not interchangeable with a Kimi Code membership key. Keys have no granular scopes; use one per project.",
             shownOnce: true,
             validation: bearer("https://api.moonshot.cn/v1/models", description: "lists available models")),
         token(
-            id: "kimi-global", name: "Kimi API Platform (Global)", aliases: ["kimi-api", "moonshot-ai"], field: "moonshot-api-key",
+            id: "kimi-global", name: "Kimi · API Platform (Global)", aliases: ["kimi-api", "moonshot-ai"], field: "moonshot-api-key",
             createURL: "https://platform.kimi.ai/console/account",
             gates: ["Sign in to the global Kimi API Platform", "Create a separate API key in the console", "Make sure the pay-as-you-go account has balance"],
             permission: "This is a pay-as-you-go global platform key for https://api.moonshot.ai/v1. It is not interchangeable with a Kimi Code membership key. Rate limits are shared at user level, so use separate keys for revocation rather than quota isolation.",
             shownOnce: true,
             validation: bearer("https://api.moonshot.ai/v1/models", invalidStatuses: [401], description: "lists available models")),
         token(
-            id: "kimi-code", name: "Kimi Code", aliases: ["kimi-coding", "kimi-for-coding"], field: "kimi-api-key",
+            id: "kimi-code", name: "Kimi · Kimi Code", aliases: ["kimi-coding", "kimi-for-coding"], field: "kimi-api-key",
             createURL: "https://www.kimi.com/code/console",
             gates: ["Sign in to Kimi", "Activate a Kimi membership that includes Kimi Code", "Create a Kimi Code API key in the console (maximum five)", "Copy it before closing; the full key is shown once"],
             permission: "This membership key is only for supported coding tools. It is not interchangeable with a Kimi Open Platform key. Use https://api.kimi.com/coding/v1 for OpenAI-compatible tools or https://api.kimi.com/coding/ for Anthropic-compatible tools, and keep the tool's real User-Agent.",
             prefixes: ["sk-kimi-"], shownOnce: true),
         token(
-            id: "minimax", name: "MiniMax Pay-as-you-go（中国）", field: "minimax-api-key",
+            id: "minimax", name: "MiniMax · Pay-as-you-go (China)", field: "minimax-api-key",
             createURL: "https://platform.minimaxi.com/user-center/basic-information/interface-key",
             gates: ["Sign in to MiniMax Open Platform", "Choose pay-as-you-go or Token Plan", "Create the matching kind of API key"],
             permission: "Keep pay-as-you-go and Token Plan keys separate; use the plan-specific key only with its matching endpoint.",
             shownOnce: false),
         token(
-            id: "zhipu-cn", name: "智谱开放平台（中国）", aliases: ["zhipu", "bigmodel", "glm", "智谱", "zhipu-ai"], field: "zai-api-key", fieldAliases: ["zhipuai-api-key"],
+            id: "zhipu-cn", name: "智谱 · 开放平台 (中国)", aliases: ["zhipu", "bigmodel", "glm", "智谱", "zhipu-ai"], field: "zai-api-key", fieldAliases: ["zhipuai-api-key"],
             createURL: "https://open.bigmodel.cn/usercenter/apikeys",
             gates: ["Sign in to the China Zhipu Open Platform", "Create a general API key", "Activate pay-as-you-go billing or an API usage bundle if needed"],
             permission: "中国通用 API 使用 https://open.bigmodel.cn/api/paas/v4，按开放平台合同计费。Coding Plan 使用专用 endpoint 和套餐授权，不能按通用 API 路径假定扣套餐额度。每个项目单独建 key，保留独立撤销能力。",
             shownOnce: false),
         token(
-            id: "zhipu-cn-coding", name: "智谱 GLM Coding Plan (China)", aliases: ["zhipu-coding", "zhipu-coding-plan", "glm-coding-cn"], field: "zai-api-key",
+            id: "zhipu-cn-coding", name: "智谱 · GLM Coding Plan (中国)", aliases: ["zhipu-coding", "zhipu-coding-plan", "glm-coding-cn"], field: "zai-api-key",
             createURL: "https://bigmodel.cn/coding-plan/personal/overview",
             gates: ["Sign in to the China Zhipu Open Platform", "Subscribe to an individual or team GLM Coding Plan", "For an individual plan, create the key under Personal Coding Plan → Plan Overview", "For a team plan, obtain the team key under Team Coding Plan → My Plan"],
             permission: "Use only with officially supported coding tools and the dedicated https://open.bigmodel.cn/api/coding/paas/v4 endpoint (or https://open.bigmodel.cn/api/anthropic for Anthropic Messages). Team Coding Plan keys are not interchangeable with other platform API keys.",
             shownOnce: false),
         token(
-            id: "zai-global", name: "Z.AI API (Global)", aliases: ["zai", "z.ai", "zai-api"], field: "zai-api-key",
+            id: "zai-global", name: "Z.AI · API (Global)", aliases: ["zai", "z.ai", "zai-api"], field: "zai-api-key",
             createURL: "https://z.ai/manage-apikey/apikey-list",
             gates: ["Sign in to the global Z.AI Open Platform", "Create a general API key", "Activate pay-as-you-go billing or an API usage bundle if needed"],
             permission: "国际 Z.AI 通用 API 使用 https://api.z.ai/api/paas/v4。Coding Plan 的 endpoint、订阅授权与允许用途不同；不能因为格式相同就混用或假定套餐结算。不要把中国平台 key 迁到此模板。",
             shownOnce: false),
         token(
-            id: "zai-global-coding", name: "Z.AI GLM Coding Plan", aliases: ["zai-coding", "zai-coding-plan", "glm-coding-global"], field: "zai-api-key",
+            id: "zai-global-coding", name: "Z.AI · GLM Coding Plan (Global)", aliases: ["zai-coding", "zai-coding-plan", "glm-coding-global"], field: "zai-api-key",
             createURL: "https://z.ai/manage-apikey/apikey-list",
             gates: ["登录国际 Z.AI 平台", "确认个人或团队 Coding Plan 的订阅与 entitlement", "从对应套餐页面获取 key；团队使用团队套餐签发的 key"],
             permission: "仅用于允许的 coding 场景：OpenAI 协议 https://api.z.ai/api/coding/paas/v4，Anthropic 协议 https://api.z.ai/api/anthropic。团队 key 与其他平台 key not interchangeable；不把团队规则推断为个人 key 有独立前缀或长度。",
             shownOnce: false),
         token(
-            id: "alibaba-bailian", name: "阿里云百炼 · 按量（北京）", aliases: ["dashscope", "qwen", "百炼"], field: "dashscope-api-key",
+            id: "alibaba-bailian", name: "阿里云百炼 · 按量 (北京)", aliases: ["dashscope", "qwen", "百炼"], field: "dashscope-api-key",
             createURL: "https://bailian.console.aliyun.com/?tab=model#/api-key",
             gates: ["Sign in to Alibaba Cloud and complete identity verification where required", "Choose the region and workspace", "Create an API key with custom model access"],
             permission: "Use a non-default workspace and Custom permission limited to the needed models and IP ranges. Keys and endpoints are region-specific.",
             shownOnce: false),
         token(
-            id: "volcengine-ark", name: "火山方舟 · 按量（中国）", aliases: ["ark", "doubao", "火山方舟"], field: "ark-api-key",
+            id: "volcengine-ark", name: "火山方舟 · 按量 (中国)", aliases: ["ark", "doubao", "火山方舟"], field: "ark-api-key",
             createURL: "https://console.volcengine.com/ark/region:ark+cn-beijing/apikey",
             gates: ["Sign in to Volcengine", "Activate Ark in the intended region", "Create a dedicated API key"],
             permission: "Use a dedicated key for this project and the matching regional Ark endpoint; avoid sharing an account-wide key across products.",
@@ -133,7 +133,7 @@ enum AdditionalProviderCatalog {
 
     private static let deployment: [ProviderTemplate] = [
         token(
-            id: "neon", name: "Neon Personal API Key", field: "neon-api-key",
+            id: "neon", name: "Neon · Personal API Key", field: "neon-api-key",
             createURL: "https://console.neon.tech/app/settings/api-keys",
             gates: ["Sign in to Neon", "Choose the organization and project", "Create an API key"],
             permission: "This item is a personal key and can reach projects visible to the person. Use the separate organization/project-scoped template for unattended agents.",
@@ -219,7 +219,7 @@ enum AdditionalProviderCatalog {
                 .init(name: "sentry-project", label: "Project slug", kind: .publicText, required: false),
             ]),
         token(
-            id: "posthog", name: "PostHog Cloud US · Personal API Key", field: "posthog-personal-api-key",
+            id: "posthog", name: "PostHog · Cloud US", field: "posthog-personal-api-key",
             createURL: "https://us.posthog.com/settings/user-api-keys",
             gates: ["Sign in to the correct PostHog region", "Create a personal API key", "Select only the required organization/project scopes"],
             permission: "Use a personal API key restricted to the target project and read-only scopes for analytics. The client-side project key is not an admin API credential.",
@@ -299,13 +299,13 @@ enum AdditionalProviderCatalog {
                 .init(name: "mailgun-region", label: "Region", kind: .publicText),
             ]),
         token(
-            id: "slack", name: "Slack Bot Token · Non-rotating", field: "slack-bot-token",
+            id: "slack", name: "Slack · Bot Token (non-rotating)", field: "slack-bot-token",
             createURL: "https://api.slack.com/apps",
             gates: ["Sign in to Slack", "Create or select an app", "Add only the required Bot Token Scopes", "Install the app to the intended workspace"],
             permission: "Use a bot token, not a user token. Add only method-specific bot scopes (for example chat:write); avoid user impersonation and legacy umbrella scopes.",
             prefixes: ["xoxb-"], shownOnce: false),
         ProviderTemplate(
-            id: "feishu", name: "Feishu（中国）", aliases: ["飞书"],
+            id: "feishu", name: "Feishu 飞书 (中国)", aliases: ["飞书"],
             fieldName: "feishu-app-secret",
             fields: [
                 .init(name: "feishu-app-secret", label: "App Secret", kind: .secretText, isPrimary: true),
@@ -331,7 +331,7 @@ enum AdditionalProviderCatalog {
     /// reject a valid key, grant broader access, or charge the pay-as-you-go account by mistake.
     private static let aiVariants: [ProviderTemplate] = [
         token(
-            id: "siliconflow-global", name: "SiliconFlow (Global)", aliases: ["siliconflow-com"],
+            id: "siliconflow-global", name: "SiliconFlow · Global", aliases: ["siliconflow-com"],
             field: "siliconflow-api-key",
             createURL: "https://cloud.siliconflow.com/account/ak",
             gates: ["Sign in to the global SiliconFlow platform", "Create a separate API key", "Confirm the workflow uses api.siliconflow.com"],
@@ -339,41 +339,41 @@ enum AdditionalProviderCatalog {
             shownOnce: false,
             validation: bearer("https://api.siliconflow.com/v1/models", description: "lists models available on the global platform")),
         token(
-            id: "minimax-global", name: "MiniMax Pay-as-you-go (Global)", field: "minimax-api-key",
+            id: "minimax-global", name: "MiniMax · Pay-as-you-go (Global)", field: "minimax-api-key",
             createURL: "https://platform.minimax.io/user-center/basic-information/interface-key",
             gates: ["Sign in to the global MiniMax platform", "Choose pay-as-you-go", "Create an API key in the global region"],
             permission: "Use only with the matching global pay-as-you-go account and base URL; it is not a Token Plan key.",
             shownOnce: false),
         token(
-            id: "minimax-token-plan-cn", name: "MiniMax Token Plan（中国）", aliases: ["minimax-coding-plan-cn"],
+            id: "minimax-token-plan-cn", name: "MiniMax · Token Plan (China)", aliases: ["minimax-coding-plan-cn"],
             field: "minimax-api-key",
             createURL: "https://platform.minimaxi.com/subscribe/token-plan",
             gates: ["Sign in to the China MiniMax platform", "Subscribe to Token Plan", "Create the plan-specific key"],
             permission: "This subscription key is separate from pay-as-you-go. Use it only with the China Token Plan configuration.",
             prefixes: ["sk-cp-"], shownOnce: true),
         token(
-            id: "minimax-token-plan-global", name: "MiniMax Token Plan (Global)", aliases: ["minimax-coding-plan-global"],
+            id: "minimax-token-plan-global", name: "MiniMax · Token Plan (Global)", aliases: ["minimax-coding-plan-global"],
             field: "minimax-api-key",
             createURL: "https://platform.minimax.io/subscribe/token-plan",
             gates: ["Sign in to the global MiniMax platform", "Subscribe to Token Plan", "Create the plan-specific key"],
             permission: "This subscription key is separate from pay-as-you-go. Use it only with the global Token Plan configuration.",
             prefixes: ["sk-cp-"], shownOnce: true),
         token(
-            id: "alibaba-bailian-coding-cn", name: "阿里云百炼 · Coding Plan（中国）", aliases: ["bailian-coding-plan"],
+            id: "alibaba-bailian-coding-cn", name: "阿里云百炼 · Coding Plan (中国)", aliases: ["bailian-coding-plan"],
             field: "dashscope-api-key",
             createURL: "https://bailian.console.aliyun.com/",
             gates: ["Sign in to Alibaba Cloud", "Subscribe to Coding Plan in the intended workspace", "Create/copy the plan key and use the plan base URL"],
             permission: "A Coding Plan key/base is isolated from pay-as-you-go. Mixing them can charge the pay-as-you-go account.",
             prefixes: ["sk-sp-"], shownOnce: true),
         token(
-            id: "alibaba-bailian-token-cn", name: "阿里云百炼 · Token Plan（中国）", aliases: ["bailian-token-plan"],
+            id: "alibaba-bailian-token-cn", name: "阿里云百炼 · Token Plan (中国)", aliases: ["bailian-token-plan"],
             field: "dashscope-api-key",
             createURL: "https://bailian.console.aliyun.com/",
             gates: ["Sign in to Alibaba Cloud", "Subscribe to Token Plan in the intended workspace", "Create/copy the plan key and use the plan base URL"],
             permission: "A Token Plan key/base is isolated from both Coding Plan and pay-as-you-go. Mixing them can use the wrong quota or billing path.",
             prefixes: ["sk-sp-"], shownOnce: true),
         token(
-            id: "volcengine-ark-coding", name: "火山方舟 · Coding Plan（中国）", aliases: ["doubao-coding-plan"],
+            id: "volcengine-ark-coding", name: "火山方舟 · Coding Plan (中国)", aliases: ["doubao-coding-plan"],
             field: "ark-api-key",
             createURL: "https://console.volcengine.com/ark/region:ark+cn-beijing/codingplan",
             gates: ["Sign in to Volcengine", "Subscribe to Ark Coding Plan", "Create/copy the plan key"],
@@ -383,14 +383,14 @@ enum AdditionalProviderCatalog {
 
     private static let platformVariants: [ProviderTemplate] = [
         token(
-            id: "cloudflare-account", name: "Cloudflare Account API Token", field: "cloudflare-api-token",
+            id: "cloudflare-account", name: "Cloudflare · Account API Token", field: "cloudflare-api-token",
             createURL: "https://dash.cloudflare.com/",
             gates: ["Sign in to Cloudflare", "Open the target account → Manage Account → Account API Tokens", "Create a least-privilege account-owned token and record the Account ID"],
             permission: "Use an account-owned token only for unattended account automation. Limit permissions/resources and set a TTL; it is distinct from a user token.",
             prefixes: ["cfat_"], shownOnce: true,
             fields: [.init(name: "cloudflare-account-id", label: "Account ID", kind: .publicText)]),
         token(
-            id: "neon-org", name: "Neon Organization / Project-scoped API Key", field: "neon-api-key",
+            id: "neon-org", name: "Neon · Organization or project API Key", field: "neon-api-key",
             createURL: "https://console.neon.tech/app",
             gates: ["Sign in to Neon", "Open the organization settings → API keys", "Create an organization key and restrict it to the target project where available"],
             permission: "Prefer a project-scoped organization key for an agent so it cannot see unrelated projects or create more keys.",
@@ -398,7 +398,7 @@ enum AdditionalProviderCatalog {
             validation: bearer("https://console.neon.tech/api/v2/projects", invalidStatuses: [401], description: "lists projects visible to this organization key"),
             fields: [.init(name: "neon-project-id", label: "Project ID", kind: .publicText)]),
         token(
-            id: "railway-api", name: "Railway Account / Workspace API Token", field: "railway-api-token",
+            id: "railway-api", name: "Railway · Account API Token", field: "railway-api-token",
             createURL: "https://railway.com/account/tokens",
             gates: ["Sign in to Railway", "Choose Account Token or the intended Workspace token", "Name the token and record which owner issued it"],
             permission: "Use this broader API token only for work that genuinely spans projects. For one environment use the separate Railway Project token.",
@@ -438,7 +438,7 @@ enum AdditionalProviderCatalog {
             prefixes: ["dckr_oat_"], shownOnce: true,
             fields: [.init(name: "docker-username", label: "Organization name", kind: .publicText)]),
         token(
-            id: "posthog-eu", name: "PostHog Cloud EU · Personal API Key", field: "posthog-personal-api-key",
+            id: "posthog-eu", name: "PostHog · Cloud EU", field: "posthog-personal-api-key",
             createURL: "https://eu.posthog.com/settings/user-api-keys",
             gates: ["Sign in to PostHog Cloud EU", "Create a personal API key", "Select only the required organization/project scopes"],
             permission: "Restrict the personal API key to the target project and read-only scopes for analytics.",
@@ -488,7 +488,7 @@ enum AdditionalProviderCatalog {
             expiryNote: "The team key does not expire automatically; revoke it from App Store Connect.",
             verified: "2026-09-15"),
         ProviderTemplate(
-            id: "developer-id-installer", name: "Apple Developer ID Installer",
+            id: "developer-id-installer", name: "Apple Developer ID · Installer",
             aliases: ["productsign"], fieldName: "signing-identity",
             fields: [
                 .init(name: "signing-identity", label: "Developer ID Installer identity", kind: .localIdentity,
@@ -502,7 +502,7 @@ enum AdditionalProviderCatalog {
             expiryNote: "The Apple-issued certificate has an expiration date; record it on the credential.",
             verified: "2026-09-15"),
         ProviderTemplate(
-            id: "lark", name: "Lark（Global）", aliases: ["larksuite"],
+            id: "lark", name: "Lark (Global)", aliases: ["larksuite"],
             fieldName: "lark-app-secret",
             fields: [
                 .init(name: "lark-app-secret", label: "App Secret", kind: .secretText, isPrimary: true),
@@ -516,7 +516,7 @@ enum AdditionalProviderCatalog {
             expiryNote: "Public docs do not promise one universal App Secret expiration policy; reset it explicitly when rotating.",
             verified: "2026-09-15"),
         ProviderTemplate(
-            id: "slack-oauth-rotating", name: "Slack OAuth · Rotating bot token bundle",
+            id: "slack-oauth-rotating", name: "Slack · OAuth rotating token bundle",
             aliases: ["slack-token-rotation"], fieldName: "slack-bot-token",
             fields: [
                 .init(name: "slack-bot-token", label: "Rotating bot access token", kind: .secretText,
