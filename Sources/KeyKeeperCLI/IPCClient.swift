@@ -12,7 +12,7 @@ import KeyKeeperCore
 enum IPCLaunchPolicy {
     static func shouldLaunchApp(for request: IPCRequest) -> Bool {
         switch request {
-        case .value, .auth, .clipboardSave, .browserImport, .fileImport, .sourceImport, .browserSession, .metadataEdit,
+        case .value, .auth, .clipboardSave, .browserImport, .fileImport, .sourceImport, .envImport, .browserSession, .metadataEdit,
              .metadataIntegrity, .approvalRevoke, .approvalsList:
             return true
         case .sessionControl, .serviceRequests:
@@ -47,6 +47,10 @@ enum IPCClient {
     static func requestFileImport(_ request: FileImportRequest) throws -> ClipboardSaveResponse {
         try request.validate()
         return try requestLocalImport(.fileImport(request))
+    }
+    static func requestEnvImport(_ request: EnvImportRequest) throws -> ClipboardSaveResponse {
+        try request.validate()
+        return try requestLocalImport(.envImport(request))
     }
     static func requestSourceImport(_ request: SourceImportRequest) throws -> ClipboardSaveResponse {
         try request.validate()

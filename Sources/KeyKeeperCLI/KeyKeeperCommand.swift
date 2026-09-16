@@ -13,6 +13,7 @@ struct KeyKeeperCommand: ParsableCommand {
             MetaCommand.self,
             EditCommand.self,
             SaveCommand.self,
+            ImportCommand.self,
             BrowserCommand.self,
             BrowserNativeHostCommand.self,
             BrowserHostInstallCommand.self,

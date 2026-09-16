@@ -61,6 +61,7 @@ public enum IPCRequest: Codable, Sendable {
     case browserSession(BrowserSessionRequest)
     case fileImport(FileImportRequest)
     case sourceImport(SourceImportRequest)
+    case envImport(EnvImportRequest)
     case browserImport(ClipboardSaveRequest)
     case clipboardSave(ClipboardSaveRequest)
     case auth(AuthRequest)
@@ -98,6 +99,9 @@ public enum IPCRequest: Codable, Sendable {
         case .fileImport(let r):
             try c.encode("fileImport", forKey: .type)
             try c.encode(r, forKey: .data)
+        case .envImport(let r):
+            try c.encode("envImport", forKey: .type)
+            try c.encode(r, forKey: .data)
         case .browserImport(let r):
             try c.encode("browserImport", forKey: .type)
             try c.encode(r, forKey: .data)
@@ -126,6 +130,7 @@ public enum IPCRequest: Codable, Sendable {
         case "browserSession": self = .browserSession(try c.decode(BrowserSessionRequest.self, forKey: .data))
         case "fileImport": self = .fileImport(try c.decode(FileImportRequest.self, forKey: .data))
         case "sourceImport": self = .sourceImport(try c.decode(SourceImportRequest.self, forKey: .data))
+        case "envImport": self = .envImport(try c.decode(EnvImportRequest.self, forKey: .data))
         case "browserImport": self = .browserImport(try c.decode(ClipboardSaveRequest.self, forKey: .data))
         case "clipboardSave", "clipboardReplace":
             let request = try c.decode(ClipboardSaveRequest.self, forKey: .data)

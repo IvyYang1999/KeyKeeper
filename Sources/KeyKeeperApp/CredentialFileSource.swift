@@ -10,6 +10,8 @@ import KeyKeeperCore
     let displayFilePath: String?
     private let descriptor: Int32
     private let snapshot: stat
+    /// A dotenv file: read back as text, no format validation and no symbol extraction.
+    private let rawText: Bool
 
     init(filePath: String, pythonSymbol: String? = nil,
          format: CredentialFileFormat = .serviceAccountJSON) throws {
@@ -30,6 +32,19 @@ import KeyKeeperCore
               info.st_size <= (pythonSymbol == nil ? CredentialFileFormat.maximumBytes : SourceImportRequest.maximumBytes) else {
             close(fd); throw invalid
         }
+        descriptor = fd; snapshot = info; displayFilePath = filePath; rawText = false
+    }
+
+    init(envFilePath filePath: String) throws {
+        try EnvImportRequest(credentialId: "validate", filePath: filePath).validate()
+        pythonSymbol = nil; fileFormat = nil; rawText = true
+        let fd = open(filePath, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { throw ClipboardSaveError.invalidEnvFile }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+              info.st_uid == getuid(), info.st_size > 0, info.st_size <= EnvImportRequest.maximumBytes else {
+            close(fd); throw ClipboardSaveError.invalidEnvFile
+        }
         descriptor = fd; snapshot = info; displayFilePath = filePath
     }
     deinit { close(descriptor) }
@@ -45,6 +60,10 @@ import KeyKeeperCore
         }
         guard count == snapshot.st_size, unchanged() else { throw ClipboardSaveError.fileChanged }
         data.count = count
+        if rawText {
+            guard let text = String(data: data, encoding: .utf8), !text.contains("\0") else { throw ClipboardSaveError.invalidEnvFile }
+            return text
+        }
         if let pythonSymbol { return try PythonSourceExtractor.extract(data, symbol: pythonSymbol) }
         return try fileFormat!.validate(data)
     }

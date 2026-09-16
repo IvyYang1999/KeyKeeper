@@ -90,6 +90,7 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
     case invalidExpectation, shapeMismatch, clipboardNotCopiedYet, clipboardCopiedMoreThanOnce
     case emptyClipboard, busy, denied, expired, disconnected, storageUnavailable, metadataCommitFailed, staleGrants
     case reservedFieldName, suggestionRequiresCreate, invalidExpiry
+    case invalidEnvFile, emptyEnvFile, credentialExists
     public var errorDescription: String? {
         switch self {
         case .invalidProvider: return "The provider or field does not match a built-in credential template. Nothing was read or saved. Run keykeeper providers show <id> to check the contract."
@@ -104,6 +105,9 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
         case .wrongFieldType: return "The import source does not match this field's type. Use a fresh credential ID for a different type."
         case .invalidTarget: return "Use a nonempty ID and field (letters, numbers, hyphens, underscores or dots; at most 128 UTF-8 bytes)."
         case .suggestionRequiresCreate: return "--security and --expires only apply with --create. Change an existing credential's protection in the KeyKeeper app, and its expiry with keykeeper edit --expires."
+        case .invalidEnvFile: return "Give the absolute path of an owned .env file (named .env, .env.*, or *.env; at most 64 KiB). Nothing was read."
+        case .emptyEnvFile: return "No importable variables: every line was empty, a comment, or a name that cannot become a field. Nothing was saved."
+        case .credentialExists: return "A credential with that ID already exists. Pick another --id; nothing was changed."
         case .invalidExpiry: return "Use --expires YYYY-MM-DD, the last day the key works (for example 2026-12-31). Nothing was read or saved."
         case .reservedFieldName: return "That field name would become an environment variable that decides how programs run (like PATH or DYLD_INSERT_LIBRARIES). Pick another field name. Nothing was read or saved."
         case .valueExists: return "A value already exists. Nothing was overwritten."

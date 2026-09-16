@@ -95,3 +95,31 @@ authorize actions. Never ask for values in chat.
 
 Never claim success from metadata alone. Report only what was saved/used/verified, without
 values. End at a precise user gate when a safe route is unavailable.
+
+## 5. Moving a project's `.env` into KeyKeeper
+
+Vibe coders usually already have a plaintext `.env` in the project. Offer to move it, then do
+it in one command:
+
+```bash
+keykeeper import ./.env --id my-app --purpose "what this project is"
+```
+
+The App opens the file itself, shows the person the **variable names** it found (secrets, plain
+settings, skipped lines) and, once they approve, stores the values: names that look like secrets
+(`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, …) or whose value looks like one go into the Keychain, the
+rest become plain fields next to them. You get back counts, never a value. The credential is
+inject-only. From then on run the project with the same variables and no file:
+
+```bash
+keykeeper run -c my-app -- npm run dev
+```
+
+Field names are the variables lowercased (`OPENAI_API_KEY` → `openai-api-key`), and `run`
+turns them back into the original names. Lowercase or oddly named variables that cannot round-trip
+are listed as skipped; set those by hand with `keykeeper edit my-app --set name=value` if they matter.
+
+Afterwards tell the person three things: the original file is untouched (they should delete it
+and add `.env` to `.gitignore`), the keys sat in plaintext and are worth rotating at their
+providers, and `keykeeper run -c my-app -- <command>` is how the project runs now. Do not delete
+the file yourself and do not print its contents.

@@ -67,6 +67,7 @@ final class IPCServer: ObservableObject {
     private let metaStore: MetaStore
     private let approvals: ApprovalStore
     private let clipboardSaveController: ClipboardSaveController?
+    private let envImportController: EnvImportController?
     private let browserSessionController: BrowserSessionController?
     private var browserImportBridge: BrowserImportBridge?
 
@@ -76,7 +77,7 @@ final class IPCServer: ObservableObject {
         guard let controller = clipboardSaveController else {
             completion(.init(success: false, errorCode: .storageUnavailable)); return
         }
-        guard pendingRequest == nil, pendingServiceRequest == nil, !controller.isPending, browserSessionController?.isPending != true else {
+        guard pendingRequest == nil, pendingServiceRequest == nil, !controller.isPending, browserSessionController?.isPending != true, envImportController?.isPending != true else {
             completion(.init(success: false, errorCode: .busy)); return
         }
         do {
@@ -98,13 +99,26 @@ final class IPCServer: ObservableObject {
         } catch { completion(.init(success: false, errorCode: error as? ClipboardSaveError ?? .invalidFile)) }
     }
 
+    @MainActor func importEnv(_ request: EnvImportRequest, callerName: String,
+                    isConnected: @escaping () -> Bool,
+                    completion: @escaping (ClipboardSaveResponse) -> Void) {
+        guard let controller = envImportController else {
+            completion(.init(success: false, errorCode: .storageUnavailable)); return
+        }
+        guard pendingRequest == nil, pendingServiceRequest == nil, clipboardSaveController?.isPending != true,
+              browserSessionController?.isPending != true, !controller.isPending else {
+            completion(.init(success: false, errorCode: .busy)); return
+        }
+        controller.receive(request, callerName: callerName, isConnected: isConnected, completion: completion)
+    }
+
     @MainActor func importSource(_ request: SourceImportRequest, callerName: String,
                     isConnected: @escaping () -> Bool,
                     completion: @escaping (ClipboardSaveResponse) -> Void) {
         guard let controller = clipboardSaveController else {
             completion(.init(success: false, errorCode: .storageUnavailable)); return
         }
-        guard pendingRequest == nil, pendingServiceRequest == nil, !controller.isPending, browserSessionController?.isPending != true else {
+        guard pendingRequest == nil, pendingServiceRequest == nil, !controller.isPending, browserSessionController?.isPending != true, envImportController?.isPending != true else {
             completion(.init(success: false, errorCode: .busy)); return
         }
         do {
@@ -120,16 +134,18 @@ final class IPCServer: ObservableObject {
         metaStore: MetaStore = .default,
         approvals: ApprovalStore,
         clipboardSaveController: ClipboardSaveController? = nil,
+        envImportController: EnvImportController? = nil,
         browserSessionController: BrowserSessionController? = nil
     ) {
         self.session = session
         self.metaStore = metaStore
         self.approvals = approvals
         self.clipboardSaveController = clipboardSaveController
+        self.envImportController = envImportController
         self.browserSessionController = browserSessionController
         browserSessionController?.otherApprovalPending = { [weak self] in
             guard let self else { return true }
-            return self.pendingRequest != nil || self.pendingServiceRequest != nil || self.clipboardSaveController?.isPending == true
+            return self.pendingRequest != nil || self.pendingServiceRequest != nil || self.clipboardSaveController?.isPending == true || self.envImportController?.isPending == true
         }
     }
 
@@ -139,7 +155,7 @@ final class IPCServer: ObservableObject {
             send(.clipboardSave(.init(success: false, errorCode: .storageUnavailable)), clientFd: clientFd)
             return
         }
-        guard pendingRequest == nil, pendingServiceRequest == nil, browserSessionController?.isPending != true else {
+        guard pendingRequest == nil, pendingServiceRequest == nil, browserSessionController?.isPending != true, envImportController?.isPending != true else {
             send(.clipboardSave(.init(success: false, errorCode: .busy)), clientFd: clientFd)
             return
         }
@@ -215,6 +231,7 @@ final class IPCServer: ObservableObject {
 
     func stop() {
         clipboardSaveController?.cancel()
+        envImportController?.cancel()
         browserSessionController?.stopAll()
         guard let listener else { return }
 
@@ -352,6 +369,16 @@ final class IPCServer: ObservableObject {
                     isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
                     completion: { response in self.send(.clipboardSave(response), clientFd: clientFd) })
             }
+        case .envImport(let request):
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    Self.writeAndClose(.clipboardSave(.init(success: false, errorCode: .storageUnavailable)), clientFd: clientFd)
+                    return
+                }
+                self.importEnv(request, callerName: callerIdentity.displayName,
+                    isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
+                    completion: { response in self.send(.clipboardSave(response), clientFd: clientFd) })
+            }
         case .fileImport(let request):
             DispatchQueue.main.async { [weak self] in
                 guard let self else {
@@ -368,7 +395,7 @@ final class IPCServer: ObservableObject {
                     Self.writeAndClose(.clipboardSave(.init(success: false, errorCode: .storageUnavailable)), clientFd: clientFd)
                     return
                 }
-                guard self.pendingRequest == nil, self.pendingServiceRequest == nil, !controller.isPending, self.browserSessionController?.isPending != true else {
+                guard self.pendingRequest == nil, self.pendingServiceRequest == nil, !controller.isPending, self.browserSessionController?.isPending != true, self.envImportController?.isPending != true, envImportController?.isPending != true else {
                     self.send(.clipboardSave(.init(success: false, errorCode: .busy)), clientFd: clientFd)
                     return
                 }
@@ -568,7 +595,7 @@ final class IPCServer: ObservableObject {
         }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            guard self.clipboardSaveController?.isPending != true, self.browserSessionController?.isPending != true else {
+            guard self.clipboardSaveController?.isPending != true, self.browserSessionController?.isPending != true, self.envImportController?.isPending != true, envImportController?.isPending != true else {
                 self.send(.auth(.init(granted: false, error: ClipboardSaveError.busy.localizedDescription)), clientFd: clientFd)
                 return
             }
@@ -754,7 +781,7 @@ final class IPCServer: ObservableObject {
                                        callerIdentity: CallerIdentity) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            guard self.clipboardSaveController?.isPending != true, self.browserSessionController?.isPending != true else {
+            guard self.clipboardSaveController?.isPending != true, self.browserSessionController?.isPending != true, self.envImportController?.isPending != true, envImportController?.isPending != true else {
                 self.send(.value(.init(success: false, error: ClipboardSaveError.busy.localizedDescription,
                     errorCode: .noAuthorization)), clientFd: clientFd)
                 return

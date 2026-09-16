@@ -33,6 +33,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         StandingApprovalRequester.shared.handler = { [weak self] request in self?.handleStandingApproval(request) }
         ipcServer = IPCServer(session: credentialService, approvals: .shared,
             clipboardSaveController: ClipboardSaveController(service: credentialService, approvals: .shared),
+            envImportController: EnvImportController(service: credentialService, approvals: .shared),
             browserSessionController: browserSessions.controller)
         switch ipcServer.start() {
         case .started(let disposition):

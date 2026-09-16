@@ -134,6 +134,31 @@ OUT="$("$KK" run -c svc -- sh -c 'echo "REGION=$REGION"' 2>&1)"
 expect_contains "unconfirmed plain field is held back with an explanation" "Not injected from 'svc': region" "$OUT"
 expect_not_contains "and not injected" "REGION=us-east-1" "$OUT"
 
+echo "==> import a project's .env: one credential, secrets in the Keychain, plain settings beside them"
+mkdir -p "$TMP/proj"
+cat >"$TMP/proj/.env" <<'ENV'
+# synthetic project env
+OPENAI_API_KEY=sk-synthetic-env-1234567890
+export DATABASE_URL="postgres://user:pw@db.example/app"
+PORT=3000
+EMPTY=
+ENV
+OUT="$("$KK" import "$TMP/proj/.env" --id envproj --label "Env Project" 2>&1)"
+expect_contains "import reports counts, never values" "2 secret, 1 plain, 1 skipped" "$OUT"
+expect_not_contains "no value in the CLI output" "sk-synthetic-env" "$OUT"
+[ -f "$TMP/proj/.env" ] && pass "original .env untouched" || fail "original .env untouched" "file gone"
+OUT="$("$KK" list --detail 2>&1)"
+expect_contains "credential listed with its label" "Env Project" "$OUT"
+expect_contains "imported credential is inject-only" "inject-only" "$OUT"
+OUT="$("$KK" run -c envproj --reason "e2e: env import" -- sh -c 'test "$OPENAI_API_KEY" = sk-synthetic-env-1234567890 && test "$PORT" = 3000 && test -n "$DATABASE_URL" && echo MATCH' 2>&1)"
+expect_contains "run injects secrets and plain settings under their original names" "MATCH" "$OUT"
+OUT="$("$KK" get envproj openai-api-key 2>&1 || true)"
+expect_contains "get refuses the imported secret" "inject-only" "$OUT"
+OUT="$("$KK" import "$TMP/proj/.env" --id envproj 2>&1 || true)"
+expect_contains "importing onto an existing id is refused" "already exists" "$OUT"
+OUT="$("$KK" import "$TMP/config.py" --id pyenv 2>&1 || true)"
+expect_contains "a non-.env file is refused before the App reads it" ".env" "$OUT"
+
 echo "==> strict credential: every run asks, the instance answers 'once'"
 OUT="$("$KK" save -c strict1 --field key --from-source "$TMP/config.py" --python-symbol STRICT_KEY --create 2>&1)"
 expect_contains "save strict" "Saved" "$OUT"
