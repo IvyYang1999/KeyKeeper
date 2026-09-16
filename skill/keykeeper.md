@@ -288,11 +288,10 @@ it in one command:
 keykeeper import ./.env --id my-app --purpose "what this project is"
 ```
 
-The App opens the file itself, shows the person the **variable names** it found (secrets, plain
-settings, skipped lines) and, once they approve, stores the values: names that look like secrets
-(`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, …) or whose value looks like one go into the Keychain, the
-rest become plain fields next to them. You get back counts, never a value. The credential is
-inject-only. From then on run the project with the same variables and no file:
+The App opens the file itself and shows the **variable names** for approval. All imported
+values, including ordinary settings, go into the Keychain: names and lengths cannot prove
+that a value is safe to expose as plain metadata. You get back counts, never a value.
+The credential is inject-only. Run the project using its imported variables:
 
 ```bash
 keykeeper run -c my-app -- npm run dev
@@ -300,7 +299,10 @@ keykeeper run -c my-app -- npm run dev
 
 Field names are the variables lowercased (`OPENAI_API_KEY` → `openai-api-key`), and `run`
 turns them back into the original names. Lowercase or oddly named variables that cannot round-trip
-are listed as skipped; set those by hand with `keykeeper edit my-app --set name=value` if they matter.
+are listed as skipped. Empty and reserved variables are skipped too. Only single-line assignments
+are supported; malformed or multiline syntax is refused, and shell interpolation is never run.
+Do not use `edit --set` as a fallback for skipped secrets. Review missing variables with the user
+and verify the project through `run` before recommending removal of the original.
 
 Afterwards tell the person three things: the original file is untouched (they should delete it
 and add `.env` to `.gitignore`), the keys sat in plaintext and are worth rotating at their

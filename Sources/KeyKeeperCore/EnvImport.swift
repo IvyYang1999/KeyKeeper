@@ -1,15 +1,10 @@
 import Foundation
 
-// yyt 2026-09-16: "vibecoder 手里有的就是 .env". Moving a project's plaintext .env into
-// KeyKeeper is the one import a vibe coder actually needs. The agent names the file; the App
-// reads it, shows the variable NAMES for approval, and stores the values. Nothing but names
-// and counts ever goes back over the socket.
-
-/// One `keykeeper import <path>` from a caller: the file to read and the credential to create.
+/// The Agent supplies only a path and destination. The App previews names and, after
+/// confirmation, imports values without handing them back over IPC.
 public struct EnvImportRequest: Codable, Sendable, Equatable {
     public var credentialId: String
     public var filePath: String
-    /// Shown as the credential's name; defaults to the id.
     public var label: String?
     public var intent: UsageIntent?
     public var security: SecurityLevel?
@@ -24,8 +19,6 @@ public struct EnvImportRequest: Codable, Sendable, Equatable {
         self.security = security
     }
 
-    /// Only dotenv-style files: `.env`, `.env.local`, `staging.env`. Anything else is not
-    /// something an agent should be pointing KeyKeeper at.
     public static func looksLikeEnvFile(_ path: String) -> Bool {
         let name = (path as NSString).lastPathComponent
         return name == ".env" || name.hasPrefix(".env.") || name.hasSuffix(".env")
@@ -50,11 +43,10 @@ public struct EnvEntry: Equatable, Sendable {
     public init(name: String, value: String, line: Int) { self.name = name; self.value = value; self.line = line }
 }
 
-/// The dotenv grammar people actually write: `KEY=value`, `export KEY=value`, single or double
-/// quotes, `#` comments, blank lines. Later duplicates win, like dotenv loaders. No expansion
-/// of `${OTHER}` — a value is stored exactly as written.
+/// Single-line dotenv assignments, quotes, comments and optional export prefix. Later
+/// duplicates win. No shell expansion. Malformed or multiline syntax fails the whole import.
 public enum EnvFileParser {
-    public static func parse(_ text: String) -> [EnvEntry] {
+    public static func parse(_ text: String) throws -> [EnvEntry] {
         var byName: [String: EnvEntry] = [:]
         var order: [String] = []
         for (index, rawLine) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
@@ -62,10 +54,10 @@ public enum EnvFileParser {
             if line.hasSuffix("\r") { line.removeLast() }
             if line.isEmpty || line.hasPrefix("#") { continue }
             if line.hasPrefix("export ") { line = String(line.dropFirst(7)).trimmingCharacters(in: .whitespaces) }
-            guard let equals = line.firstIndex(of: "=") else { continue }
+            guard let equals = line.firstIndex(of: "=") else { throw ClipboardSaveError.invalidEnvFile }
             let name = line[..<equals].trimmingCharacters(in: .whitespaces)
-            guard isValidName(name) else { continue }
-            let value = unquote(String(line[line.index(after: equals)...]))
+            guard isValidName(name) else { throw ClipboardSaveError.invalidEnvFile }
+            let value = try unquote(String(line[line.index(after: equals)...]))
             if byName[name] == nil { order.append(name) }
             byName[name] = EnvEntry(name: name, value: value, line: index + 1)
         }
@@ -76,24 +68,44 @@ public enum EnvFileParser {
         name.range(of: #"^[A-Za-z_][A-Za-z0-9_]{0,127}$"#, options: .regularExpression) != nil
     }
 
-    /// Quotes wrap the whole value; a trailing ` # comment` only counts outside quotes.
-    static func unquote(_ raw: String) -> String {
+    static func unquote(_ raw: String) throws -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
-        for quote in ["\"", "'"] where trimmed.hasPrefix(quote) {
-            if let end = trimmed.dropFirst().firstIndex(of: Character(quote)) {
-                var inner = String(trimmed[trimmed.index(after: trimmed.startIndex)..<end])
-                if quote == "\"" { inner = inner.replacingOccurrences(of: "\\n", with: "\n").replacingOccurrences(of: "\\\"", with: "\"") }
-                return inner
+        if let quote = trimmed.first, quote == "\"" || quote == "'" {
+            var result = ""
+            var index = trimmed.index(after: trimmed.startIndex)
+            while index < trimmed.endIndex {
+                let character = trimmed[index]
+                index = trimmed.index(after: index)
+                if character == quote {
+                    let rest = trimmed[index...].trimmingCharacters(in: .whitespaces)
+                    guard rest.isEmpty || rest.hasPrefix("#") else { throw ClipboardSaveError.invalidEnvFile }
+                    return result
+                }
+                if quote == "\"", character == "\\" {
+                    guard index < trimmed.endIndex else { throw ClipboardSaveError.invalidEnvFile }
+                    let escaped = trimmed[index]
+                    index = trimmed.index(after: index)
+                    switch escaped {
+                    case "n": result.append("\n")
+                    case "r": result.append("\r")
+                    case "\"", "\\": result.append(escaped)
+                    default: result.append("\\"); result.append(escaped)
+                    }
+                } else {
+                    result.append(character)
+                }
             }
-            return String(trimmed.dropFirst())
+            throw ClipboardSaveError.invalidEnvFile
         }
-        if let hash = trimmed.range(of: " #") { return String(trimmed[..<hash.lowerBound]).trimmingCharacters(in: .whitespaces) }
+        if let hash = trimmed.range(of: #"\s+#"#, options: .regularExpression) {
+            return String(trimmed[..<hash.lowerBound]).trimmingCharacters(in: .whitespaces)
+        }
         return trimmed
     }
 }
 
-/// Which variables become fields, under which names, and which are secrets. Decided from
-/// names and from a value's *shape* only; the plan carries no values.
+/// All imported values are protected. Names and shapes cannot prove a value is safe
+/// to expose through metadata. The plan contains no values.
 public struct EnvImportPlan: Equatable, Sendable {
     public struct Field: Equatable, Sendable {
         public var name: String
@@ -106,25 +118,9 @@ public struct EnvImportPlan: Equatable, Sendable {
     }
     public var fields: [Field]
     public var skipped: [Skipped]
-
     public var secretNames: [String] { fields.filter(\.secret).map(\.name) }
     public var plainNames: [String] { fields.filter { !$0.secret }.map(\.name) }
     public var isEmpty: Bool { fields.isEmpty }
-
-    /// Words that mark a secret by name. A URL with `user:password@` in it is a secret whatever it is called.
-    static let secretWords = ["KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "PRIVATE", "CREDENTIAL",
-                              "AUTH", "DSN", "SIGNING", "CERT", "SALT", "PASS"]
-
-    public static func isSecretName(_ name: String) -> Bool {
-        let upper = name.uppercased()
-        return secretWords.contains { upper.contains($0) }
-    }
-
-    public static func looksLikeSecretValue(_ value: String) -> Bool {
-        if value.range(of: #"://[^/\s]+:[^/\s]+@"#, options: .regularExpression) != nil { return true }
-        return value.count >= 20 && !value.contains(" ") && value.range(of: #"^[A-Za-z0-9+/=_\-.:]+$"#, options: .regularExpression) != nil
-            && value.rangeOfCharacter(from: .decimalDigits) != nil && value.rangeOfCharacter(from: .letters) != nil
-    }
 
     public static func make(_ entries: [EnvEntry]) -> EnvImportPlan {
         var fields: [Field] = []
@@ -149,8 +145,7 @@ public struct EnvImportPlan: Equatable, Sendable {
                 skipped.append(.init(name: entry.name, reason: "duplicate field name")); continue
             }
             taken.insert(fieldName)
-            fields.append(.init(name: entry.name, fieldName: fieldName,
-                                secret: isSecretName(entry.name) || looksLikeSecretValue(entry.value)))
+            fields.append(.init(name: entry.name, fieldName: fieldName, secret: true))
         }
         return EnvImportPlan(fields: fields, skipped: skipped)
     }

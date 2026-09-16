@@ -10,11 +10,12 @@ struct ImportCommand: ParsableCommand {
         abstract: "Move a project's .env file into KeyKeeper: one credential, one field per variable.",
         discussion: """
         The KeyKeeper app opens the file itself and asks the person to approve the list of variable \
-        names. Values go straight into the macOS Keychain and are never printed or returned; names that \
-        look like secrets (KEY, TOKEN, SECRET, PASSWORD, …) or whose value looks like one become secret \
-        fields, the rest become plain settings. The imported credential is inject-only: use \
-        `keykeeper run -c <id> -- <command>` to give a program the same variables the file had. \
-        The original file is left untouched; tell the person to delete it and rotate the keys.
+        names. All imported values go into the macOS Keychain, including ordinary settings; none \
+        are guessed safe to expose as plain metadata. The credential is inject-only: use \
+        `keykeeper run -c <id> -- <command>` to inject the imported variables. Only single-line \
+        assignments are supported; quotes, escapes and comments are parsed, but shell expansion \
+        is not performed. Malformed or multiline syntax is refused. Empty, reserved or unsupported \
+        variable names are skipped. Keep the original until the project works through run.
         """)
 
     @Argument(help: "Path to the .env file (.env, .env.*, or *.env; at most 64 KiB).")

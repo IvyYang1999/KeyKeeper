@@ -134,7 +134,7 @@ OUT="$("$KK" run -c svc -- sh -c 'echo "REGION=$REGION"' 2>&1)"
 expect_contains "unconfirmed plain field is held back with an explanation" "Not injected from 'svc': region" "$OUT"
 expect_not_contains "and not injected" "REGION=us-east-1" "$OUT"
 
-echo "==> import a project's .env: one credential, secrets in the Keychain, plain settings beside them"
+echo "==> import a project's dotenv file: every value protected in the Keychain"
 mkdir -p "$TMP/proj"
 cat >"$TMP/proj/.env" <<'ENV'
 # synthetic project env
@@ -144,14 +144,18 @@ PORT=3000
 EMPTY=
 ENV
 OUT="$("$KK" import "$TMP/proj/.env" --id envproj --label "Env Project" 2>&1)"
-expect_contains "import reports counts, never values" "2 secret, 1 plain, 1 skipped" "$OUT"
+expect_contains "import reports counts, never values" "3 secret, 0 plain, 1 skipped" "$OUT"
 expect_not_contains "no value in the CLI output" "sk-synthetic-env" "$OUT"
 [ -f "$TMP/proj/.env" ] && pass "original .env untouched" || fail "original .env untouched" "file gone"
 OUT="$("$KK" list --detail 2>&1)"
 expect_contains "credential listed with its label" "Env Project" "$OUT"
 expect_contains "imported credential is inject-only" "inject-only" "$OUT"
 OUT="$("$KK" run -c envproj --reason "e2e: env import" -- sh -c 'test "$OPENAI_API_KEY" = sk-synthetic-env-1234567890 && test "$PORT" = 3000 && test -n "$DATABASE_URL" && echo MATCH' 2>&1)"
-expect_contains "run injects secrets and plain settings under their original names" "MATCH" "$OUT"
+expect_contains "run injects protected values under their original names" "MATCH" "$OUT"
+OUT="$("$KK" meta envproj 2>&1)"
+expect_not_contains "ordinary settings are not exposed in metadata" '"value"' "$OUT"
+OUT="$("$KK" get envproj port 2>&1 || true)"
+expect_contains "get cannot expose ordinary imported settings either" "inject-only" "$OUT"
 OUT="$("$KK" get envproj openai-api-key 2>&1 || true)"
 expect_contains "get refuses the imported secret" "inject-only" "$OUT"
 OUT="$("$KK" import "$TMP/proj/.env" --id envproj 2>&1 || true)"

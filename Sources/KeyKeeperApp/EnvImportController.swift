@@ -121,12 +121,14 @@ import KeyKeeperCore
                 },
                 // Imported over the socket, i.e. by an agent: never handed back to one.
                 injectOnly: true)
-            do { try metaStore.save(metadata) } catch { throw ClipboardSaveError.metadataCommitFailed }
+            // Verify before committing metadata; cleanup must never delete values from a
+            // credential whose metadata was already successfully published.
             for field in plan.fields where field.secret {
                 guard try service.retrieve(credentialId: request.credentialId, fieldName: field.fieldName) == values[field.name] else {
                     throw ClipboardSaveError.storageUnavailable
                 }
             }
+            do { try metaStore.save(metadata) } catch { throw ClipboardSaveError.metadataCommitFailed }
             NotificationCenter.default.post(name: .clipboardCredentialSaved, object: nil)
             let secrets = plan.secretNames.count, plain = plan.plainNames.count
             finish(.init(success: true, detail: "\(secrets) secret, \(plain) plain, \(plan.skipped.count) skipped"))
@@ -141,7 +143,7 @@ import KeyKeeperCore
 
     static func entries(from source: CredentialFileSource) throws -> [EnvEntry] {
         guard let text = try source.readText() else { throw ClipboardSaveError.invalidEnvFile }
-        return EnvFileParser.parse(text)
+        return try EnvFileParser.parse(text)
     }
     static func plan(from source: CredentialFileSource) throws -> EnvImportPlan {
         EnvImportPlan.make(try entries(from: source))

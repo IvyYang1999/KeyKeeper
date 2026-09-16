@@ -8,13 +8,15 @@ import KeyKeeperTestSupport
     private var dir: URL!
     private var service: KeychainCredentialService!
     private var metaStore: MetaStore!
+    private var keychainIO: FakeKeychainIO!
     private var presented: [EnvImportController.Presentation] = []
     private var decide: ((Bool) -> Void)?
 
     override func setUp() async throws {
         dir = FileManager.default.temporaryDirectory.appendingPathComponent("kk-env-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        service = KeychainCredentialService(store: KeychainBlobStore(io: FakeKeychainIO()))
+        keychainIO = FakeKeychainIO()
+        service = KeychainCredentialService(store: KeychainBlobStore(io: keychainIO))
         metaStore = MetaStore(directory: dir)
         try metaStore.save(MetaFile(version: 1, credentials: [:]))
     }
@@ -32,7 +34,7 @@ import KeyKeeperTestSupport
         return url.path
     }
 
-    func test批准后密钥进钥匙串明文进元数据且只注入() throws {
+    func test批准后所有值进钥匙串元数据无值且只注入() throws {
         let path = try writeEnv("""
         OPENAI_API_KEY=sk-synthetic-1234567890abcdef
         DATABASE_URL="postgres://u:p@db.example/app"
@@ -44,19 +46,21 @@ import KeyKeeperTestSupport
         sut.receive(.init(credentialId: "my-app", filePath: path, label: "My App"), callerName: "codex",
                     isConnected: { true }) { response = $0 }
         XCTAssertEqual(presented.count, 1)
-        XCTAssertEqual(presented.first?.plan.secretNames, ["OPENAI_API_KEY", "DATABASE_URL"])
-        XCTAssertEqual(presented.first?.plan.plainNames, ["PORT"])
+        XCTAssertEqual(presented.first?.plan.secretNames, ["OPENAI_API_KEY", "DATABASE_URL", "PORT"])
+        XCTAssertEqual(presented.first?.plan.plainNames, [])
         XCTAssertEqual(presented.first?.plan.skipped.map(\.name), ["EMPTY"])
         XCTAssertNil(response, "弹窗之前什么都不写")
         decide?(true)
         XCTAssertEqual(response?.success, true)
-        XCTAssertEqual(response?.detail, "2 secret, 1 plain, 1 skipped")
+        XCTAssertEqual(response?.detail, "3 secret, 0 plain, 1 skipped")
         XCTAssertEqual(try service.retrieve(credentialId: "my-app", fieldName: "openai-api-key"), "sk-synthetic-1234567890abcdef")
         XCTAssertEqual(try service.retrieve(credentialId: "my-app", fieldName: "database-url"), "postgres://u:p@db.example/app")
         let saved = try XCTUnwrap(try metaStore.load().credentials["my-app"])
         XCTAssertEqual(saved.label, "My App")
-        XCTAssertEqual(saved.fields["port"]?.value, "3000")
-        XCTAssertEqual(saved.fields["port"]?.secret, false)
+        XCTAssertNil(saved.fields["port"]?.value)
+        XCTAssertEqual(saved.fields["port"]?.secret, true)
+        XCTAssertEqual(try service.retrieve(credentialId: "my-app", fieldName: "port"), "3000")
+        XCTAssertTrue(saved.fields.values.allSatisfy { $0.secret && $0.value == nil })
         XCTAssertNil(saved.fields["port"]?.setByCaller, "人在窗口里批准过，不需要再确认")
         XCTAssertEqual(saved.fields["openai-api-key"]?.secret, true)
         XCTAssertNil(saved.fields["openai-api-key"]?.value)
@@ -73,6 +77,33 @@ import KeyKeeperTestSupport
         sut.receive(.init(credentialId: "app", filePath: path), callerName: "codex", isConnected: { true }) { response = $0 }
         decide?(false)
         XCTAssertEqual(response?.errorCode, .denied)
+        XCTAssertNil(try metaStore.load().credentials["app"])
+        XCTAssertNil(try service.fieldNamesByCredential()["app"])
+    }
+
+    // 【曾经的 bug】校验失败后不能留下已经提交但值又被清掉的元数据。
+    func test写后校验失败不会留下缺值凭据() throws {
+        let path = try writeEnv("VALUE=synthetic")
+        keychainIO.afterWrite = { [keychainIO] in
+            keychainIO!.afterWrite = nil
+            keychainIO!.keychain.failNextReads(of: keychainIO!.service, count: 1)
+        }
+        let sut = controller()
+        var response: ClipboardSaveResponse?
+        sut.receive(.init(credentialId: "app", filePath: path), callerName: "codex", isConnected: { true }) { response = $0 }
+        decide?(true)
+        XCTAssertEqual(response?.success, false)
+        XCTAssertNil(try metaStore.load().credentials["app"])
+        XCTAssertNil(try service.fieldNamesByCredential()["app"])
+    }
+
+    func test格式不完整整份拒绝且不写入() throws {
+        let path = try writeEnv("FIRST=synthetic\nSECOND=\"unfinished")
+        let sut = controller()
+        var response: ClipboardSaveResponse?
+        sut.receive(.init(credentialId: "app", filePath: path), callerName: "codex", isConnected: { true }) { response = $0 }
+        XCTAssertEqual(response?.errorCode, .invalidEnvFile)
+        XCTAssertTrue(presented.isEmpty)
         XCTAssertNil(try metaStore.load().credentials["app"])
         XCTAssertNil(try service.fieldNamesByCredential()["app"])
     }
@@ -125,8 +156,8 @@ import KeyKeeperTestSupport
         let sut = controller()
         sut.receive(.init(credentialId: "app", filePath: path), callerName: "codex", isConnected: { true }) { _ in }
         let model = TrustPromptModel.envImport(try XCTUnwrap(presented.first))
-        XCTAssertTrue(model.rows.contains { $0.label == L("Secrets") && $0.value == "API_KEY" })
-        XCTAssertTrue(model.rows.contains { $0.label == L("Plain") && $0.value == "PORT" })
+        XCTAssertTrue(model.rows.contains { $0.label == L("Secrets") && $0.value == "API_KEY  PORT" })
+        XCTAssertFalse(model.rows.contains { $0.label == L("Plain") })
         XCTAssertFalse(model.rows.contains { $0.value.contains("sk-synthetic") }, "值不进窗口")
         for key in ["Move this .env into KeyKeeper?", "Secrets", "Plain", "Skipped", "Import", "New, {0} fields",
                     "{0} wants its secrets out of the plaintext file",
