@@ -282,4 +282,7 @@ KeyKeeper/
 
 ## 许可
 
-[MIT](LICENSE)
+App、CLI 和核心库采用 [Functional Source License 1.1（MIT 未来许可）](LICENSE)（FSL-1.1-MIT）：源码公开，
+可以看、编译、修改、随便用，唯独不能拿去做竞争性的产品或服务；每个版本发布两年后自动变成普通 MIT。
+[Node SDK](sdk-node/LICENSE)、[Python SDK](sdk-python/LICENSE)、[Agent skill](skill/LICENSE) 和
+[Codex / Claude Code 插件](Plugins/keykeeper/LICENSE) 保持 MIT，接 KeyKeeper 的代码随便嵌。0.3.4 及之前的版本按 MIT 发布，不变。

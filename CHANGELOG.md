@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- License: the app, CLI and core move from MIT to FSL-1.1-MIT (source public, no competing products, MIT again after two years). SDKs, skill and plugin stay MIT. Earlier releases remain MIT.
+
+## 0.3.5 - 2026-09-16
+
+- Import a project's dotenv file with `keykeeper import`: the App previews variable names, asks for approval and stores all imported values in the Keychain. Imported credentials are inject-only; originals remain untouched. Single-line assignments only; malformed/multiline syntax fails closed, and empty/reserved/unsupported names are reported as skipped. No shell interpolation is performed.
+- 113 provider templates, separated by region, plan and credential type; searchable brand/category picker, provider icons, expiry guidance and official management links. Templates can be selected while adding a credential or bound afterwards without renaming its existing fields.
+- Bundled Codex and Claude Code plugins, with installation instructions in Settings. Installation does not grant credential access.
+- Access and metadata changes have separate history tabs and drill-down details; usage permissions show the actual caller identity, scope and expiry. Current authorization is separate from historical decisions.
+- Fix approval status refresh and window corners after expanding/collapsing details. Keep both Chrome import and KeyKeeper login available after saving a website session.
+- Import hardening: never guess a value safe for plain metadata, preserve escaped quotes, reject partial parsing, and verify stored values before committing metadata.
+- Missing request reasons are visibly flagged in the approval window rather than refusing the request outright.
+
 ## 0.3.4 - 2026-09-15
 
 - Approvals moved from plain files into a single app-owned Keychain item; the old files are renamed and no longer read. "Always" is scoped to the approved program only, an unsigned app is identified by the file it runs from, and a fresh install enforces background approvals by default. Existing approvals ask once more.

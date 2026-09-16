@@ -285,4 +285,10 @@ KeyKeeper/
 
 ## License
 
-[MIT](LICENSE)
+The app, CLI and core are under the [Functional Source License, Version 1.1, MIT Future License](LICENSE)
+(FSL-1.1-MIT): the source is public, you may read, build, modify and use it for anything except
+offering a competing product or service, and each version becomes plain MIT two years after its
+release. The [Node SDK](sdk-node/LICENSE), [Python SDK](sdk-python/LICENSE), the
+[agent skill](skill/LICENSE) and the [Codex / Claude Code plugin](Plugins/keykeeper/LICENSE) stay MIT,
+so anything that talks to KeyKeeper can be embedded without a second thought. Releases up to 0.3.4
+were published under MIT and remain so.
