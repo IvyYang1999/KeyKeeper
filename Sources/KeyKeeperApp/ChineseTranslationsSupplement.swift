@@ -277,12 +277,6 @@ extension AppL10n {
         "Unsigned: the file it runs from.": "没签名：按它运行的文件认。",
         "Via the keykeeper command: the app or file it was started from.": "经 keykeeper 命令转来：按启动它的 App 或文件认。",
         "Unidentified: matches nobody.": "认不出：不匹配任何人。",
-        // 推荐注册链接（2026-09-16）
-        "No account yet? Sign up": "还没账号？去注册",
-        "Sign-up links": "注册链接",
-        "Show a provider's referral sign-up link when adding a key": "添加 key 时显示服务商的推荐注册链接",
-        "Only for providers you have no account with, next to the normal key page, never instead of it. What KeyKeeper gets is stated on the link. Which providers are listed, and in what order, does not depend on it.": "只给还没账号的情况用，放在正常建 key 页面旁边，不会替代它。KeyKeeper 拿到什么写在链接上。列出哪些服务商、按什么顺序，和它无关。",
-        "Referral policy": "推荐链接政策",
         // .env 导入（2026-09-16）
         "New, {0} fields": "新建，{0} 个字段",
         "Secrets": "密钥",

@@ -47,6 +47,22 @@ class PluginTests(unittest.TestCase):
         self.assertEqual((ROOT / codex["plugins"][0]["source"]["path"]).resolve(), PLUGIN)
         self.assertEqual((ROOT / claude["plugins"][0]["source"]).resolve(), PLUGIN)
 
+    def test_referral_flow_is_account_gated_and_not_persistent_app_chrome(self):
+        skills = [
+            (ROOT / "skill/keykeeper.md").read_text(),
+            (PLUGIN / "skills/keykeeper/SKILL.md").read_text(),
+        ]
+        for skill in skills:
+            normalized = " ".join(skill.split())
+            self.assertIn("Do you already have an account", normalized)
+            self.assertIn("The page to create the key is:", normalized)
+            self.assertIn("If you do not have an account yet", normalized)
+            self.assertIn("KeyKeeper also receives", normalized)
+        add_view = (ROOT / "Sources/KeyKeeperApp/AddProviderTemplateSection.swift").read_text()
+        settings = (ROOT / "Sources/KeyKeeperApp/SettingsView.swift").read_text()
+        self.assertNotIn("ProviderSignupLink", add_view)
+        self.assertNotIn("referralCard", settings)
+
     def test_readiness_is_bounded_and_does_not_return_raw_output(self):
         spec = importlib.util.spec_from_file_location("doctor", PLUGIN / "skills/keykeeper/scripts/doctor.py")
         doctor = importlib.util.module_from_spec(spec)

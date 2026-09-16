@@ -17,7 +17,6 @@ struct AddProviderTemplateSection: View {
                 ))
                 if vm.providerID != nil {
                     ProviderConsoleLink(providerID: vm.providerID, purpose: .create)
-                    ProviderSignupLink(providerID: vm.providerID)
                 } else {
                     Text(L("Pick one and the fields fill in; you can also type them below."))
                         .font(.caption).foregroundStyle(.secondary)

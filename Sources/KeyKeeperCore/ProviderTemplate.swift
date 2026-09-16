@@ -130,8 +130,8 @@ public struct ProviderEndpoint: Codable, Equatable, Sendable {
 /// Where a person who has no account yet can sign up. yyt 2026-09-16: "创建 key 的那个链接，确实
 /// 可以放联盟营销的链接" — but a referral link is a sign-up page, useless and confusing to
 /// someone already logged in, so it lives next to `createURL`, never replaces it. What each side
-/// gets is stated in the template itself, printed by the CLI and shown in the docs, so the
-/// disclosure travels with the link. Nothing else in a template — order, permissions, advice —
+/// gets is stated as structured template data, printed by the CLI and shown in the docs, so those
+/// facts travel with the link. Nothing else in a template — order, permissions, advice —
 /// may depend on this field; a test enforces the ordering.
 public struct ProviderSignup: Codable, Equatable, Sendable {
     /// The referral sign-up page; https only.
@@ -145,14 +145,6 @@ public struct ProviderSignup: Codable, Equatable, Sendable {
 
     public init(url: String, whatYouGet: String? = nil, whatWeGet: String, code: String? = nil) {
         self.url = url; self.whatYouGet = whatYouGet; self.whatWeGet = whatWeGet; self.code = code
-    }
-
-    /// The sentence an agent says when it offers the link. English; the person reads it.
-    public var disclosure: String {
-        var parts = ["Signing up through this link gives KeyKeeper \(whatWeGet)."]
-        if let whatYouGet { parts.insert("You get \(whatYouGet).", at: 0) }
-        if let code { parts.append("Invite code: \(code).") }
-        return parts.joined(separator: " ")
     }
 }
 
@@ -474,7 +466,12 @@ public enum ProviderCatalog {
                                            description: "lists the models this key can use"),
             rotateURL: "https://cloud.siliconflow.cn/account/ak",
             expiryNote: "The public guide does not promise one universal expiration policy; record a date only when the console shows one.",
-            verified: "2026-09-15"),
+            verified: "2026-09-15",
+            signup: ProviderSignup(
+                url: "https://cloud.siliconflow.cn/i/rYSj1fxJ",
+                whatYouGet: "a ¥16 platform-wide coupon after registration and real-name verification",
+                whatWeGet: "a ¥16 platform-wide coupon",
+                code: "rYSj1fxJ")),
         ProviderTemplate(
             id: "app-store-connect", name: "App Store Connect · Team API Key", aliases: ["asc", "appstoreconnect", "apple-api"],
             fieldName: "private-key",

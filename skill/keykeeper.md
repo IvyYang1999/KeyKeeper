@@ -233,14 +233,21 @@ explicit unknown), and `validation` (the read-only request KeyKeeper itself make
 The built-in catalog covers AI/model vendors, Apple Developer, Google service
 accounts and analytics, deployment/cloud, observability, package publishing and messaging. Then:
 
-1. Open `createURL` for the user (a browser tool if you have one, otherwise give the link) and
-   tell them, in one sentence, what to choose: the `minimalPermission`, and — only when
-   `shownOnce` is true — that the key must be copied before leaving. The gates are theirs — never
-   try to log in, pass MFA or pay for them. If the template has a `signup` entry and the person
-   says they have no account there, offer `signup.url` as a second link and say
-   `signup.disclosure` word for word (what they get, what KeyKeeper gets, any invite code). Never
-   send someone who already has an account there, never present it instead of `createURL`, and
-   drop it if they say they would rather not use referral links. If the page shows an actual expiration date, retain the
+1. Treat the first login gate as an account branch. If the template has `signup` and the person's
+   account status is not already known, ask one question before opening a page: **"Do you already
+   have an account with <provider>?"** Do not ask again when the conversation already answers it.
+   Then localize these sentences to the person's language:
+   - Existing account: say only **"The page to create the key is: <createURL>."** Never show or
+     mention `signup`.
+   - No account: say **"The page to create the key is: <createURL>."** Then say **"If you do not
+     have an account yet, use this sign-up link and you get <signup.whatYouGet> (KeyKeeper also
+     receives <signup.whatWeGet>): <signup.url>."** Add `signup.code` to that second sentence when
+     present. These are two separate links; `signup` never replaces `createURL`.
+   If there is no `signup`, open `createURL` normally without asking the account question. Tell
+   them what to choose from `minimalPermission` and — only when `shownOnce` is true — that the key
+   must be copied before leaving. The gates are theirs: never try to log in, pass MFA or pay for
+   them. If they decline a referral link, drop it and continue with the ordinary provider flow.
+   If the page shows an actual expiration date, retain the
    date as metadata for the save; never infer one from the provider name or `expiryNote`.
 2. Import the template's **primary** field with the source required by its kind:
    - `secretText`: after the person copies it, run

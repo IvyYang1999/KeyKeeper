@@ -72,6 +72,8 @@ final class ProviderBrowserTests: XCTestCase {
     }
 
     func test每个模板恰好属于一个品牌且品牌表没有拼错的成员() {
+        let names = ProviderBrowser.families.map(\.name)
+        XCTAssertEqual(names, names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }, "品牌永远按名字排")
         let ids = ProviderBrowser.families.flatMap { $0.members.map(\.id) }
         XCTAssertEqual(Set(ids), Set(ProviderCatalog.all.map(\.id)))
         XCTAssertEqual(ids.count, Set(ids).count)
