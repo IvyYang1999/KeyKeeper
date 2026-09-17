@@ -544,6 +544,16 @@ public enum ProviderCatalog {
       + CloudModelProviderCatalog.all + RoutingModelProviderCatalog.all
       + ExistingModelProviderContracts.regionalTemplates).map(ExistingModelProviderContracts.enrich)
 
+    /// Existing templates stay resolvable for saved credentials, even when we no longer
+    /// recommend the provider to someone creating a new key. Not a security verdict.
+    public static let legacyOnlyIDs: Set<String> = [
+        "compshare-modelverse-cn", "compshare-modelverse-global", "compshare-agent-plan",
+        "ccsub", "micu-claude", "micu-codex", "rightcode-codex", "cubence",
+        "crazyrouter", "dmxapi-cn", "dmxapi-global", "dmxapi-ssvip", "amux",
+        "cherryin", "pipellm", "relaxycode", "therouter",
+    ]
+    public static let discoverable: [ProviderTemplate] = all.filter { !legacyOnlyIDs.contains($0.id) }
+
     public static func find(_ idOrAlias: String) -> ProviderTemplate? {
         let needle = idOrAlias.lowercased().trimmingCharacters(in: .whitespaces)
         return all.first { $0.id == needle || $0.aliases.contains { $0.lowercased() == needle } }

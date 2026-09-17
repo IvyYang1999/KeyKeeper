@@ -233,11 +233,20 @@ final class ProviderMarksTests: XCTestCase {
 
         let lettermarkIds = catalogIds.subtracting(ProviderMarks.marks.keys)
         XCTAssertEqual(lettermarkIds, [
-            "groq", "twilio", "sendgrid", "sendgrid-eu", "mailgun",
+            "groq", "xai", "twilio", "sendgrid", "sendgrid-eu", "mailgun",
             "compshare-modelverse-cn", "compshare-modelverse-global", "compshare-agent-plan",
             "dmxapi-cn", "dmxapi-global", "dmxapi-ssvip", "cherryin",
             "nvidia-api-catalog", "nvidia-ngc",
+            "zenmux-payg", "zenmux-builder",
         ])
+        XCTAssertNil(ProviderMarks.mark(for: "xai"), "X Corp's X logo must not stand in for SpaceXAI/Grok")
+        XCTAssertEqual(ProviderMarks.sourceURLs["xai"], "https://x.ai/legal/brand-guidelines")
+        XCTAssertEqual(ProviderMarks.letter(for: "xai"), "xAI")
+        for id in ["nvidia-api-catalog", "nvidia-ngc"] {
+            XCTAssertNil(ProviderMarks.mark(for: id), "NVIDIA's full logo cannot be reduced to an eyemark in a 48px square")
+            XCTAssertEqual(ProviderMarks.brandHexes[id], "76B900")
+            XCTAssertEqual(ProviderMarks.sourceURLs[id], "https://www.nvidia.com/en-us/about-nvidia/legal-info/logo-brand-usage/")
+        }
         for id in [
             "aihubmix", "amux", "atlascloud", "atlascloud-coding-plan", "ccsub",
             "crazyrouter", "cubence", "longcat", "micu-claude", "micu-codex",

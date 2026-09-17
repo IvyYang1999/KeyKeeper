@@ -3,8 +3,8 @@ import KeyKeeperCore
 
 /// Navigation-only metadata. Never changes a provider's credential contract or stored binding.
 enum ProviderCategory: String, CaseIterable, Identifiable {
-    case models = "AI models"
-    case gateways = "AI gateways"
+    case models = "Model makers"
+    case gateways = "Multi-model APIs"
     case cloud = "Cloud & databases"
     case development = "Development & publishing"
     case apple = "Apple services"
@@ -65,21 +65,19 @@ enum ProviderPickerRow: Identifiable, Equatable {
 enum ProviderBrowser {
     // Explicit membership prevents a new, unclassified provider silently appearing as an AI key.
     static let groups: [ProviderCategory: [String]] = [
-        .models: ["openai", "anthropic", "gemini", "deepseek", "groq", "xai",
+        .models: ["openai", "anthropic", "gemini", "deepseek", "xai",
             "kimi", "kimi-global", "kimi-code", "minimax", "minimax-global",
             "minimax-token-plan-cn", "minimax-token-plan-global", "zhipu-cn", "zhipu-cn-coding",
-            "zai-global", "zai-global-coding", "alibaba-bailian", "alibaba-bailian-coding-cn",
-            "alibaba-bailian-token-cn", "alibaba-bailian-sg", "alibaba-bailian-us", "alibaba-bailian-hk",
-            "volcengine-ark", "volcengine-ark-coding", "aws-bedrock-short-term", "aws-bedrock-long-term",
-            "baidu-qianfan-cn", "baidu-qianfan-global", "baidu-qianfan-token-plan",
-            "nvidia-api-catalog", "nvidia-ngc", "modelscope-cn", "modelscope-global", "novita-ai",
+            "zai-global", "zai-global-coding",
             "longcat", "stepfun-api", "stepfun-step-plan", "xiaomi-mimo-payg",
             "xiaomi-mimo-token-plan-cn", "xiaomi-mimo-token-plan-sg", "xiaomi-mimo-token-plan-eu"],
         .gateways: ["siliconflow", "siliconflow-global", "openrouter", "atlascloud", "atlascloud-coding-plan",
-            "compshare-modelverse-cn", "compshare-modelverse-global", "compshare-agent-plan", "ccsub",
-            "micu-claude", "micu-codex", "rightcode-codex", "cubence", "crazyrouter", "dmxapi-cn",
-            "dmxapi-global", "dmxapi-ssvip", "aihubmix", "amux", "cherryin", "opencode-zen", "opencode-go",
-            "pipellm", "relaxycode", "therouter"],
+            "aihubmix", "opencode-zen", "opencode-go", "zenmux-payg", "zenmux-builder",
+            "groq", "alibaba-bailian", "alibaba-bailian-coding-cn", "alibaba-bailian-token-cn",
+            "alibaba-bailian-sg", "alibaba-bailian-us", "alibaba-bailian-hk",
+            "volcengine-ark", "volcengine-ark-coding", "aws-bedrock-short-term", "aws-bedrock-long-term",
+            "baidu-qianfan-cn", "baidu-qianfan-global", "baidu-qianfan-token-plan",
+            "nvidia-api-catalog", "nvidia-ngc", "modelscope-cn", "modelscope-global", "novita-ai"],
         .cloud: ["supabase", "vercel", "cloudflare", "cloudflare-account", "google-cloud", "firebase-admin",
             "neon", "neon-org", "railway", "railway-api", "render", "netlify", "flyio", "aws", "aws-sts", "azure"],
         .development: ["github", "gitlab", "npm", "pypi", "pypi-test", "dockerhub", "dockerhub-oat"],
@@ -111,6 +109,7 @@ enum ProviderBrowser {
         ("dmxapi", "DMXAPI", ["DMXAPI"], ["dmxapi-cn", "dmxapi-global", "dmxapi-ssvip"]),
         ("micu", "Micu API", ["Micu API"], ["micu-claude", "micu-codex"]),
         ("opencode", "OpenCode", ["OpenCode"], ["opencode-zen", "opencode-go"]),
+        ("zenmux", "ZenMux", ["ZenMux"], ["zenmux-payg", "zenmux-builder"]),
         ("cloudflare", "Cloudflare", ["Cloudflare"], ["cloudflare", "cloudflare-account"]),
         ("neon", "Neon", ["Neon"], ["neon", "neon-org"]),
         ("railway", "Railway", ["Railway"], ["railway", "railway-api"]),
@@ -149,10 +148,11 @@ enum ProviderBrowser {
     /// Search across brand names, template names, ids and old aliases; every word must match.
     static func familyMatches(query: String, category: ProviderCategory? = nil) -> [ProviderFamilyMatch] {
         let words = normalized(query).split(whereSeparator: \.isWhitespace)
-        let members = category.map { Set(groups[$0] ?? []) }
+        // Hidden templates still resolve by id for old credentials, but never appear in new-key search.
+        let members = Set(category.map { groups[$0] ?? [] } ?? groups.values.flatMap { $0 })
         return families.compactMap { family in
             let matched = family.members.filter { template in
-                guard members?.contains(template.id) ?? true else { return false }
+                guard members.contains(template.id) else { return false }
                 let text = normalized(([family.name, template.id, template.name] + template.aliases).joined(separator: " "))
                 return words.allSatisfy { text.contains($0) }
             }

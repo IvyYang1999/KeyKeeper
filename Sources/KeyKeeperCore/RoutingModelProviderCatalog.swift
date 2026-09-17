@@ -3,8 +3,34 @@ import Foundation
 /// Audited routing gateways whose credential identity is distinct from the upstream model vendors.
 enum RoutingModelProviderCatalog {
     static let all: [ProviderTemplate] = [
-        openCodeConsole, openCodeGo, pipeLLM, relaxyCode, theRouter,
+        openCodeConsole, openCodeGo, pipeLLM, relaxyCode, theRouter, zenMuxPayg, zenMuxBuilder,
     ]
+
+    private static let zenMuxPayg = ModelProviderTemplate.make(
+        id: "zenmux-payg", name: "ZenMux · Pay As You Go", aliases: ["zenmux"],
+        env: "ZENMUX_API_KEY", createURL: "https://zenmux.ai/platform/pay-as-you-go",
+        endpoints: [
+            .init("OpenAI compatible", "https://zenmux.ai/api/v1"),
+            .init("Anthropic Messages", "https://zenmux.ai/api/anthropic"),
+            .init("Google Vertex AI compatible", "https://zenmux.ai/api/vertex-ai"),
+        ],
+        gates: ["登录 ZenMux", "选择 Pay As You Go 管理页而非订阅页", "为独立项目创建按量 API key", "核对账户余额和目标模型可用性"],
+        permission: "Only save a pay-as-you-go API key from this page. A Builder Plan subscription key uses a different billing balance; use zenmux-builder instead. No general key-scope guarantee is documented.",
+        sources: ["https://zenmux.ai/docs/guide/quickstart", "https://zenmux.ai/docs/guide/subscription"],
+        verified: "2026-09-17")
+
+    private static let zenMuxBuilder = ModelProviderTemplate.make(
+        id: "zenmux-builder", name: "ZenMux · Builder Plan", aliases: ["zenmux-subscription"],
+        env: "ZENMUX_API_KEY", createURL: "https://zenmux.ai/platform/subscription",
+        endpoints: [
+            .init("OpenAI compatible", "https://zenmux.ai/api/v1"),
+            .init("Anthropic Messages", "https://zenmux.ai/api/anthropic"),
+            .init("Google Vertex AI compatible", "https://zenmux.ai/api/vertex-ai"),
+        ],
+        gates: ["登录 ZenMux", "选择 Builder Plan 并确认套餐规则", "购买后在订阅管理页创建订阅专属 API key", "确认套餐有效且目标模型在套餐范围内"],
+        permission: "Only save a subscription-specific Builder Plan API key here. It consumes the plan's quota rather than pay-as-you-go balance; do not reuse a pay-as-you-go key.",
+        sources: ["https://zenmux.ai/docs/guide/subscription", "https://zenmux.ai/docs/guide/quickstart"],
+        verified: "2026-09-17")
 
     private static let openCodeConsole = ModelProviderTemplate.make(
         id: "opencode-zen",

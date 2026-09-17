@@ -37,7 +37,6 @@ PROVIDERS = [
     ("search-console", "googlesearchconsole"),
     ("openrouter", "openrouter"),
     ("deepseek", "deepseek"),
-    ("xai", "x"),
     ("kimi", "kimi"),
     ("minimax", "minimax"),
     ("alibaba-bailian", "alibabacloud"),

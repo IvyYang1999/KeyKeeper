@@ -29,6 +29,8 @@ extension AppL10n {
         "This build does not include the plugin package. Install a packaged KeyKeeper update to get it.": "此构建未包含插件包，请安装包含插件的 KeyKeeper 更新版。",
         "AI models": "AI 模型",
         "AI gateways": "AI 聚合与网关",
+        "Model makers": "模型厂商",
+        "Multi-model APIs": "多模型 API 平台",
         "Cloud & databases": "云平台与数据库",
         "Development & publishing": "开发与发布",
         "Apple services": "Apple 服务",

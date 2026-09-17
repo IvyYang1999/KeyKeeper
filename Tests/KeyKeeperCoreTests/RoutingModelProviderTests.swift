@@ -80,7 +80,7 @@ final class RoutingModelProviderTests: XCTestCase {
 
     func test所有已接路由模板不猜密钥形状展示和有效期() {
         XCTAssertEqual(Set(RoutingModelProviderCatalog.all.map(\.id)), [
-            "opencode-zen", "opencode-go", "pipellm", "relaxycode", "therouter",
+            "opencode-zen", "opencode-go", "pipellm", "relaxycode", "therouter", "zenmux-payg", "zenmux-builder",
         ])
         for provider in RoutingModelProviderCatalog.all {
             XCTAssertFalse(provider.shownOnce, provider.id)

@@ -5,9 +5,23 @@ import KeyKeeperCore
 final class ProviderBrowserTests: XCTestCase {
     func test每个模板恰好属于一个明确分类() {
         let ids = ProviderBrowser.groups.values.flatMap { $0 }
-        XCTAssertEqual(Set(ids), Set(ProviderCatalog.all.map(\.id)))
+        XCTAssertEqual(Set(ids), Set(ProviderCatalog.discoverable.map(\.id)))
         XCTAssertEqual(ids.count, Set(ids).count)
-        XCTAssertEqual(ProviderBrowser.results(query: "").count, 113)
+        XCTAssertEqual(ProviderBrowser.results(query: "").count, ProviderCatalog.discoverable.count)
+    }
+
+    // 【曾经的 bug】多模型云平台被误列为单一模型厂商，小型网关被误称作不正经中转。
+    func test多模型平台同组而待核实模板保留旧绑定但不进入发现列表() {
+        let multimodel = ["openrouter", "siliconflow", "atlascloud", "aihubmix",
+                          "alibaba-bailian", "volcengine-ark", "baidu-qianfan-cn",
+                          "modelscope-cn", "aws-bedrock-short-term", "groq", "zenmux-payg", "zenmux-builder"]
+        for id in multimodel {
+            XCTAssertTrue(ProviderBrowser.groups[.gateways, default: []].contains(id), id)
+            XCTAssertFalse(ProviderBrowser.groups[.models, default: []].contains(id), id)
+        }
+        XCTAssertFalse(ProviderBrowser.results(query: "dmxapi").map(\.id).contains("dmxapi-cn"))
+        XCTAssertNotNil(ProviderCatalog.find("dmxapi-cn"), "legacy credential bindings must survive")
+        XCTAssertNotNil(ProviderBrowser.managementURL(for: "dmxapi-cn"))
     }
 
     func test搜索名称中文旧别名和多关键词不混淆地区套餐() {
@@ -119,10 +133,10 @@ final class ProviderBrowserTests: XCTestCase {
         XCTAssertTrue(expanded)
 
         let collapsed = ProviderBrowser.rows(query: "", expanded: [])
-        XCTAssertEqual(collapsed.count, ProviderBrowser.families.count)
+        XCTAssertEqual(collapsed.count, ProviderBrowser.familyMatches(query: "").count)
         XCTAssertFalse(collapsed.contains { $0.id == "template:minimax-global" })
         let open = ProviderBrowser.rows(query: "", expanded: ["minimax"])
-        XCTAssertEqual(open.count, ProviderBrowser.families.count + 4)
+        XCTAssertEqual(open.count, ProviderBrowser.familyMatches(query: "").count + 4)
         XCTAssertEqual(ProviderBrowser.rows(query: "", category: .payments, expanded: []).map(\.id), ["template:stripe"])
         XCTAssertEqual(ProviderBrowser.movedHighlight("family:xiaomi-mimo", by: 1, in: many), "template:xiaomi-mimo-payg")
     }

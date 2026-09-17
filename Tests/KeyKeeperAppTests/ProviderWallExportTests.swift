@@ -10,11 +10,12 @@ final class ProviderWallExportTests: XCTestCase {
             throw XCTSkip("Opt-in export")
         }
         var rows: [[String: Any]] = []
-        for family in ProviderBrowser.families {
+        for match in ProviderBrowser.familyMatches(query: "") {
+            let family = match.family
             let category = ProviderBrowser.groups.first { $0.value.contains(family.markId) }?.key
             var row: [String: Any] = ["id": family.markId, "name": family.name,
                                       "category": category.map { String(describing: $0) } ?? "",
-                                      "variants": family.members.count,
+                                      "variants": match.matched.count,
                                       "brand": ProviderMarks.brandHexes[family.markId] ?? "6E6E73"]
             if let mark = ProviderMarks.marks[family.markId], mark.systemSymbolName == nil {
                 row["template"] = mark.isTemplate
@@ -30,6 +31,6 @@ final class ProviderWallExportTests: XCTestCase {
         }
         let data = try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: URL(fileURLWithPath: output))
-        XCTAssertEqual(rows.count, ProviderBrowser.families.count)
+        XCTAssertEqual(rows.count, ProviderBrowser.familyMatches(query: "").count)
     }
 }

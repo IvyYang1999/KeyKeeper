@@ -222,6 +222,9 @@ enum ProviderMarks {
     /// brand pages or the primary accent used by the provider's own console.
     private static let lettermarkBrandHexes: [String: String] = [
         "groq": "F55036",
+        "xai": "000000",
+        "nvidia-api-catalog": "76B900",
+        "nvidia-ngc": "76B900",
         "volcengine-ark": "165DFF",
         "aws": "FF9900",
         "azure": "0078D4",
@@ -241,6 +244,9 @@ enum ProviderMarks {
     /// future official asset can replace the letter without guesswork.
     private static let lettermarkSourceURLs: [String: String] = [
         "groq": "https://groq.com/trademark-policy",
+        "xai": "https://x.ai/legal/brand-guidelines",
+        "nvidia-api-catalog": "https://www.nvidia.com/en-us/about-nvidia/legal-info/logo-brand-usage/",
+        "nvidia-ngc": "https://www.nvidia.com/en-us/about-nvidia/legal-info/logo-brand-usage/",
         "volcengine-ark": "https://www.volcengine.com/",
         "aws": "https://aws.amazon.com/trademark-guidelines/",
         "azure": "https://azure.microsoft.com/",
@@ -336,6 +342,7 @@ enum ProviderMarks {
 
     /// The initial for a provider without a usable mark ("O" for OpenAI).
     static func letter(for providerId: String) -> String {
+        if providerId == "xai" { return "xAI" }
         let name = ProviderCatalog.find(providerId)?.name ?? providerId
         return name.first.map { String($0).uppercased() } ?? "?"
     }

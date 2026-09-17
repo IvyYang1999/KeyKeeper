@@ -37,9 +37,22 @@ final class ProviderTemplateTests: XCTestCase {
             "xiaomi-mimo-payg", "xiaomi-mimo-token-plan-cn", "xiaomi-mimo-token-plan-sg", "xiaomi-mimo-token-plan-eu",
             "opencode-zen", "opencode-go", "pipellm", "relaxycode", "therouter",
             "alibaba-bailian-sg", "alibaba-bailian-us", "alibaba-bailian-hk",
+            "zenmux-payg", "zenmux-builder",
         ]
         XCTAssertEqual(Set(ProviderCatalog.all.map(\.id)), expected)
         XCTAssertEqual(ProviderCatalog.all.count, expected.count)
+    }
+
+    func testZenMux按量与订阅分别建模板且不把订阅当按量() throws {
+        let payg = try XCTUnwrap(ProviderCatalog.find("zenmux-payg"))
+        let builder = try XCTUnwrap(ProviderCatalog.find("zenmux-builder"))
+        XCTAssertNotEqual(payg.createURL, builder.createURL)
+        XCTAssertEqual(payg.environmentName, "ZENMUX_API_KEY")
+        XCTAssertEqual(builder.environmentName, "ZENMUX_API_KEY")
+        XCTAssertTrue(builder.minimalPermission.contains("subscription"))
+        XCTAssertTrue(payg.minimalPermission.contains("pay-as-you-go"))
+        XCTAssertNil(payg.validation)
+        XCTAssertNil(builder.validation)
     }
 
     func testRepresentativeBundleFieldsUseOfficialEnvironmentNames() throws {

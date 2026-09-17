@@ -7,7 +7,7 @@ enum ModelProviderTemplate {
                      envAliases: [String] = [], createURL: String, endpoints: [ProviderEndpoint],
                      gates: [String], permission: String, sources: [String],
                      expiry: String = "未确认统一有效期；以创建页面显示的实际日期为准，未知时不要猜测。",
-                     shownOnce: Bool = false, prefixes: [String] = [],
+                     shownOnce: Bool = false, prefixes: [String] = [], verified: String = "2026-09-15",
                      context: [ProviderFieldTemplate] = []) -> ProviderTemplate {
         func field(_ variable: String) -> String {
             variable.lowercased().replacingOccurrences(of: "_", with: "-")
@@ -19,7 +19,7 @@ enum ModelProviderTemplate {
         return ProviderTemplate(id: id, name: name, aliases: aliases, fieldName: primary.name,
             fields: [primary] + context, createURL: createURL, gates: gates,
             minimalPermission: permission, prefixes: prefixes, shownOnce: shownOnce,
-            rotateURL: createURL, expiryNote: expiry, verified: "2026-09-15",
+            rotateURL: createURL, expiryNote: expiry, verified: verified,
             endpoints: endpoints, sources: sources)
     }
 }
