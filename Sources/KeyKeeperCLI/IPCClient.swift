@@ -101,10 +101,6 @@ enum IPCClient {
         let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: .auth(request)))
         defer { close(fd) }
 
-        // Set read timeout
-        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout + IPCConstants.clientGrace), tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-
         // Send envelope
         try IPCMessage.writeMessage(fd: fd, message: IPCRequest.auth(request))
 
@@ -137,8 +133,6 @@ enum IPCClient {
         let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: .value(request)))
         defer { close(fd) }
 
-        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout + IPCConstants.clientGrace), tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         try IPCMessage.writeMessage(fd: fd, message: IPCRequest.value(request))
 
         guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self),

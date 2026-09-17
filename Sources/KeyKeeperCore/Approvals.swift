@@ -221,10 +221,13 @@ public struct ServiceAuditEvent: Codable, Sendable, Equatable {
     /// The caller's stated reason, when it gave one.
     public var reason: String?
     public var command: String?
+    /// Correlates a missed request with its dismissible inbox item. Older audit rows omit it.
+    public var requestID: String?
 
     public init(timestamp: Date = Date(), credentialId: String, fieldName: String,
                 subjectFingerprint: String, subjectDisplayName: String,
-                mode: ServiceAuthorizationMode, decision: String, reason: String? = nil, command: String? = nil) {
+                mode: ServiceAuthorizationMode, decision: String, reason: String? = nil, command: String? = nil,
+                requestID: String? = nil) {
         self.timestamp = timestamp
         self.credentialId = credentialId
         self.fieldName = fieldName
@@ -234,6 +237,7 @@ public struct ServiceAuditEvent: Codable, Sendable, Equatable {
         self.decision = decision
         self.reason = reason
         self.command = command
+        self.requestID = requestID
     }
 }
 
@@ -513,6 +517,7 @@ public final class ApprovalStore: @unchecked Sendable {
 public enum ApprovalIssuanceError: Error, LocalizedError, Equatable {
     case unidentifiedCaller
     case missingTerminalSession
+    case requestEnded
 
     public var errorDescription: String? {
         switch self {
@@ -520,6 +525,8 @@ public enum ApprovalIssuanceError: Error, LocalizedError, Equatable {
             return "KeyKeeper could not identify the program asking, so this decision cannot be remembered."
         case .missingTerminalSession:
             return "无终端会话，请选 Always 或 1 hour"
+        case .requestEnded:
+            return "请求方已结束；这次调用不能再批准。请让 Agent 重新发起。"
         }
     }
 }
@@ -539,7 +546,7 @@ public enum AccessPolicy {
     public static func decide(credential: Credential, credentialId: String, field: String,
                               caller: CallerIdentity, terminalSession: String?,
                               store: ApprovalStore, reason: String? = nil, command: String? = nil,
-                              now: Date = Date()) throws -> AccessDecision {
+                              now: Date = Date(), requestID: String? = nil) throws -> AccessDecision {
         if let approval = try store.valid(credentialId: credentialId, field: field,
                                           fingerprint: caller.subject.fingerprint,
                                           terminalSession: terminalSession, now: now) {
@@ -550,7 +557,8 @@ public enum AccessPolicy {
         try store.recordAudit(ServiceAuditEvent(
             timestamp: now, credentialId: credentialId, fieldName: field,
             subjectFingerprint: caller.subject.fingerprint, subjectDisplayName: caller.displayName,
-            mode: mode, decision: mode == .permissive ? "allowed_without_grant" : "prompt_required", reason: reason, command: command))
+            mode: mode, decision: mode == .permissive ? "allowed_without_grant" : "prompt_required",
+            reason: reason, command: command, requestID: requestID))
         return mode == .permissive ? .allowed(nil) : .needsApproval
     }
 
@@ -586,4 +594,3 @@ public enum ReasonPolicy {
         return "\(callerName) gave no reason for this request."
     }
 }
-

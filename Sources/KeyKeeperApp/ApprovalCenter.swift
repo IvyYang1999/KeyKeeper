@@ -1,4 +1,12 @@
 import Foundation
+import KeyKeeperCore
+
+enum ApprovalAlertPreferences {
+    static let soundKey = "approvalSoundEnabled"
+    static func shouldPlaySound(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: soundKey)
+    }
+}
 
 /// Requests waiting for the user's yes or no, gathered in one place.
 ///
@@ -34,6 +42,10 @@ final class ApprovalCenter: ObservableObject {
     }
 
     @Published private(set) var items: [Item] = []
+    @Published private(set) var missed: [ServiceAuditEvent] = []
+    @Published private(set) var missedLoadFailed = false
+
+    private static let dismissedMissedKey = "dismissedMissedApprovalIDs"
 
     init() {}
 
@@ -44,6 +56,30 @@ final class ApprovalCenter: ObservableObject {
 
     func remove(id: UUID) {
         items.removeAll { $0.id == id }
+    }
+
+    static func visibleMissed(events: [ServiceAuditEvent], dismissed: Set<String>) -> [ServiceAuditEvent] {
+        events.filter { event in
+            event.decision == "missed_approval" && event.requestID.map { !dismissed.contains($0) } == true
+        }.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    func refreshMissed(store: ApprovalStore = .shared) {
+        do {
+            let dismissed = Set(UserDefaults.standard.stringArray(forKey: Self.dismissedMissedKey) ?? [])
+            missed = Self.visibleMissed(events: try store.auditEvents(), dismissed: dismissed)
+            missedLoadFailed = false
+        } catch {
+            // Preserve what was already shown. Never claim an unread request was dismissed.
+            missedLoadFailed = true
+        }
+    }
+
+    func dismissMissed(id: String) {
+        var ids = UserDefaults.standard.stringArray(forKey: Self.dismissedMissedKey) ?? []
+        if !ids.contains(id) { ids.append(id) }
+        UserDefaults.standard.set(Array(ids.suffix(500)), forKey: Self.dismissedMissedKey)
+        missed.removeAll { $0.requestID == id }
     }
 
     var count: Int { items.count }

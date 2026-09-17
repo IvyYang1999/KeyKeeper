@@ -116,6 +116,62 @@ final class IPCAuthorizationQueueTests: XCTestCase {
         XCTAssertEqual(server.waitingCount, 0)
     }
 
+    /// 【曾经的 bug】人还没看到窗口时，活着的 CLI 在固定两分钟后被取消。
+    func test活着的请求不因经过两分钟而结束() throws {
+        let server = makeServer()
+        let fd = try sendValueRequest(server: server, caller: makeCaller("patient"))
+        defer { close(fd) }
+        drainMainQueue()
+
+        let pending = try XCTUnwrap(server.pendingServiceRequest)
+        server.refreshPending(now: pending.requestedAt.addingTimeInterval(3_600))
+
+        XCTAssertEqual(server.pendingServiceRequest?.id, pending.id)
+        XCTAssertFalse(hasResponse(fd))
+    }
+
+    /// 【曾经的 bug】CLI 离开后窗口消失，面板和记录里都没有这次错过的授权。
+    func test断开的请求记录为错过但不创建授权() throws {
+        let server = makeServer()
+        let fd = try sendValueRequest(server: server, caller: makeCaller("missed"))
+        drainMainQueue()
+        XCTAssertNotNil(server.pendingServiceRequest)
+
+        close(fd)
+        server.refreshPending()
+
+        XCTAssertNil(server.pendingServiceRequest)
+        XCTAssertTrue(try approvals.all().isEmpty)
+        let missed = try approvals.auditEvents().filter { $0.decision == "missed_approval" }
+        XCTAssertEqual(missed.count, 1)
+        XCTAssertEqual(missed.first?.credentialId, "service-a")
+        XCTAssertEqual(missed.first?.subjectDisplayName, "caller missed")
+        let events = try approvals.auditEvents()
+        XCTAssertEqual(events.first?.decision, "prompt_required")
+        XCTAssertEqual(events.first?.requestID, missed.first?.requestID)
+        XCTAssertEqual(AccessLogBuilder.entries(approvals: [], auditEvents: events).map(\.kind), [.missedApproval])
+    }
+
+    func test断开的严格模式请求不能事后批准并有错过记录() throws {
+        try metaStore.save(MetaFile(credentials: [
+            "strict-a": Credential(label: "Strict A", notes: "", links: [], fields: ["key": CredentialField(secret: true)],
+                                   security: .strict, created: "2026-09-03", updated: "2026-09-03"),
+        ]))
+        let server = makeServer()
+        var descriptors = [Int32](repeating: -1, count: 2)
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
+        server.handleAuthRequest(AuthRequest(credentialId: "strict-a", credentialLabel: "Strict A", fieldNames: ["key"],
+                                             sessionId: nil, sessionLabel: nil, pid: 1),
+                                 clientFd: descriptors[0], callerIdentity: makeCaller("strict-missed"))
+        drainMainQueue()
+        let pending = try XCTUnwrap(server.pendingRequest)
+        close(descriptors[1])
+        XCTAssertFalse(server.isLive(pending))
+        XCTAssertNil(server.pendingRequest)
+        XCTAssertTrue(try approvals.all().isEmpty)
+        XCTAssertEqual(try approvals.auditEvents().last?.decision, "missed_approval")
+    }
+
     /// 【曾经的 bug】授权窗上「凭据」那一行直接显示调用方自报的 credentialLabel，App 从不
     /// 和本地 meta 核对。恶意进程可以一边申请 `service-a`，一边让弹窗写成别的名字，把用户
     /// 骗去点允许；字段名同理，可以少报几个让范围看起来更小。名字和字段必须以本地为准。
@@ -325,4 +381,3 @@ extension IPCAuthorizationQueueTests {
         XCTAssertNotNil(server.pendingRequest, "该进队列让人看见")
     }
 }
-

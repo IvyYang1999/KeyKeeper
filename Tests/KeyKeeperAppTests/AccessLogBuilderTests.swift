@@ -3,6 +3,34 @@ import XCTest
 import KeyKeeperCore
 
 final class AccessLogBuilderTests: XCTestCase {
+    /// 已结束的请求属于历史，不得与仍可点击批准的请求混作一行。
+    func test错过的授权有独立状态而不是活请求() {
+        let event = ServiceAuditEvent(timestamp: Date(timeIntervalSince1970: 200), credentialId: "siliconflow",
+                                      fieldName: "api-key", subjectFingerprint: "app:agent",
+                                      subjectDisplayName: "Agent", mode: .enforced,
+                                      decision: "missed_approval", requestID: "request-1")
+        let row = AccessLogBuilder.entries(approvals: [], auditEvents: [event])[0]
+        XCTAssertEqual(row.kind, .missedApproval)
+    }
+
+    func test旧审计记录没有请求ID仍可解码() throws {
+        let old = Data(#"{"timestamp":200,"credentialId":"fixture","fieldName":"key","subjectFingerprint":"app:old","subjectDisplayName":"Old","mode":"enforced","decision":"prompt_required"}"#.utf8)
+        let event = try JSONDecoder().decode(ServiceAuditEvent.self, from: old)
+        XCTAssertNil(event.requestID)
+        XCTAssertEqual(event.credentialId, "fixture")
+    }
+
+    func test已结束请求只显示错过记录不保留可预授权的旧行() {
+        let requested = ServiceAuditEvent(timestamp: Date(timeIntervalSince1970: 100), credentialId: "fixture",
+            fieldName: "key", subjectFingerprint: "app:agent", subjectDisplayName: "Agent",
+            mode: .enforced, decision: "prompt_required", requestID: "call-1")
+        let missed = ServiceAuditEvent(timestamp: Date(timeIntervalSince1970: 200), credentialId: "fixture",
+            fieldName: "key", subjectFingerprint: "app:agent", subjectDisplayName: "Agent",
+            mode: .enforced, decision: "missed_approval", requestID: "call-1")
+        let rows = AccessLogBuilder.entries(approvals: [], auditEvents: [requested, missed])
+        XCTAssertEqual(rows.map(\.kind), [.missedApproval])
+    }
+
     /// 【曾经的 bug】显示名不是授权身份：两个同名进程的历史不能合并后拿第一条的指纹审批。
     func test同名但不同身份的请求绝不合并() {
         let events = ["app:first", "app:second"].map { fingerprint in

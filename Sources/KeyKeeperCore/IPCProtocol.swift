@@ -28,11 +28,10 @@ public enum IPCConstants {
         return "/tmp/keykeeper-\(NSUserName()).sock"
     }
 
-    /// Maximum time (seconds) CLI waits for authorization response
+    /// Bounded operations (imports, session control, and legacy interactive Keychain reads).
+    /// Live credential authorization itself no longer has a clock deadline.
     public static let authTimeout: TimeInterval = 120
-    /// How much longer the CLI waits for an answer than the app keeps a request open, so the app
-    /// always gets to say why it ended. 【独立审计第二轮】equal timeouts meant the CLI always gave up
-    /// first and reported "the app did not answer" instead of "the request expired".
+    /// Grace period for bounded operations that still use authTimeout.
     public static let clientGrace: TimeInterval = 15
 
     /// Maximum time (seconds) the app waits for a client to send a complete request.
@@ -563,7 +562,7 @@ public enum IPCMessage {
     /// 【曾经的 bug】it briefly defaulted to 15 seconds, which made the CLI give up on every
     /// response that needs a person — an approval window routinely stays open longer than that —
     /// so every prompt-requiring command failed while the person was still reading the prompt.
-    /// Clients keep their own socket timeout (the approval timeout) and pass no deadline.
+    /// Clients that await a person pass no deadline and do not set a receive timeout.
     public static func readMessage<T: Decodable>(fd: Int32, as type: T.Type,
                                                  deadline: TimeInterval? = nil) -> T? {
         let limit = deadline.map { Date().addingTimeInterval($0) }
@@ -640,7 +639,7 @@ public enum IPCError: Error, LocalizedError {
         case .readFailed:
             return "Failed to read the KeyKeeper app's response. Retry; if it keeps failing, quit and reopen KeyKeeper."
         case .timeout:
-            return "Timed out after \(Int(IPCConstants.authTimeout)) s waiting for approval in the KeyKeeper window. Run the command again and click Authorize."
+            return "The authorization request ended before KeyKeeper answered. Run the command again; if it keeps failing, reopen KeyKeeper."
         case .denied(let msg):
             return "Authorization denied\(Self.detail(msg)). Run the command again and choose Authorize in the KeyKeeper window."
         case .appNotRunning:

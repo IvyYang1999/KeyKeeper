@@ -24,7 +24,7 @@ struct MainPageHeader: View {
 /// reads that happened without an approval or needed one. It is not a full audit trail, and
 /// the page says so.
 struct AccessLogEntry: Identifiable, Equatable {
-    enum Kind: Equatable { case approvedUse, readWithoutApproval, approvalRequired }
+    enum Kind: Equatable { case approvedUse, readWithoutApproval, approvalRequired, missedApproval }
     let id: String
     let date: Date
     let who: String
@@ -50,10 +50,15 @@ enum AccessLogBuilder {
                                   kind: .approvedUse, fingerprint: approval.subject.fingerprint,
                                   reason: approval.reason, command: approval.command, approvalFields: fields)
         }
-        let events = auditEvents.enumerated().map { index, event in
-            AccessLogEntry(id: "audit:\(index):\(event.timestamp.timeIntervalSince1970)", date: event.timestamp,
+        let missedIDs = Set(auditEvents.filter { $0.decision == "missed_approval" }.compactMap(\.requestID))
+        let events = auditEvents.enumerated().compactMap { index, event -> AccessLogEntry? in
+            // The later missed event replaces the earlier "asked" row for this exact request.
+            // Otherwise history would still offer a standing-approval button for a dead call.
+            if event.decision == "prompt_required", event.requestID.map(missedIDs.contains) == true { return nil }
+            return AccessLogEntry(id: "audit:\(index):\(event.timestamp.timeIntervalSince1970)", date: event.timestamp,
                            who: event.subjectDisplayName, credentialId: event.credentialId, detail: event.fieldName,
-                           kind: event.decision == "allowed_without_grant" ? .readWithoutApproval : .approvalRequired,
+                           kind: event.decision == "allowed_without_grant" ? .readWithoutApproval
+                                : event.decision == "missed_approval" ? .missedApproval : .approvalRequired,
                            fingerprint: event.subjectFingerprint, reason: event.reason, command: event.command)
         }
         return Array((uses + events).sorted { $0.date > $1.date }.prefix(limit))

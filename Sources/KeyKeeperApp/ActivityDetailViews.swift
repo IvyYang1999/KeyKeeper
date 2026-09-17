@@ -106,6 +106,7 @@ struct AccessHistoryTag: View {
         case .approvedUse: return L("Read with approval")
         case .readWithoutApproval: return L("Read without asking")
         case .approvalRequired: return L("Asked for approval")
+        case .missedApproval: return L("Missed approval")
         }
     }
     var body: some View {
@@ -130,6 +131,11 @@ struct AccessHistoryDetail: View {
         ActivityFact(label: group.kind == .approvedUse ? L("Scope of the recorded approval") : L("Recorded fields"),
             value: group.kind == .approvedUse && group.approvalFields == nil ? L("every secret field") : ActivityDetailCopy.text(group.detail))
         ActivityFact(label: L("What happened then"), value: AccessHistoryTag.text(group.kind))
+        if group.kind == .missedApproval {
+            Text(L("The caller has stopped waiting. This request cannot be approved now; ask the Agent to try again."))
+                .font(.callout).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
         ActivityFact(label: L("Permission now"), value: currentStatus == .approved ? L("Currently approved") : currentStatus == .unavailable ? L("Approval status unavailable") : L("No matching current approval"))
         if let approve, currentStatus == .notApproved {
             Button(L("Approve now"), action: approve).controlSize(.small)

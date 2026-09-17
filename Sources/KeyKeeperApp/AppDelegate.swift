@@ -106,9 +106,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // The status item shows how many requests are waiting, so they are visible even
         // when the floating prompt is behind another window.
-        ApprovalCenter.shared.$items
+        Publishers.CombineLatest(ApprovalCenter.shared.$items, ApprovalCenter.shared.$missed)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] items in self?.updateStatusBadge(count: items.count) }
+            .sink { [weak self] items, missed in self?.updateStatusBadge(count: items.count + missed.count) }
+            .store(in: &cancellables)
+
+        ApprovalCenter.shared.refreshMissed()
+        NotificationCenter.default.publisher(for: .authorizationMissed)
+            .receive(on: DispatchQueue.main)
+            .sink { _ in ApprovalCenter.shared.refreshMissed() }
             .store(in: &cancellables)
 
         authWindowController = AuthorizationWindowController()
@@ -202,12 +208,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var authApprovalID: UUID?
 
-    private func registerAuthApproval(title: String, detail: String, expiresAt: Date, deny: @escaping () -> Void) {
+    private func registerAuthApproval(title: String, detail: String, deny: @escaping () -> Void) {
         clearAuthApproval()
         let id = UUID()
         authApprovalID = id
         ApprovalCenter.shared.add(.init(
-            id: id, symbol: "key.fill", title: title, detail: detail, expiresAt: expiresAt,
+            id: id, symbol: "key.fill", title: title, detail: detail, expiresAt: nil,
             confirmTitle: L("Allow"), destructive: false, opensWindow: true,
             confirm: { [weak self] in self?.authWindowController.bringToFront() },
             deny: deny
@@ -235,7 +241,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             detail: ([request.fieldNames.joined(separator: ", ")]
                      + [request.sessionLabel.map { CallerStatedReason.printableLine(AppL10n.text($0), limit: 80) }].compactMap { $0 })
                 .joined(separator: " · "),
-            expiresAt: pending.expiresAt,
             deny: { [weak self] in
                 self?.ipcServer.respond(to: pending, with: AuthResponse(granted: false, error: "User denied"))
             }
@@ -245,6 +250,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // user can pick another option; the CLI keeps waiting on the same request.
         let authorize: (AuthorizationView.DurationChoice) throws -> Void = { [weak self] choice in
                 guard let self else { return }
+                guard self.ipcServer.isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
                 let resolved = try DurationResolution.issued(choice, sessionId: request.sessionId, identity: request.callerIdentity)
                 // Scoped to the program that asked: every key of this credential, for that caller.
                 let approval = Approval(
@@ -268,6 +274,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             clearAuthApproval()
             return
         }
+        if ApprovalAlertPreferences.shouldPlaySound() { NSSound.beep() }
         authWindowController.show(
             request: request,
             waiting: ipcServer.waitingCount,
@@ -282,12 +289,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         registerAuthApproval(
             title: L("\(caller) wants to use \(pending.credentialLabel)"),
             detail: pending.fieldNames.joined(separator: ", "),
-            expiresAt: pending.expiresAt,
             deny: { [weak self] in self?.ipcServer.denyServiceRequest(pending) }
         )
 
         let authorize: (AuthorizationView.DurationChoice) throws -> Void = { [weak self] choice in
                 guard let self else { return }
+                guard self.ipcServer.isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
                 let duration = try DurationResolution.issued(choice, sessionId: pending.request.sessionId, identity: pending.callerIdentity)
                 let approval = Approval(
                     subject: ApprovalSubject(fingerprint: pending.callerIdentity.subjectFingerprint,
@@ -311,6 +318,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             clearAuthApproval()
             return
         }
+        if ApprovalAlertPreferences.shouldPlaySound() { NSSound.beep() }
         authWindowController.show(
             serviceRequest: pending,
             waiting: ipcServer.waitingCount,

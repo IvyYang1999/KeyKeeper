@@ -36,13 +36,6 @@ final class IPCServer: ObservableObject {
         case auth(PendingAuthRequest)
         case service(PendingServiceRequest)
 
-        var expiresAt: Date {
-            switch self {
-            case .auth(let pending): return pending.expiresAt
-            case .service(let pending): return pending.expiresAt
-            }
-        }
-
         var clientFd: Int32 {
             switch self {
             case .auth(let pending): return pending.clientFd
@@ -169,7 +162,6 @@ final class IPCServer: ObservableObject {
         let request: AuthRequest
         let clientFd: Int32
         let requestedAt: Date
-        let expiresAt: Date
     }
 
     struct PendingServiceRequest {
@@ -181,8 +173,6 @@ final class IPCServer: ObservableObject {
         let fieldNames: [String]
         let callerIdentity: CallerIdentity
         let requestedAt: Date
-        let expiresAt: Date
-
         var summary: PendingServiceRequestSummary {
             PendingServiceRequestSummary(
                 id: id,
@@ -192,7 +182,9 @@ final class IPCServer: ObservableObject {
                 callerDisplayName: callerIdentity.displayName,
                 subjectFingerprint: callerIdentity.subjectFingerprint,
                 requestedAt: requestedAt,
-                expiresAt: expiresAt
+                // Keep the older CLI's non-optional wire field. The live request itself has
+                // no clock deadline: only the calling process can end it.
+                expiresAt: .distantFuture
             )
         }
     }
@@ -253,17 +245,27 @@ final class IPCServer: ObservableObject {
 
     /// Send response back to the CLI client.
     func respond(to pending: PendingAuthRequest, with response: AuthResponse) {
-        expirePendingIfNeeded()
+        refreshPending()
         guard pendingRequest?.id == pending.id else { return }
         pendingRequest = nil
         send(IPCResponse.auth(response), clientFd: pending.clientFd)
         promoteNextWaiting()
     }
 
+    func isLive(_ pending: PendingAuthRequest) -> Bool {
+        refreshPending()
+        return pendingRequest?.id == pending.id && Self.isClientConnected(pending.clientFd)
+    }
+
+    func isLive(_ pending: PendingServiceRequest) -> Bool {
+        refreshPending()
+        return pendingServiceRequest?.id == pending.id && Self.isClientConnected(pending.clientFd)
+    }
+
     /// `approval` is what the person's answer was stored as — nil when it could not be stored
     /// (an unidentified caller gets this one answer and nothing remembered).
     func fulfillServiceRequest(_ pending: PendingServiceRequest, approval: Approval?) {
-        expirePendingIfNeeded()
+        refreshPending()
         guard pendingServiceRequest?.id == pending.id else { return }
         pendingServiceRequest = nil
         defer { promoteNextWaiting() }
@@ -276,7 +278,7 @@ final class IPCServer: ObservableObject {
     }
 
     func denyServiceRequest(_ pending: PendingServiceRequest, message: String = "User denied") {
-        expirePendingIfNeeded()
+        refreshPending()
         guard pendingServiceRequest?.id == pending.id else { return }
         pendingServiceRequest = nil
         send(
@@ -599,7 +601,7 @@ final class IPCServer: ObservableObject {
                 self.send(.auth(.init(granted: false, error: ClipboardSaveError.busy.localizedDescription)), clientFd: clientFd)
                 return
             }
-            self.expirePendingIfNeeded()
+            self.refreshPending()
 
             let now = Date()
             let pending = PendingAuthRequest(
@@ -607,7 +609,6 @@ final class IPCServer: ObservableObject {
                 request: enrichedRequest,
                 clientFd: clientFd,
                 requestedAt: now,
-                expiresAt: now.addingTimeInterval(IPCConstants.authTimeout)
             )
 
             // Another prompt is on screen: wait for it instead of failing the caller.
@@ -617,7 +618,6 @@ final class IPCServer: ObservableObject {
             }
 
             self.pendingRequest = pending
-            self.scheduleExpirationCheck()
             self.scheduleConnectionWatch()
         }
     }
@@ -646,14 +646,14 @@ final class IPCServer: ObservableObject {
         waitingCount = waiting.count
     }
 
-    /// Shows the next waiting request once the current prompt has been answered or expired.
-    private func promoteNextWaiting(now: Date = Date()) {
+    /// Shows the next live request once the current prompt has been answered or abandoned.
+    private func promoteNextWaiting() {
         guard pendingRequest == nil, pendingServiceRequest == nil else { return }
         while !waiting.isEmpty {
             let next = waiting.removeFirst()
             waitingCount = waiting.count
-            if now >= next.expiresAt {
-                sendExpired(next)
+            if !Self.isClientConnected(next.clientFd) {
+                finish(next, at: Date())
                 continue
             }
             switch next {
@@ -662,27 +662,8 @@ final class IPCServer: ObservableObject {
             case .service(let pending):
                 pendingServiceRequest = pending
             }
-            scheduleExpirationCheck(at: next.expiresAt)
+            scheduleConnectionWatch()
             return
-        }
-    }
-
-    private func sendExpired(_ item: WaitingAuthorization) {
-        switch item {
-        case .auth(let pending):
-            send(
-                IPCResponse.auth(AuthResponse(granted: false, error: "Authorization request expired")),
-                clientFd: pending.clientFd
-            )
-        case .service(let pending):
-            send(
-                IPCResponse.value(ValueResponse(
-                    success: false,
-                    error: "Service authorization request expired",
-                    errorCode: .pendingExpired
-                )),
-                clientFd: pending.clientFd
-            )
         }
     }
 
@@ -747,12 +728,14 @@ final class IPCServer: ObservableObject {
             return
         }
 
+        let requestID = UUID().uuidString
         do {
             switch try AccessPolicy.decide(credential: cred, credentialId: request.credentialId,
                                            field: request.fieldName, caller: callerIdentity,
                                            terminalSession: request.sessionId, store: approvals,
                                            reason: request.statedReason?.text,
-                                           command: request.commandSummary.map { CallerStatedReason.printableLine($0, limit: 200) }) {
+                                           command: request.commandSummary.map { CallerStatedReason.printableLine($0, limit: 200) },
+                                           requestID: requestID) {
             case .allowed(let approval):
                 Self.readValueAndRespond(request: request, clientFd: clientFd, session: session,
                                          matched: approval, approvals: approvals)
@@ -763,7 +746,8 @@ final class IPCServer: ObservableObject {
                     success: false, error: "No valid grant", errorCode: .noAuthorization)), clientFd: clientFd)
             case .needsApproval:
                 // A request with no stated reason still gets its window; the window says so.
-                enqueueServiceRequest(request, credential: cred, clientFd: clientFd, callerIdentity: callerIdentity)
+                enqueueServiceRequest(request, credential: cred, clientFd: clientFd,
+                                      callerIdentity: callerIdentity, id: requestID)
             }
         } catch {
             let resp = IPCResponse.value(ValueResponse(
@@ -778,7 +762,8 @@ final class IPCServer: ObservableObject {
     private func enqueueServiceRequest(_ request: ValueRequest,
                                        credential: Credential,
                                        clientFd: Int32,
-                                       callerIdentity: CallerIdentity) {
+                                       callerIdentity: CallerIdentity,
+                                       id: String) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard self.clipboardSaveController?.isPending != true, self.browserSessionController?.isPending != true, self.envImportController?.isPending != true, envImportController?.isPending != true else {
@@ -786,7 +771,7 @@ final class IPCServer: ObservableObject {
                     errorCode: .noAuthorization)), clientFd: clientFd)
                 return
             }
-            self.expirePendingIfNeeded()
+            self.refreshPending()
 
             let requestedFields = self.validRequestedFields(
                 request.requestedFieldNames,
@@ -795,7 +780,7 @@ final class IPCServer: ObservableObject {
             )
             let now = Date()
             let pending = PendingServiceRequest(
-                id: UUID().uuidString,
+                id: id,
                 request: request,
                 clientFd: clientFd,
                 credentialId: request.credentialId,
@@ -803,7 +788,6 @@ final class IPCServer: ObservableObject {
                 fieldNames: requestedFields,
                 callerIdentity: callerIdentity,
                 requestedAt: now,
-                expiresAt: now.addingTimeInterval(IPCConstants.authTimeout)
             )
 
             if self.pendingRequest != nil || self.pendingServiceRequest != nil {
@@ -813,14 +797,13 @@ final class IPCServer: ObservableObject {
 
             self.pendingServiceRequest = pending
             self.scheduleConnectionWatch()
-            self.scheduleExpirationCheck()
         }
     }
 
     private func handleServiceRequestsList(clientFd: Int32) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.expirePendingIfNeeded()
+            self.refreshPending()
             var summaries = self.pendingServiceRequest.map { [$0.summary] } ?? []
             for item in self.waiting {
                 if case .service(let pending) = item {
@@ -901,43 +884,75 @@ final class IPCServer: ObservableObject {
     /// How often an on-screen approval checks that its requester is still connected.
     static let connectionWatchInterval: TimeInterval = 1
 
-    /// A request is over when it times out or when the process that asked has gone away.
-    /// Before the disconnect check, a prompt stayed on screen for the full two minutes after
-    /// the CLI exited, inviting the user to approve a request nobody was waiting for.
-    private func isFinished(_ item: WaitingAuthorization, now: Date) -> Bool {
-        now >= item.expiresAt || !Self.isClientConnected(item.clientFd)
+    /// A request stays actionable while its calling process waits. A clock deadline must
+    /// never turn an unanswered, still-live request into a denial.
+    private func isFinished(_ item: WaitingAuthorization) -> Bool {
+        !Self.isClientConnected(item.clientFd)
     }
 
-    /// Answers a timed-out request, or just closes the descriptor when nobody is listening
-    /// any more (writing to a closed socket would raise SIGPIPE).
-    private func finish(_ item: WaitingAuthorization) {
-        if Self.isClientConnected(item.clientFd) {
-            sendExpired(item)
-        } else {
-            let fd = item.clientFd
-            queue.async { close(fd) }
+    /// A dead caller can never be authorized retroactively. Keep a metadata-only record
+    /// of what was missed, then release its socket.
+    private func finish(_ item: WaitingAuthorization, at now: Date) {
+        recordMissed(item, at: now)
+        let fd = item.clientFd
+        queue.async { close(fd) }
+    }
+
+    private func recordMissed(_ item: WaitingAuthorization, at now: Date) {
+        let credentialId: String
+        let fieldNames: [String]
+        let caller: CallerIdentity
+        let reason: String?
+        let requestID: String
+        switch item {
+        case .auth(let pending):
+            requestID = pending.id
+            credentialId = pending.request.credentialId
+            fieldNames = pending.request.fieldNames
+            guard let identity = pending.request.callerIdentity else { return }
+            caller = identity
+            reason = pending.request.statedReason?.text
+        case .service(let pending):
+            requestID = pending.id
+            credentialId = pending.credentialId
+            fieldNames = pending.fieldNames
+            caller = pending.callerIdentity
+            reason = pending.request.statedReason?.text
         }
+        let event = ServiceAuditEvent(
+            timestamp: now, credentialId: credentialId, fieldName: fieldNames.joined(separator: ", "),
+            subjectFingerprint: caller.subjectFingerprint, subjectDisplayName: caller.displayName,
+            mode: .enforced, decision: "missed_approval", reason: CallerStatedReason.sanitize(reason)?.text,
+            requestID: requestID
+        )
+        do {
+            try approvals.recordAudit(event)
+        } catch {
+            // A failed Keychain write cannot be represented as a saved history item.
+            UserDefaults.standard.set(true, forKey: "missedApprovalRecordError")
+        }
+        NotificationCenter.default.post(name: .authorizationMissed, object: nil)
     }
 
-    private func expirePendingIfNeeded(now: Date = Date()) {
-        if let pending = pendingRequest, isFinished(.auth(pending), now: now) {
+    func refreshPending(now: Date = Date()) {
+        if let pending = pendingRequest, isFinished(.auth(pending)) {
             pendingRequest = nil
-            finish(.auth(pending))
+            finish(.auth(pending), at: now)
         }
 
-        if let pending = pendingServiceRequest, isFinished(.service(pending), now: now) {
+        if let pending = pendingServiceRequest, isFinished(.service(pending)) {
             pendingServiceRequest = nil
-            finish(.service(pending))
+            finish(.service(pending), at: now)
         }
 
-        let expiredWaiting = waiting.filter { isFinished($0, now: now) }
+        let expiredWaiting = waiting.filter { isFinished($0) }
         if !expiredWaiting.isEmpty {
-            waiting.removeAll { isFinished($0, now: now) }
+            waiting.removeAll { isFinished($0) }
             waitingCount = waiting.count
-            expiredWaiting.forEach(finish)
+            expiredWaiting.forEach { finish($0, at: now) }
         }
 
-        promoteNextWaiting(now: now)
+        promoteNextWaiting()
         scheduleConnectionWatch()
     }
 
@@ -950,14 +965,7 @@ final class IPCServer: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.connectionWatchInterval) { [weak self] in
             guard let self else { return }
             self.connectionWatchScheduled = false
-            self.expirePendingIfNeeded()
-        }
-    }
-
-    private func scheduleExpirationCheck(at date: Date? = nil) {
-        let delay = date.map { max(0, $0.timeIntervalSinceNow) } ?? IPCConstants.authTimeout
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.expirePendingIfNeeded()
+            self.refreshPending()
         }
     }
 
@@ -1005,4 +1013,6 @@ final class IPCServer: ObservableObject {
 extension Notification.Name {
     /// Posted with a `MetadataChangeRecord` after an agent or script renamed or re-described a key.
     static let metadataEditedByCaller = Notification.Name("KeyKeeper.metadataEditedByCaller")
+    /// A connected caller left before the person answered its authorization request.
+    static let authorizationMissed = Notification.Name("KeyKeeper.authorizationMissed")
 }

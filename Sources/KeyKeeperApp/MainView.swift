@@ -137,6 +137,10 @@ struct MainView: View {
                 waitingSection
             }
 
+            if !approvals.missed.isEmpty || approvals.missedLoadFailed || UserDefaults.standard.bool(forKey: "missedApprovalRecordError") {
+                missedSection
+            }
+
             if let change = latestChange, change.id != lastSeenChange {
                 changeNotice(change)
             }
@@ -160,6 +164,7 @@ struct MainView: View {
             searchFocused = true
             latestChange = (try? MetadataChangeLog.default.records())?.last
             cliState = CLIInstallState.probe(appVersion: BuildVersion.identifier)
+            approvals.refreshMissed()
         }
         .onReceive(NotificationCenter.default.publisher(for: .metadataEditedByCaller)) { note in
             latestChange = note.object as? MetadataChangeRecord
@@ -307,6 +312,24 @@ struct MainView: View {
         }
     }
 
+    private var missedSection: some View {
+        MissedApprovalNotice(
+            event: approvals.missed.first,
+            credentialLabel: approvals.missed.first.map { event in
+                viewModel.credentials.first { $0.id == event.credentialId }?.credential.label ?? event.credentialId
+            },
+            count: approvals.missed.count,
+            loadFailed: approvals.missedLoadFailed,
+            recordFailed: UserDefaults.standard.bool(forKey: "missedApprovalRecordError"),
+            onHistory: { openMainWindow(.activity, nil) },
+            onDismiss: { approvals.dismissMissed(id: $0) },
+            onDismissWarning: {
+                UserDefaults.standard.set(false, forKey: "missedApprovalRecordError")
+                approvals.refreshMissed()
+            }
+        )
+    }
+
     // MARK: Footer
 
     private var footer: some View {
@@ -326,6 +349,57 @@ struct MainView: View {
         .padding(.horizontal, 4)
         .frame(height: 26)
     }
+}
+
+/// A finished request is information, not an approval action. Kept separate so synthetic UI
+/// fixtures can render it without loading the real vault or the real approval store.
+struct MissedApprovalNotice: View {
+    let event: ServiceAuditEvent?
+    let credentialLabel: String?
+    let count: Int
+    let loadFailed: Bool
+    let recordFailed: Bool
+    let onHistory: () -> Void
+    let onDismiss: (String) -> Void
+    let onDismissWarning: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let event, let id = event.requestID {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "clock.badge.exclamationmark").foregroundColor(.orange)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L("Missed approval request")).font(.callout.weight(.semibold))
+                        Text(verbatim: CallerStatedReason.printableLine(event.subjectDisplayName, limit: 60)
+                            + " · " + (credentialLabel ?? event.credentialId))
+                            .font(.caption).lineLimit(2)
+                        Text(L("That command has ended. Ask the Agent to try again."))
+                            .font(.caption).foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                HStack {
+                    if count > 1 {
+                        Text(L("\(count) missed requests"))
+                            .font(.caption2).foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button(L("View history"), action: onHistory).controlSize(.small)
+                    Button(L("Got it")) { onDismiss(id) }.controlSize(.small)
+                }
+            }
+            if loadFailed || recordFailed {
+                Label(L("Some missed requests could not be saved or loaded. Check Keychain access."), systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundColor(.orange)
+                if recordFailed {
+                    Button(L("Dismiss warning"), action: onDismissWarning).controlSize(.small)
+                }
+            }
+        }
+        .padding(12)
+        .surface(.attention, radius: 14)
+    }
+
 }
 
 private struct PopoverVeil: View {

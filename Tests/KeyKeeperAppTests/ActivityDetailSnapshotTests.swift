@@ -17,8 +17,8 @@ import XCTest
             entries: (0..<3).map { AccessLogEntry(id: "e\($0)", date: now.addingTimeInterval(-Double($0) * 3600),
                 who: "com.darkconstant.console", credentialId: "feisou-admin", detail: "ADMIN_KEY", kind: .approvalRequired) })
         let silent = AccessLogGroup(id: "g2", who: "node", credentialId: "feisou-admin", detail: "ADMIN_KEY",
-            kind: .approvalRequired, count: 1, latest: now, entries: [
-                AccessLogEntry(id: "e9", date: now, who: "node", credentialId: "feisou-admin", detail: "ADMIN_KEY", kind: .approvalRequired)])
+            kind: .missedApproval, count: 1, latest: now, entries: [
+                AccessLogEntry(id: "e9", date: now, who: "node", credentialId: "feisou-admin", detail: "ADMIN_KEY", kind: .missedApproval)])
         let plugins = FileManager.default.temporaryDirectory.appendingPathComponent("kk-plugins-" + UUID().uuidString)
         for path in AgentPluginSetup.requiredFiles {
             let file = plugins.appendingPathComponent(path)
@@ -29,7 +29,7 @@ import XCTest
         for (name, scheme, appearance) in [("light", ColorScheme.light, NSAppearance.Name.aqua), ("dark", .dark, .darkAqua)] {
             let root = HStack(alignment: .top, spacing: 24) {
                 VStack(alignment: .leading, spacing: 18) { AccessHistoryDetail(group: talkative, currentStatus: .notApproved, label: "feisou-admin", openCredential: {}, approve: {}) }
-                VStack(alignment: .leading, spacing: 18) { AccessHistoryDetail(group: silent, currentStatus: .approved, label: "feisou-admin", openCredential: {}) }
+                VStack(alignment: .leading, spacing: 18) { AccessHistoryDetail(group: silent, currentStatus: .notApproved, label: "feisou-admin", openCredential: {}) }
                 AgentPluginsCard(setup: AgentPluginSetup(root: plugins)).frame(width: 360)
             }
             .padding(20).frame(width: 1180)

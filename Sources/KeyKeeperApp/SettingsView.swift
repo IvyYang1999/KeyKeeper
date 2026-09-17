@@ -56,6 +56,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: DS.Spacing.md) {
                     languageCard
                     backgroundAccessCard
+                    ApprovalRemindersCard()
                     reviewerCard
                     startupCard
                     updatesCard
@@ -125,6 +126,28 @@ struct SettingsView: View {
         }
         .dsCard(padding: DS.Spacing.md)
     }
+
+}
+
+/// Separate from SettingsView so the switch can be inspected with synthetic UI only.
+struct ApprovalRemindersCard: View {
+    @AppStorage(ApprovalAlertPreferences.soundKey) private var approvalSoundEnabled = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+            SectionLabel(text: L("Approval reminders"))
+            Toggle(L("Play a sound when approval is needed"), isOn: $approvalSoundEnabled)
+                .font(.callout)
+            Text(L("Silent by default. Pending requests stay until you decide or the requesting command stops; missed ones remain in the menu and access history."))
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .dsCard(padding: DS.Spacing.md)
+    }
+}
+
+extension SettingsView {
 
     /// yyt 2026-09-14: 「应该有一个独立的第三方，检查下模型的需求合不合理」。
     /// yyt 2026-09-14: "Base URL and API key go together; the first box looked like the key

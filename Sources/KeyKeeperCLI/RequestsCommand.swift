@@ -30,7 +30,12 @@ struct RequestsCommand: ParsableCommand {
                     print("  fingerprint: \(request.subjectFingerprint)")
                     print("  fields: \(request.fieldNames.joined(separator: ", "))")
                     print("  requested: \(formatRequestDate(request.requestedAt))")
-                    print("  expires: \(formatRequestDate(request.expiresAt))")
+                    if request.expiresAt == .distantFuture {
+                        print("  ends: when the requesting command stops or you decide")
+                    } else {
+                        // Older KeyKeeper apps still send a real deadline.
+                        print("  expires: \(formatRequestDate(request.expiresAt))")
+                    }
                     print()
                 }
             } catch IPCError.appNotRunning {
