@@ -42,7 +42,7 @@ enum ProviderMarks {
             self.isTemplate = isTemplate
         }
 
-        init(pngBase64: String, brandHex: String, source: String) {
+        init(pngBase64: String, brandHex: String, source: String, isTemplate: Bool = false) {
             self.svgBody = nil
             self.darkSVGBody = nil
             self.pngBase64 = pngBase64
@@ -50,7 +50,7 @@ enum ProviderMarks {
             self.brandHex = brandHex
             self.source = source
             self.viewBox = ""
-            self.isTemplate = false
+            self.isTemplate = isTemplate
         }
 
         init(systemSymbolName: String, brandHex: String, source: String) {
@@ -182,6 +182,23 @@ enum ProviderMarks {
         "developer-id-installer": "developer-id",
         "lark": "feishu",
         "slack-oauth-rotating": "slack",
+        "micu-claude": "micu",
+        "micu-codex": "micu",
+        "modelscope-cn": "modelscope",
+        "modelscope-global": "modelscope",
+        "opencode-zen": "opencode",
+        "opencode-go": "opencode",
+        "rightcode-codex": "rightcode",
+        "stepfun-api": "stepfun",
+        "stepfun-step-plan": "stepfun",
+        "xiaomi-mimo-payg": "xiaomi-mimo",
+        "xiaomi-mimo-token-plan-cn": "xiaomi-mimo",
+        "xiaomi-mimo-token-plan-sg": "xiaomi-mimo",
+        "xiaomi-mimo-token-plan-eu": "xiaomi-mimo",
+        "baidu-qianfan-cn": "baidu-qianfan",
+        "baidu-qianfan-global": "baidu-qianfan",
+        "baidu-qianfan-token-plan": "baidu-qianfan",
+        "atlascloud-coding-plan": "atlascloud",
     ]
 
     /// A provider-owned asset is not automatically licensed for a third-party product picker.
@@ -190,7 +207,8 @@ enum ProviderMarks {
     private static let lettermarkOnly: Set<String> = ["mailgun"]
 
     static let marks: [String: Mark] = {
-        var result = bundledOfficialMarks.merging(directOfficialMarks) { _, direct in direct }
+        var result = bundledOfficialMarks.merging(sourcedProviderMarks) { _, sourced in sourced }
+        result.merge(directOfficialMarks) { _, direct in direct }
         for providerId in lettermarkOnly { result.removeValue(forKey: providerId) }
         for (providerId, artworkId) in providerAliases {
             if let artwork = result[artworkId] {

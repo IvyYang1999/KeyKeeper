@@ -1,0 +1,20 @@
+[
+  {"id":"aihubmix","wallId":"aihubmix","file":"aihubmix.png","source":"https://aihubmix.com/apple-touch-icon.png","sha256":"3fe75ea3ea13e35a93958e98b37119a3ef8ed61739603a879d3b5c31100b5e26","brandHex":"0968F7"},
+  {"id":"amux","wallId":"amux","file":"amux.ico","source":"https://amux.ai/favicon.ico?favicon.12e9_q9fbfdoe.ico","sha256":"063f9f0d60896ffee830f963af7e463061b3d1cb16b30035addbc5e90740d4a2","brandHex":"111111"},
+  {"id":"atlascloud","wallId":"atlascloud","file":"atlascloud.ico","source":"https://www.atlascloud.ai/favicon.ico?favicon.3tuhsz7wre5om.ico","sha256":"eb3ffc11ded2f40ffd671c0151495c8a789239a39f1eb7bfe5f6d2b144fce669","brandHex":"7652EC"},
+  {"id":"ccsub","wallId":"ccsub","file":"ccsub.png","source":"https://www.ccsub.net/favicon-32x32.png","sha256":"688ccb9edbe42dca7e296c81e3069d5c169f4cb51a178225f67ff429b0798d2a","brandHex":"27D66C"},
+  {"id":"crazyrouter","wallId":"crazyrouter","file":"crazyrouter.png","source":"https://crazyrouter.com/logo.png","sha256":"ecb0b37c2ad56c64031f35e61b105a80da99a01f7529b1bca883480036404e9b","brandHex":"111111","template":true},
+  {"id":"cubence","wallId":"cubence","file":"cubence.svg","source":"https://cubence.com/favicon.svg","sha256":"5bb4147e6d0e371e53cdecdbd8baefd7baedd30ba584f1ac3e58793addd5de2d","brandHex":"27303D"},
+  {"id":"longcat","wallId":"longcat","file":"longcat.svg","source":"https://s3plus.meituan.net/aigc-media-resources/longcat/yeqian-logo.svg","sha256":"2a15f1d32cd8b2687bff4adab822d0facd2c5c7840b3adb432ccd5b4c700de1d","brandHex":"2BCB55"},
+  {"id":"micu","wallId":"micu-claude","file":"micu-docs.png","source":"https://docs.micuapi.ai/logo.png?v=2","sha256":"a9e75d2d61af115ad7ddf66e8d615bd3eb8ad7da60ea576fd0e05062a6f0001d","brandHex":"1176CE"},
+  {"id":"modelscope","wallId":"modelscope-cn","file":"modelscope.svg","source":"https://modelscope.cn/models/modelscope/logos/resolve/master/svg/modelscope-simple.svg","sha256":"f1d7da398dca7d016dd77908b7b8b4e597b14c2f2297701c2a8af46cdc9164d9","brandHex":"171717","template":true},
+  {"id":"novita-ai","wallId":"novita-ai","file":"novita.ico","source":"https://novita.ai/favicon.ico","sha256":"3e3208da675a7bc7cf4d6dbc2bc813a576f310b8459a56a3da305ba5b260a0c1","brandHex":"111111","template":true},
+  {"id":"opencode","wallId":"opencode-zen","file":"opencode.png","source":"https://opencode.ai/favicon-96x96-v3.png","sha256":"aa34092540de60c889610edfa3c25316e215f12d88af29cfba530d09aee7265c","brandHex":"111111"},
+  {"id":"pipellm","wallId":"pipellm","file":"pipellm.svg","source":"https://console.pipellm.ai/assets/favicon-BYj2DJ7X.svg","sha256":"edee5f7d831be7c82ef9a4f5a3002f130103d8ab0649059141106af46eb1c566","brandHex":"20242B"},
+  {"id":"relaxycode","wallId":"relaxycode","file":"relaxycode.png","source":"https://www.relaxycode.com/favicon.png","sha256":"36d0a32167a1fbd03c6d7bd4de2c39bd2426b88bf6c40550ee0111f8610d3f1b","brandHex":"D46E47"},
+  {"id":"rightcode","wallId":"rightcode-codex","file":"rightcode.ico","source":"https://rightapi.ai/favicon.ico","sha256":"dc75453639978abaa6ecbee6a396f6e4122a63ff935039f30c2d0a5d2a0043ad","brandHex":"F16937"},
+  {"id":"stepfun","wallId":"stepfun-api","file":"stepfun.png","source":"https://platform.stepfun.ai/images/title-logo.png","sha256":"568f1b681d8500c74df5fb43bf1316f4826308cbd97bc656b2c068852b7c78b9","brandHex":"34373C"},
+  {"id":"therouter","wallId":"therouter","file":"therouter.png","source":"https://dashboard.therouter.ai/favicon.png","sha256":"a3fdaf808b78ae873546284719af4960229556ba13e904ce28a5a14a9f942a0b","brandHex":"111111","template":true},
+  {"id":"xiaomi-mimo","wallId":"xiaomi-mimo-payg","file":"xiaomi-mimo.png","source":"https://platform.xiaomimimo.com/favicon.png","sha256":"30f5305380e8a2f85c652b905ef5e155e0c00c7d56d7ab6bd8b1eb40dad61ba7","brandHex":"111111"},
+  {"id":"baidu-qianfan","wallId":"baidu-qianfan-cn","file":"baidu-qianfan.ico","source":"https://bce.bdstatic.com/img/favicon.ico","sha256":"38cc162afabad330b02199760aabfa6242310ccd7353e26eb0846b0c4769ccbf","brandHex":"377DFF"}
+]
