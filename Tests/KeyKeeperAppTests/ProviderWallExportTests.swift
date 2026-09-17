@@ -11,15 +11,25 @@ final class ProviderWallExportTests: XCTestCase {
         }
         var rows: [[String: Any]] = []
         for family in ProviderBrowser.families {
-            guard let mark = ProviderMarks.marks[family.markId], mark.systemSymbolName == nil else { continue }
-            var row: [String: Any] = ["id": family.markId, "name": family.name, "brand": mark.brandHex,
-                                      "template": mark.isTemplate, "viewBox": mark.viewBox]
-            if let svg = mark.svgBody { row["svg"] = svg }
-            if let png = mark.pngBase64 { row["png"] = png }
+            let category = ProviderBrowser.groups.first { $0.value.contains(family.markId) }?.key
+            var row: [String: Any] = ["id": family.markId, "name": family.name,
+                                      "category": category.map { String(describing: $0) } ?? "",
+                                      "variants": family.members.count,
+                                      "brand": ProviderMarks.brandHexes[family.markId] ?? "6E6E73"]
+            if let mark = ProviderMarks.marks[family.markId], mark.systemSymbolName == nil {
+                row["template"] = mark.isTemplate
+                row["viewBox"] = mark.viewBox
+                row["brand"] = mark.brandHex
+                if let svg = mark.svgBody { row["svg"] = svg }
+                if let png = mark.pngBase64 { row["png"] = png }
+            } else {
+                // No provider-sourced artwork: the same coloured lettermark the app draws.
+                row["letter"] = ProviderMarks.letter(for: family.markId)
+            }
             rows.append(row)
         }
         let data = try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: URL(fileURLWithPath: output))
-        XCTAssertGreaterThan(rows.count, 20)
+        XCTAssertEqual(rows.count, ProviderBrowser.families.count)
     }
 }
