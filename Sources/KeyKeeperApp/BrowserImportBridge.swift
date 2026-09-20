@@ -16,7 +16,6 @@ import KeyKeeperCore
         let connection: NWConnection
         var bytes = Data()
         var timeout: DispatchWorkItem?
-        var waiting = false
         init(_ connection: NWConnection) { self.connection = connection }
     }
     private let controller: ClipboardSaveController
@@ -25,32 +24,52 @@ import KeyKeeperCore
     private var peers: [UUID: Peer] = [:]
     private var active = false
     private var submitted = false
-    private var acceptedCount = 0
-    private var browserConnected = true
     private var ticket = ""
     private var host = ""
     private var page = ""
     private var completion: ((ClipboardSaveResponse) -> Void)?
+    private(set) var snapshot = BrowserImportProposalSnapshot(
+        id: String(repeating: "0", count: 64), credentialId: "", fieldName: "",
+        state: .failed, nextAction: nil, errorCode: .storageUnavailable)
 
     init(controller: ClipboardSaveController) { self.controller = controller }
 
-    func cancel() { if active { controller.cancel() } }
+    func cancel() { if active, !snapshot.state.isTerminal { controller.cancel() } }
+    func shutdown() {
+        active = false; listener?.cancel(); listener = nil
+        for id in Array(peers.keys) { lost(id) }
+        source.text = nil; ticket = ""; page = ""
+    }
+
+    func reopen() {
+        guard active, [.pasteReceived, .approvalVisible].contains(snapshot.state) else { return }
+        controller.reopenPending()
+        setState(.approvalVisible, nextAction: "Approve or cancel in KeyKeeper.")
+    }
 
     func start(_ request: ClipboardSaveRequest, callerName: String, isConnected: @escaping () -> Bool,
                ready: @escaping (String) -> Void, completion: @escaping (ClipboardSaveResponse) -> Void) {
         guard !active, !controller.isPending else { completion(.init(success: false, errorCode: .busy)); return }
         active = true; self.completion = completion
-        controller.receive(request, callerName: callerName,
-            isConnected: { [weak self] in self?.browserConnected == true && isConnected() },
-            source: source, deferPresentation: true, completion: { [weak self] in self?.finish($0) })
-        guard active else { return }
         do {
             var random = [UInt8](repeating: 0, count: 32)
             guard SecRandomCopyBytes(kSecRandomDefault, random.count, &random) == errSecSuccess else {
                 throw BrowserImportHTTP.Rejected.invalid
             }
             ticket = random.map { String(format: "%02x", $0) }.joined()
+            snapshot = .init(id: BrowserImportProposalID.fromTicket(ticket),
+                credentialId: request.credentialId, fieldName: request.fieldName,
+                state: .receiverReady, nextAction: "Open the local receiver and paste the value.")
             page = BrowserImportPage.html(request: request)
+            controller.receive(request, callerName: callerName,
+                isConnected: isConnected, source: source, deferPresentation: true,
+                expiresAfter: nil, survivesDisconnect: true,
+                willCommit: { [weak self] in
+                    self?.setState(.committing, deadline: self?.controller.pendingDeadline,
+                                   nextAction: "Wait for KeyKeeper to finish the local write.")
+                },
+                completion: { [weak self] in self?.finish($0) })
+            guard controller.isPending else { return }
             let parameters = NWParameters.tcp
             parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
             let listener = try NWListener(using: parameters)
@@ -62,6 +81,9 @@ import KeyKeeperCore
                     case .ready:
                         guard let port = self.listener?.port else { self.controller.cancel(); return }
                         self.host = "127.0.0.1:\(port.rawValue)"
+                        self.controller.armDeadline(after: 90)
+                        self.setState(.receiverReady, deadline: self.controller.pendingDeadline,
+                                      nextAction: "Open the local receiver and paste the value.")
                         ready("http://\(self.host)/#\(self.ticket)")
                     case .failed: self.controller.cancel()
                     default: break
@@ -76,8 +98,7 @@ import KeyKeeperCore
     }
 
     private func accept(_ connection: NWConnection) {
-        guard active, peers.count < 4, acceptedCount < 32 else { connection.cancel(); return }
-        acceptedCount += 1
+        guard active, peers.count < 4 else { connection.cancel(); return }
         let id = UUID(), peer = Peer(connection)
         peers[id] = peer
         connection.stateUpdateHandler = { [weak self] state in
@@ -99,50 +120,58 @@ import KeyKeeperCore
 
     private func received(_ id: UUID, data: Data?, done: Bool, failed: Bool) {
         guard active, let peer = peers[id] else { return }
-        if peer.waiting {
-            // A closed browser or extra request bytes invalidate its pending approval.
-            lost(id); return
-        }
         if let data { peer.bytes.append(data) }
-        var ownsSubmission = false
         do {
             if let request = try BrowserImportHTTP.parse(peer.bytes, host: host, ticket: ticket) {
                 peer.bytes.removeAll(keepingCapacity: false); peer.timeout?.cancel()
-                if request.method == "GET" {
+                if request.path == "/" {
                     respond(id, status: 200, type: "text/html; charset=utf-8", body: Data(page.utf8))
+                } else if request.path == "/status" {
+                    respondJSON(id, status: 200, snapshot)
+                } else if request.path == "/cancel" {
+                    guard !snapshot.state.isTerminal else { throw BrowserImportHTTP.Rejected.invalid }
+                    respondJSON(id, status: 200, snapshot)
+                    controller.cancel()
                 } else {
-                    guard !submitted, !failed, !done else { throw BrowserImportHTTP.Rejected.invalid }
+                    guard request.path == "/import", !submitted, !failed, !done,
+                          !snapshot.state.isTerminal else { throw BrowserImportHTTP.Rejected.invalid }
                     submitted = true
-                    ownsSubmission = true
-                    if request.cancel {
-                        respond(id, status: 200, type: "application/json", body: Data("{\"success\":false}".utf8))
-                        controller.cancel(); return
-                    }
                     guard let text = String(data: request.body, encoding: .utf8),
                           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw BrowserImportHTTP.Rejected.invalid }
-                    source.text = text; peer.waiting = true
-                    receive(id)
+                    source.text = text
+                    controller.armDeadline(after: 10 * 60)
+                    setState(.pasteReceived, deadline: controller.pendingDeadline,
+                             nextAction: "Approve or cancel in KeyKeeper.")
+                    respondJSON(id, status: 202, snapshot)
                     controller.presentPending()
+                    if !snapshot.state.isTerminal {
+                        setState(.approvalVisible, deadline: controller.pendingDeadline,
+                                 nextAction: "Approve or cancel in KeyKeeper.")
+                    }
                 }
                 return
             }
             if failed || done { lost(id) } else { receive(id) }
         } catch {
             respond(id, status: 400, type: "application/json", body: Data("{\"success\":false}".utf8))
-            if ownsSubmission { controller.cancel() }
         }
     }
 
     private func lost(_ id: UUID) {
         guard let peer = peers.removeValue(forKey: id) else { return }
         peer.timeout?.cancel(); peer.bytes.removeAll(keepingCapacity: false); peer.connection.cancel()
-        if peer.waiting { browserConnected = false; controller.expireIfNeeded() }
+    }
+
+    private func respondJSON<T: Encodable>(_ id: UUID, status: Int, _ value: T) {
+        let body = (try? JSONEncoder().encode(value)) ?? Data("{\"success\":false}".utf8)
+        respond(id, status: status, type: "application/json", body: body)
     }
 
     private func respond(_ id: UUID, status: Int, type: String, body: Data) {
         guard let peer = peers.removeValue(forKey: id) else { return }
         peer.timeout?.cancel(); peer.bytes.removeAll(keepingCapacity: false)
-        let headers = "HTTP/1.1 \(status) \(status == 200 ? "OK" : "Bad Request")\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\nConnection: close\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'\r\n\r\n"
+        let reason = status == 200 ? "OK" : status == 202 ? "Accepted" : "Bad Request"
+        let headers = "HTTP/1.1 \(status) \(reason)\r\nContent-Type: \(type)\r\nContent-Length: \(body.count)\r\nConnection: close\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'\r\n\r\n"
         let connection = peer.connection
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { connection.cancel() }
         connection.send(content: Data(headers.utf8) + body, completion: .contentProcessed { _ in
@@ -151,13 +180,23 @@ import KeyKeeperCore
     }
 
     private func finish(_ response: ClipboardSaveResponse) {
-        guard active else { return }
-        active = false; listener?.cancel(); listener = nil; source.text = nil; ticket = ""; page = ""
-        let body = (try? JSONEncoder().encode(response)) ?? Data("{\"success\":false}".utf8)
-        for id in Array(peers.keys) {
-            if peers[id]?.waiting == true { respond(id, status: 200, type: "application/json", body: body) }
-            else { lost(id) }
-        }
+        guard active, !snapshot.state.isTerminal else { return }
+        let state: BrowserImportProposalState
+        if response.success { state = .committed }
+        else if response.errorCode == .expired { state = .expired }
+        else if response.errorCode == .denied { state = .cancelled }
+        else { state = .failed }
+        setState(state, deadline: nil, nextAction: nil, errorCode: response.errorCode)
+        source.text = nil
         let callback = completion; completion = nil; callback?(response)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10 * 60) { [weak self] in self?.shutdown() }
+    }
+
+    private func setState(_ state: BrowserImportProposalState, deadline: Date? = nil,
+                          nextAction: String?, errorCode: ClipboardSaveError? = nil) {
+        snapshot.state = state
+        snapshot.deadline = deadline
+        snapshot.nextAction = nextAction
+        snapshot.errorCode = errorCode
     }
 }

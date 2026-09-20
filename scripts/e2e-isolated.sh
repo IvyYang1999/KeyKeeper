@@ -100,6 +100,40 @@ expect_contains "saved under the template's id" "Saved" "$OUT"
 case "$OUT" in *"rejected the key"*|*"could not reach"*) pass "verification ran (synthetic key: rejected or unreachable)";; *) fail "verification ran" "$OUT";; esac
 OUT="$("$KK" list --detail 2>&1)"; expect_contains "credential uses the template's id and field" "openai |" "$OUT"
 
+echo "==> browser proposal: receiver, local paste, terminal status and secret-free recovery"
+BROWSER_LOG="$TMP/browser-import.log"
+"$KK" save -c browser-fixture --field key --from-browser --create --purpose "e2e: browser import" >"$BROWSER_LOG" 2>&1 &
+BROWSER_PID=$!
+for _ in $(seq 1 40); do
+    BROWSER_URL="$(grep -m1 '^http://127\.0\.0\.1:' "$BROWSER_LOG" 2>/dev/null || true)"
+    PROPOSAL_ID="$(sed -n 's/^Proposal ID: //p' "$BROWSER_LOG" | head -1)"
+    [ -n "$BROWSER_URL" ] && [ -n "$PROPOSAL_ID" ] && break
+    sleep 0.25
+done
+if [ -n "${BROWSER_URL:-}" ] && [ -n "${PROPOSAL_ID:-}" ]; then
+    pass "browser receiver and public proposal id returned"
+else
+    fail "browser receiver and public proposal id returned" "$(head -8 "$BROWSER_LOG")"
+fi
+AUTH_FRAGMENT="${BROWSER_URL##*#}"
+BROWSER_BASE="${BROWSER_URL%%#*}"
+BROWSER_ORIGIN="${BROWSER_BASE%/}"
+OUT="$(/usr/bin/curl -sS --max-time 5 -X POST "${BROWSER_BASE}import" \
+    -H "Origin: $BROWSER_ORIGIN" -H 'Content-Type: text/plain;charset=UTF-8' \
+    -H "X-KeyKeeper-Session: $AUTH_FRAGMENT" --data-binary 'synthetic-browser-e2e')"
+expect_contains "browser paste becomes a proposal" '"state":"pasteReceived"' "$OUT"
+expect_not_contains "browser response contains no secret" "synthetic-browser-e2e" "$OUT"
+if wait "$BROWSER_PID"; then
+    OUT="$(cat "$BROWSER_LOG")"
+    expect_contains "browser import commits" "Saved" "$OUT"
+    expect_not_contains "browser CLI output contains no secret" "synthetic-browser-e2e" "$OUT"
+else
+    fail "browser import commits" "$(head -8 "$BROWSER_LOG")"
+fi
+OUT="$("$KK" proposal status "$PROPOSAL_ID" --json 2>&1)"
+expect_contains "terminal proposal remains queryable" '"state":"committed"' "$OUT"
+expect_not_contains "proposal status contains no secret" "synthetic-browser-e2e" "$OUT"
+
 echo "==> provider aliases: one stored value reaches official SDK variables"
 OUT="$("$KK" save --provider zhipu-cn --from-source "$TMP/config.py" --python-symbol TOKEN --create --purpose "e2e: new SDK aliases" 2>&1)"
 expect_contains "new canonical provider saved" "Saved" "$OUT"
@@ -125,6 +159,14 @@ OUT="$("$KK" run -c svc -- sh -c 'test "$TOKEN" = synthetic-token-e2e && echo MA
 expect_contains "value injected" "MATCH" "$OUT"
 OUT="$("$KK" run -c svc -- sh -c 'echo "$TOKEN"' 2>&1)"
 expect_contains "child output redacted" "[REDACTED]" "$OUT"; expect_not_contains "value never printed" "synthetic-token-e2e" "$OUT"
+
+echo "==> add one missing secret field without renaming or replacing the credential"
+OUT="$("$KK" save -c svc --field second-token --from-source "$TMP/config.py" --python-symbol STRICT_KEY --add-field 2>&1)"
+expect_contains "add-field is explicit and succeeds" "Added the secret field" "$OUT"
+expect_not_contains "add-field output contains no secret" "synthetic-strict-e2e" "$OUT"
+OUT="$("$KK" meta svc 2>&1)"
+expect_contains "existing credential now declares the new field" "second-token" "$OUT"
+expect_contains "existing credential kept its original field" '"token"' "$OUT"
 
 echo "==> plain fields through the promptless edit path, served only when the app vouches for meta.json"
 OUT="$("$KK" edit svc --set region=us-east-1 --title Svc 2>&1)"; expect_contains "edit plain field" "region" "$OUT"

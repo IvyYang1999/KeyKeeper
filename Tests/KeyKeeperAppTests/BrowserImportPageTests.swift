@@ -14,8 +14,9 @@ final class BrowserImportPageTests: XCTestCase {
             try process.run()
             input.fileHandleForWriting.write(Data(html.utf8)); try input.fileHandleForWriting.close()
             let result = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
-            XCTAssertEqual(process.terminationStatus, 0, "Browser lifecycle harness failed")
-            XCTAssertTrue(String(decoding: result, as: UTF8.self).contains("BROWSER_PAGE_LIFECYCLE_OK"))
+            let outputText = String(decoding: result, as: UTF8.self)
+            XCTAssertEqual(process.terminationStatus, 0, "Browser lifecycle harness failed: \(outputText)")
+            XCTAssertTrue(outputText.contains("BROWSER_PAGE_LIFECYCLE_OK"), outputText)
         }
     }
 }

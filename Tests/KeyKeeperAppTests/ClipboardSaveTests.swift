@@ -328,6 +328,73 @@ import KeyKeeperTestSupport
         XCTAssertEqual(try service.retrieve(credentialId: "other", fieldName: "key"), "synthetic-original")
         XCTAssertThrowsError(try service.validateStorage())
     }
+
+    func testAddFieldPreservesCredentialAndExcludesNewFieldFromOldWildcardApproval() throws {
+        let existing = Credential(label: "OAuth", notes: "keep", links: [],
+            fields: ["client-id": .init(secret: true)], security: .strict,
+            created: "2026-01-01", updated: "2026-01-01", injectOnly: true)
+        try service.save(credentialId: "fixture", fieldName: "client-id", value: "synthetic-id", security: .strict)
+        try meta.save(.init(credentials: ["fixture": existing]))
+        let subject = ApprovalSubject(fingerprint: "unsigned:path=agent", displayName: "agent")
+        try approvals.add(Approval(subject: subject, target: .credential(id: "fixture", fields: nil), duration: .always))
+
+        clipboard.text = "synthetic-secret"
+        controller.receive(.init(credentialId: "fixture", fieldName: "client-secret", addField: true),
+            callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
+        controller.resolve(approved: true)
+
+        XCTAssertEqual(results.last?.success, true)
+        let saved = try XCTUnwrap(meta.load().credentials["fixture"])
+        XCTAssertEqual(saved.label, "OAuth")
+        XCTAssertEqual(saved.notes, "keep")
+        XCTAssertEqual(saved.fields["client-secret"]?.secret, true)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "client-id"), "synthetic-id")
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "client-secret"), "synthetic-secret")
+        XCTAssertNotNil(try approvals.valid(credentialId: "fixture", field: "client-id",
+                                            fingerprint: subject.fingerprint, terminalSession: nil))
+        XCTAssertNil(try approvals.valid(credentialId: "fixture", field: "client-secret",
+                                         fingerprint: subject.fingerprint, terminalSession: nil))
+    }
+
+    func testAddFieldRefusesExistingValueMissingCredentialAndReservedNameBeforeRead() throws {
+        let existing = Credential(label: "OAuth", notes: "", links: [],
+            fields: ["client-id": .init(secret: true)], security: .strict,
+            created: "2026-01-01", updated: "2026-01-01")
+        try service.save(credentialId: "fixture", fieldName: "client-id", value: "synthetic-id", security: .strict)
+        try meta.save(.init(credentials: ["fixture": existing]))
+        for (id, field) in [("fixture", "client-id"), ("missing", "client-secret"), ("fixture", "path")] {
+            controller.receive(.init(credentialId: id, fieldName: field, addField: true),
+                callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
+            XCTAssertFalse(controller.isPending)
+        }
+        XCTAssertEqual(clipboard.reads, 0)
+        XCTAssertEqual(io.writes, 1)
+    }
+
+    func testAddFieldMetadataFailureRollsBackNewValueAndKeepsOldValue() throws {
+        let existing = Credential(label: "OAuth", notes: "keep", links: [],
+            fields: ["client-id": .init(secret: true)], security: .strict,
+            created: "2026-01-01", updated: "2026-01-01")
+        try service.save(credentialId: "fixture", fieldName: "client-id", value: "synthetic-id", security: .strict)
+        try meta.save(.init(credentials: ["fixture": existing]))
+        io.afterWrite = {
+            self.io.afterWrite = nil
+            try FileManager.default.removeItem(at: self.meta.fileURL)
+            try FileManager.default.createDirectory(at: self.meta.fileURL, withIntermediateDirectories: false)
+        }
+
+        clipboard.text = "synthetic-secret"
+        controller.receive(.init(credentialId: "fixture", fieldName: "client-secret", addField: true),
+            callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
+        controller.resolve(approved: true)
+
+        XCTAssertEqual(results.last?.errorCode, .metadataCommitFailed)
+        try FileManager.default.removeItem(at: meta.fileURL)
+        try meta.save(.init(credentials: ["fixture": existing]))
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "client-id"), "synthetic-id")
+        XCTAssertThrowsError(try service.retrieve(credentialId: "fixture", fieldName: "client-secret"))
+        XCTAssertEqual(clipboard.clears, 0)
+    }
     func testMetadataChangeAfterPromptPreventsSave() throws {
         request()
         try meta.save(.init(credentials: ["fixture": credential()]))

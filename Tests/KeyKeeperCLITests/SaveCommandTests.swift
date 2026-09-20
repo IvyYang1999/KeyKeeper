@@ -99,6 +99,29 @@ final class SaveCommandTests: XCTestCase {
         XCTAssertThrowsError(try SaveCommand.parse(["-c", "x\nmisleading", "--field", "key", "--from-clipboard"]))
     }
 
+    func testAddFieldIsExplicitAndMutuallyExclusiveWithCreateOrReplace() throws {
+        let command = try SaveCommand.parse([
+            "-c", "oauth", "--field", "client-secret", "--from-browser", "--add-field",
+        ])
+        XCTAssertTrue(command.request.addField)
+        XCTAssertFalse(command.request.create)
+        XCTAssertEqual(command.mutationNote,
+                       " Added the secret field. Existing permissions do not include it.")
+        let source = try SaveCommand.parse([
+            "-c", "oauth", "--field", "client-secret", "--from-source", "/tmp/synthetic.py",
+            "--python-symbol", "CLIENT_SECRET", "--add-field",
+        ])
+        XCTAssertEqual(source.mutationNote, command.mutationNote,
+                       "Every safe import transport must report the same mutation")
+        XCTAssertThrowsError(try SaveCommand.parse([
+            "-c", "oauth", "--field", "client-secret", "--from-browser", "--add-field", "--create",
+        ]))
+        XCTAssertThrowsError(try SaveCommand.parse([
+            "-c", "oauth", "--field", "client-secret", "--from-clipboard", "--add-field",
+            "--replace", "--expect", "chars:16",
+        ]))
+    }
+
     func testProtocolContainsOnlyTargetAndConstantResponse() throws {
         let request = ClipboardSaveRequest(credentialId: "fixture", fieldName: "key", create: true)
         let data = try JSONEncoder().encode(IPCRequest.clipboardSave(request))

@@ -33,13 +33,21 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
     /// A `ProviderCatalog` id: the value is checked against the provider's key shape before
     /// anything is written, and verified with the provider's read-only request after saving.
     public var provider: String?
+    /// Explicitly add one secret field to an existing credential. This is never inferred from a
+    /// misspelled field name: the person must see and approve the schema change.
+    public var addField: Bool
     public var isReplacement: Bool { replaceExisting == true }
+
+    private enum CodingKeys: String, CodingKey {
+        case credentialId, fieldName, create, expect, useCurrentClipboard, replaceExisting,
+             expectedEd25519PublicKey, security, expires, intent, provider, addField
+    }
 
     public init(credentialId: String, fieldName: String, create: Bool = false,
                 expect: String? = nil, useCurrentClipboard: Bool = false,
                 replaceExisting: Bool = false, expectedEd25519PublicKey: String? = nil,
                 security: SecurityLevel? = nil, expires: String? = nil, intent: UsageIntent? = nil,
-                provider: String? = nil) {
+                provider: String? = nil, addField: Bool = false) {
         self.credentialId = credentialId
         self.fieldName = fieldName
         self.create = create
@@ -51,6 +59,39 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
         self.expires = expires
         self.intent = intent
         self.provider = provider
+        self.addField = addField
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        credentialId = try c.decode(String.self, forKey: .credentialId)
+        fieldName = try c.decode(String.self, forKey: .fieldName)
+        create = try c.decodeIfPresent(Bool.self, forKey: .create) ?? false
+        expect = try c.decodeIfPresent(String.self, forKey: .expect)
+        useCurrentClipboard = try c.decodeIfPresent(Bool.self, forKey: .useCurrentClipboard) ?? false
+        replaceExisting = try c.decodeIfPresent(Bool.self, forKey: .replaceExisting)
+        expectedEd25519PublicKey = try c.decodeIfPresent(String.self, forKey: .expectedEd25519PublicKey)
+        security = try c.decodeIfPresent(SecurityLevel.self, forKey: .security)
+        expires = try c.decodeIfPresent(String.self, forKey: .expires)
+        intent = try c.decodeIfPresent(UsageIntent.self, forKey: .intent)
+        provider = try c.decodeIfPresent(String.self, forKey: .provider)
+        addField = try c.decodeIfPresent(Bool.self, forKey: .addField) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(credentialId, forKey: .credentialId)
+        try c.encode(fieldName, forKey: .fieldName)
+        try c.encode(create, forKey: .create)
+        try c.encodeIfPresent(expect, forKey: .expect)
+        try c.encode(useCurrentClipboard, forKey: .useCurrentClipboard)
+        try c.encodeIfPresent(replaceExisting, forKey: .replaceExisting)
+        try c.encodeIfPresent(expectedEd25519PublicKey, forKey: .expectedEd25519PublicKey)
+        try c.encodeIfPresent(security, forKey: .security)
+        try c.encodeIfPresent(expires, forKey: .expires)
+        try c.encodeIfPresent(intent, forKey: .intent)
+        try c.encodeIfPresent(provider, forKey: .provider)
+        if addField { try c.encode(true, forKey: .addField) }
     }
 
     public func validate() throws {
@@ -61,8 +102,9 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
             guard CredentialExpiry.normalize(expires) == expires else { throw ClipboardSaveError.invalidExpiry }
         }
         if isReplacement {
-            guard !create, expect != nil else { throw ClipboardSaveError.invalidReplacement }
+            guard !create, !addField, expect != nil else { throw ClipboardSaveError.invalidReplacement }
         }
+        if addField { guard !create else { throw ClipboardSaveError.invalidAddField } }
         if let expectedEd25519PublicKey {
             guard isReplacement, expect == "base64:32", Data(base64Encoded: expectedEd25519PublicKey)?.count == 32 else {
                 throw ClipboardSaveError.invalidExpectation
@@ -82,7 +124,7 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
 }
 
 public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError {
-    case invalidProvider
+    case invalidProvider, invalidAddField
     case invalidReplacement, targetValueChanged, identityMismatch
     case invalidSource, unsupportedSource, sourceParserUnavailable
     case invalidFile, fileChanged, wrongFieldType
@@ -94,6 +136,7 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
     public var errorDescription: String? {
         switch self {
         case .invalidProvider: return "The provider or field does not match a built-in credential template. Nothing was read or saved. Run keykeeper providers show <id> to check the contract."
+        case .invalidAddField: return "--add-field requires an existing credential and a new secret field. Do not combine it with --create or --replace."
         case .invalidReplacement: return "Replacement requires an existing text field, --from-clipboard and --expect. Do not combine with --create."
         case .targetValueChanged: return "The existing value changed while approval was pending. Nothing was replaced. Start a fresh request."
         case .identityMismatch: return "The private key does not match the expected public key. Nothing was saved."

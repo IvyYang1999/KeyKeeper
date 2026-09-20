@@ -80,7 +80,7 @@ struct TrustPromptModel: Equatable {
         let proposed = request.security ?? .strict
         let saveAsNote = request.create
             ? (proposed == .strict ? L("New, Ask every time") : L("New, Background OK"))
-            : L("Fills in the missing value")
+            : request.addField ? L("Adds a new secret field") : L("Fills in the missing value")
 
         let title: String
         let source: Row
@@ -101,7 +101,7 @@ struct TrustPromptModel: Equatable {
             title = L("Save the value pasted in your browser?")
             source = Row(label: L("Source"), value: L("Browser paste page on this Mac"))
             assurance = L("\(caller) never sees the value, and nothing is overwritten.")
-            details = [L("Save the value just pasted into the local browser receiver. No value is shown to the caller. Nothing is overwritten and no read permission is granted. Website identity is not verified. This request expires in 90 seconds.")]
+            details = [L("Save the value just pasted into the local browser receiver. No value is shown to the caller. Nothing is overwritten and no read permission is granted. Website identity is not verified. After paste, KeyKeeper holds this proposal locally for 10 minutes even if the page or CLI closes.")]
         } else {
             // yyt 2026-09-14: whatever is on the clipboard now, shown so the person can tell.
             title = L("Save what is on the clipboard?")
@@ -117,7 +117,9 @@ struct TrustPromptModel: Equatable {
             ? (proposed == .strict
                 ? L("Create a new credential with Ask every time protection.")
                 : L("Create a new credential that background callers can use after you approve each one once, as \(caller) suggested."))
-            : L("Restore this missing field. Keep its existing settings and permissions."))
+            : request.addField
+                ? L("Add a new secret field. Existing read permissions stay limited to the old fields.")
+                : L("Restore this missing field. Keep its existing settings and permissions."))
 
         var rows = [
             Row(label: L("Save as"), value: target, monospaced: true, note: saveAsNote),
@@ -465,6 +467,12 @@ struct TrustPromptView: View {
                                            onConfirm: hosting.rootView.onConfirm,
                                            onConfirmDuration: hosting.rootView.onConfirmDuration)
         panel?.setContentSize(hosting.fittingSize)
+    }
+
+    func bringToFront() {
+        guard let panel else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
     }
 
     func dismiss() {

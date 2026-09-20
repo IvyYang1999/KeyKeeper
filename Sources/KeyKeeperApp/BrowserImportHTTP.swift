@@ -2,7 +2,7 @@ import Foundation
 
 /// Intentionally small HTTP/1 request surface. No keepalive, chunking, CORS or pipelining.
 enum BrowserImportHTTP {
-    struct Request { let method: String; let body: Data; var cancel = false }
+    struct Request { let method: String; let path: String; let body: Data }
     enum Rejected: Error { case invalid }
     static let maximumBytes = 8192 + 65536
 
@@ -31,10 +31,10 @@ enum BrowserImportHTTP {
         if start[0] == "GET", start[1] == "/" {
             guard body.isEmpty, headers["content-length"] == nil || headers["content-length"] == "0",
                   headers["sec-fetch-site"] != "cross-site" else { throw Rejected.invalid }
-            return Request(method: "GET", body: Data())
+            return Request(method: "GET", path: "/", body: Data())
         }
-        guard start[0] == "POST", start[1] == "/import",
-              headers["origin"] == "http://\(host)", headers["x-keykeeper-session"] == ticket,
+        let authenticated = headers["origin"] == "http://\(host)" && headers["x-keykeeper-session"] == ticket
+        guard start[0] == "POST", ["/import", "/cancel", "/status"].contains(start[1]), authenticated,
               headers["content-type"]?.lowercased().hasPrefix("text/plain") == true,
               let rawLength = headers["content-length"], !rawLength.isEmpty,
               rawLength.utf8.allSatisfy({ (48...57).contains($0) }),
@@ -42,6 +42,7 @@ enum BrowserImportHTTP {
             throw Rejected.invalid
         }
         guard body.count == length else { return nil }
-        return Request(method: "POST", body: body, cancel: headers["x-keykeeper-cancel"] == "1")
+        if start[1] == "/status", body != Data("status".utf8) { throw Rejected.invalid }
+        return Request(method: "POST", path: start[1], body: body)
     }
 }

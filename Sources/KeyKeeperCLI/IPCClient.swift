@@ -12,7 +12,7 @@ import KeyKeeperCore
 enum IPCLaunchPolicy {
     static func shouldLaunchApp(for request: IPCRequest) -> Bool {
         switch request {
-        case .value, .auth, .clipboardSave, .browserImport, .fileImport, .sourceImport, .envImport, .browserSession, .metadataEdit,
+        case .value, .auth, .clipboardSave, .browserImport, .browserImportProposal, .fileImport, .sourceImport, .envImport, .browserSession, .metadataEdit,
              .metadataIntegrity, .approvalRevoke, .approvalsList:
             return true
         case .sessionControl, .serviceRequests:
@@ -65,13 +65,26 @@ enum IPCClient {
         guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else { throw IPCError.appNotResponding }
         return try decodeClipboardSaveResponse(response)
     }
+
+    static func requestBrowserImportProposal(_ request: BrowserImportProposalRequest) throws -> BrowserImportProposalSnapshot {
+        try request.validate()
+        let fd = try connectWithRetry(launchIfNeeded: true)
+        defer { close(fd) }
+        try IPCMessage.writeMessage(fd: fd, message: IPCRequest.browserImportProposal(request))
+        guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self),
+              case .browserImportProposal(let result) = response else { throw IPCError.appNotResponding }
+        if let proposal = result.proposal { return proposal }
+        throw result.error ?? BrowserImportProposalError.notFound
+    }
     static func requestClipboardSave(_ request: ClipboardSaveRequest, fromBrowser: Bool = false,
                                      ready: (String) -> Void = { _ in }) throws -> ClipboardSaveResponse {
         try request.validate()
         let fd = try connectWithRetry(launchIfNeeded: true)
         defer { close(fd) }
-        var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout + IPCConstants.clientGrace), tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        if !fromBrowser {
+            var timeout = timeval(tv_sec: Int(IPCConstants.authTimeout + IPCConstants.clientGrace), tv_usec: 0)
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        }
         try IPCMessage.writeMessage(fd: fd, message: fromBrowser ? IPCRequest.browserImport(request) : IPCRequest.clipboardSave(request))
         guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else {
             throw IPCError.appNotResponding

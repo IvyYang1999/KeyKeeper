@@ -6,6 +6,9 @@ final class BrowserImportHTTPTests: XCTestCase {
     private func request(_ extra: String = "", body: String = "synthetic") -> Data {
         Data("POST /import HTTP/1.1\r\nHost: \(host)\r\nOrigin: http://\(host)\r\nContent-Type: text/plain;charset=UTF-8\r\nX-KeyKeeper-Session: test-ticket\r\nContent-Length: \(body.utf8.count)\r\n\(extra)\r\n\(body)".utf8)
     }
+    private func status(ticket: String = "test-ticket", origin: String? = nil) -> Data {
+        Data("POST /status HTTP/1.1\r\nHost: \(host)\r\nOrigin: \(origin ?? "http://\(host)")\r\nContent-Type: text/plain\r\nX-KeyKeeper-Session: \(ticket)\r\nContent-Length: 6\r\n\r\nstatus".utf8)
+    }
     func testValidExactOriginAndIncrementalBody() throws {
         let data = request()
         XCTAssertNil(try BrowserImportHTTP.parse(data.dropLast(), host: host, ticket: "test-ticket"))
@@ -26,5 +29,10 @@ final class BrowserImportHTTPTests: XCTestCase {
         XCTAssertThrowsError(try BrowserImportHTTP.parse(Data(repeating: 65, count: 8193), host: host, ticket: "test-ticket"))
         XCTAssertThrowsError(try BrowserImportHTTP.parse(request(body: String(repeating: "x", count: 65537)), host: host, ticket: "test-ticket"))
         XCTAssertThrowsError(try BrowserImportHTTP.parse(Data("GET /unknown HTTP/1.1\r\nHost: \(host)\r\n\r\n".utf8), host: host, ticket: "test-ticket"))
+    }
+    func testStatusRequiresExactOriginAndTicket() throws {
+        XCTAssertEqual(try BrowserImportHTTP.parse(status(), host: host, ticket: "test-ticket")?.path, "/status")
+        XCTAssertThrowsError(try BrowserImportHTTP.parse(status(ticket: "wrong"), host: host, ticket: "test-ticket"))
+        XCTAssertThrowsError(try BrowserImportHTTP.parse(status(origin: "https://evil.test"), host: host, ticket: "test-ticket"))
     }
 }

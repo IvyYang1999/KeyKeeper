@@ -464,6 +464,23 @@ public final class ApprovalStore: @unchecked Sendable {
         }
     }
 
+    /// Before a credential gains a new secret field, turn "all fields, now and later" grants
+    /// into the exact pre-existing set. Existing access keeps working; the new value inherits no
+    /// read permission merely because it joined the same credential.
+    public func freezeWildcardCredentialApprovals(credentialId: String, existingFields: [String]) throws {
+        let fields = Array(Set(existingFields)).sorted()
+        try update { document in
+            for index in document.approvals.indices {
+                guard case .credential(let id, nil) = document.approvals[index].target,
+                      id == credentialId else { continue }
+                document.approvals[index].target = .credential(id: id, fields: fields)
+                if let remaining = document.approvals[index].onceFieldsRemaining {
+                    document.approvals[index].onceFieldsRemaining = remaining.filter(fields.contains)
+                }
+            }
+        }
+    }
+
     public func recordAudit(_ event: ServiceAuditEvent) throws {
         try update { document in
             document.auditEvents.append(event)

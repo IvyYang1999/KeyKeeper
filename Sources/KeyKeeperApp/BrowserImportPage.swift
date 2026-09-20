@@ -31,7 +31,9 @@ enum BrowserImportPage {
         </style><main><div class="eyebrow">\(t("KEYKEEPER · LOCAL IMPORT"))</div>
         <h1>\(t("Paste once. Confirm on your Mac."))</h1>
         <dl><dt>\(t("Credential ID"))</dt><dd>\(escape(request.credentialId))</dd><dt>\(t("Secret field"))</dt><dd>\(escape(request.fieldName))</dd></dl>
-        <p>\(t(request.create ? "Creates a new credential with Ask every time protection." : "Restores this missing field without changing its existing permissions."))</p>
+        <p>\(t(request.create ? "Creates a new credential with Ask every time protection."
+            : request.addField ? "Adds a new secret field. Existing read permissions stay limited to the old fields."
+            : "Restores this missing field without changing its existing permissions."))</p>
         <label for="paste">\(t("Paste the copied key here"))</label>
         <input id="paste" type="password" autocomplete="off" spellcheck="false" aria-describedby="help" placeholder="\(t("Click here, then press ⌘V"))">
         <small id="help">\(t("Paste only. The text will not appear in this field. This page sends it directly to KeyKeeper on this Mac, not to an online service."))</small>
@@ -44,8 +46,23 @@ enum BrowserImportPage {
         history.replaceState(null, '', '/');
         const area = document.getElementById('paste'), result = document.getElementById('result'), cancel = document.getElementById('cancel');
         const stop = message => { area.disabled = true; cancel.disabled = true; ticket = ''; result.textContent = message; };
-        const abort = new AbortController();
-        const timer = setTimeout(() => { abort.abort(); stop(\(j("Import expired. Check the CLI result before starting again."))); }, 90000);
+        let timer = setTimeout(() => stop(\(j("Import expired. Check the CLI result before starting again."))), 90000);
+        const headers = type => ({'X-KeyKeeper-Session':ticket, ...(type ? {'Content-Type':type} : {})});
+        const render = proposal => {
+          if (proposal.state === 'committed') { stop(\(j("Saved in KeyKeeper. No read permission was granted. You can close this page."))); return true; }
+          if (['expired','cancelled','failed'].includes(proposal.state)) { stop(\(j("Not saved. Check the CLI result; do not retry an uncertain write."))); return true; }
+          result.textContent = proposal.state === 'committing'
+            ? \(j("Approved. KeyKeeper is committing the value…"))
+            : \(j("Waiting for your confirmation in KeyKeeper…"));
+          return false;
+        };
+        const poll = async () => {
+          if (!ticket) return;
+          try {
+            const response = await fetch('/status', {method:'POST', headers:headers('text/plain'), body:'status', cache:'no-store', credentials:'omit'});
+            if (!render(await response.json())) setTimeout(poll, 750);
+          } catch { result.textContent = \(j("Connection ended. Run keykeeper proposal status with the proposal ID shown in the terminal.")); }
+        };
         if (!/^[a-f0-9]{64}$/.test(ticket)) stop(\(j("This import link is invalid. Start a new request from KeyKeeper.")));
         area.addEventListener('beforeinput', e => e.preventDefault());
         area.addEventListener('drop', e => e.preventDefault());
@@ -59,21 +76,18 @@ enum BrowserImportPage {
           submitted = true; area.disabled = true;
           result.textContent = \(j("Waiting for your confirmation in KeyKeeper…"));
           try {
-            const pending = fetch('/import', { method:'POST', headers:{'Content-Type':'text/plain;charset=UTF-8','X-KeyKeeper-Session':ticket}, body:value, cache:'no-store', credentials:'omit', signal:abort.signal });
-            value = ''; ticket = '';
-            const response = await pending;
-            const outcome = await response.json();
-            stop(outcome.success ? \(j("Saved in KeyKeeper. No read permission was granted. You can close this page.")) : \(j("Not saved. Check the CLI result; do not retry an uncertain write.")));
-          } catch { stop(\(j("Connection ended. Check the CLI result before retrying."))); }
-          finally { value = ''; clearTimeout(timer); }
+            const response = await fetch('/import', { method:'POST', headers:headers('text/plain;charset=UTF-8'), body:value, cache:'no-store', credentials:'omit' });
+            value = ''; clearTimeout(timer);
+            const proposal = await response.json();
+            if (!render(proposal)) setTimeout(poll, 0);
+          } catch { result.textContent = \(j("Connection ended. Run keykeeper proposal status with the proposal ID shown in the terminal.")); }
+          finally { value = ''; }
         });
         cancel.addEventListener('click', async () => {
-          if (submitted) { abort.abort(); stop(\(j("Cancellation requested. Check the CLI result."))); return; }
           submitted = true;
-          try { await fetch('/import', {method:'POST',headers:{'Content-Type':'text/plain','X-KeyKeeper-Session':ticket,'X-KeyKeeper-Cancel':'1'},body:'cancel',credentials:'omit',cache:'no-store'}); } catch {}
+          try { await fetch('/cancel', {method:'POST',headers:headers('text/plain'),body:'cancel',credentials:'omit',cache:'no-store'}); } catch {}
           clearTimeout(timer); stop(\(j("Import cancelled. You can close this page.")));
         });
-        addEventListener('pagehide', () => abort.abort());
         </script></html>
         """
     }

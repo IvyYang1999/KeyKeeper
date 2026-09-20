@@ -23,6 +23,8 @@ struct SaveCommand: ParsableCommand {
     var pythonSymbol: String?
     @Flag(help: "Create a new credential (strict unless --security standard); refuses an existing ID.")
     var create = false
+    @Flag(name: .customLong("add-field"), help: "Add this new secret field to an existing credential after confirmation. Existing read permissions stay limited to the old fields.")
+    var addField = false
     @Option(help: "What the value should look like: base64[:BYTES], hex[:BYTES], bytes:N or chars:N. Refuses the save if it does not match, before anything is written.")
     var expect: String?
     @Flag(help: .hidden)   // 0.3.3 needed it; the current clipboard is now always what is saved.
@@ -100,6 +102,7 @@ struct SaveCommand: ParsableCommand {
         if (replaceExisting || expectedEd25519PublicKey != nil) && !fromClipboard {
             throw ClipboardSaveError.invalidReplacement
         }
+        if addField && (create || replaceExisting) { throw ClipboardSaveError.invalidAddField }
         guard [fromClipboard, fromBrowser, fromFile != nil, fromSource != nil].filter({ $0 }).count == 1 else {
             throw ValidationError("Choose exactly one: --from-clipboard, --from-browser, --from-file or --from-source. Never put a key in command arguments.")
         }
@@ -125,7 +128,7 @@ struct SaveCommand: ParsableCommand {
         .init(credentialId: credentialId, fieldName: fieldName, create: create, expect: expect,
               useCurrentClipboard: useCurrentClipboard, replaceExisting: replaceExisting,
               expectedEd25519PublicKey: expectedEd25519PublicKey, security: security, expires: expires,
-              intent: intent, provider: template?.id)
+              intent: intent, provider: template?.id, addField: addField)
     }
 
     /// A refusal, with the app's one-line reason and the clipboard's shape when it gave them.
@@ -144,6 +147,12 @@ struct SaveCommand: ParsableCommand {
         return " Runtime/provider access is not verified."
     }
 
+    var mutationNote: String {
+        if replaceExisting { return " Replaced the existing field. Existing permissions are unchanged." }
+        if addField { return " Added the secret field. Existing permissions do not include it." }
+        return ""
+    }
+
     /// A provider bundle is deliberately created from one secret at a time. Say what is still
     /// required instead of letting a successful primary save masquerade as a usable bundle.
     var remainingFieldsNote: String {
@@ -157,7 +166,7 @@ struct SaveCommand: ParsableCommand {
             notes.append("Add and confirm required non-secret fields: \(publicFields.joined(separator: ", ")).")
         }
         if !secretFields.isEmpty {
-            notes.append("Add required secret fields through KeyKeeper's safe importer: \(secretFields.joined(separator: ", ")).")
+            notes.append("Add required secret fields with another safe import using --add-field: \(secretFields.joined(separator: ", ")).")
         }
         return notes.isEmpty ? "" : " " + notes.joined(separator: " ")
     }
@@ -193,6 +202,7 @@ struct SaveCommand: ParsableCommand {
             let result = try IPCClient.requestSourceImport(.init(target: request, filePath: fromSource, pythonSymbol: pythonSymbol))
             guard result.success else { throw CommandFailure(Self.failureMessage(result)) }
             var note = "Saved source candidate. Original retained. No read permission was granted."
+            note += mutationNote
             note += verificationSuffix(result)
             note += remainingFieldsNote
             print(note)
@@ -202,6 +212,7 @@ struct SaveCommand: ParsableCommand {
             let result = try IPCClient.requestFileImport(.init(target: request, filePath: fromFile))
             guard result.success else { throw CommandFailure(Self.failureMessage(result)) }
             var note = "Saved credential file. Original file retained. No read permission was granted."
+            note += mutationNote
             note += verificationSuffix(result)
             note += remainingFieldsNote
             print(note)
@@ -213,7 +224,12 @@ struct SaveCommand: ParsableCommand {
         }
         let result = try IPCClient.requestClipboardSave(request, fromBrowser: fromBrowser) { url in
             print("Open this single-use URL, paste through the SAME clipboard transport used to copy, then confirm in KeyKeeper. Ordinary Chrome: native Copy + native Paste; do not mix browser-tool and system clipboards:")
-            print(url); fflush(stdout)
+            print(url)
+            if let ticket = URLComponents(string: url)?.fragment {
+                print("Proposal ID: \(BrowserImportProposalID.fromTicket(ticket))")
+                print("Recover with: keykeeper proposal status <proposal-id>  |  keykeeper proposal open <proposal-id>")
+            }
+            fflush(stdout)
         }
         guard result.success else {
             // On a shape refusal the App reports what was there instead: that is the fastest
@@ -222,7 +238,7 @@ struct SaveCommand: ParsableCommand {
         }
         var note = fromBrowser ? "Saved. Browser clipboard was not cleared. No read permission was granted." : "Saved. Clipboard cleared if unchanged. No read permission was granted."
         if let shape = result.shape { note += " Stored: \(Self.storedSummary(shape))." }
-        if replaceExisting { note += " Replaced the existing field. Existing permissions are unchanged." }
+        note += mutationNote
         if let validation = result.validation, validation != .skipped, let template {
             note += " " + Self.validationNote(validation, provider: template.name)
         }

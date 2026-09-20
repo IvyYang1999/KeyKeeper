@@ -63,6 +63,7 @@ final class IPCServer: ObservableObject {
     private let envImportController: EnvImportController?
     private let browserSessionController: BrowserSessionController?
     private var browserImportBridge: BrowserImportBridge?
+    private var browserImportBridges: [String: BrowserImportBridge] = [:]
 
     @MainActor func importFile(_ request: FileImportRequest, callerName: String = "KeyKeeper",
                     isConnected: @escaping () -> Bool = { true },
@@ -406,6 +407,11 @@ final class IPCServer: ObservableObject {
                 bridge.start(request, callerName: callerIdentity.displayName,
                     isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
                     ready: { url in
+                        self.browserImportBridges[bridge.snapshot.id] = bridge
+                        if self.browserImportBridges.count > 16,
+                           let old = self.browserImportBridges.first(where: { $0.key != bridge.snapshot.id && $0.value.snapshot.state.isTerminal }) {
+                            old.value.shutdown(); self.browserImportBridges.removeValue(forKey: old.key)
+                        }
                         self.queue.async {
                             do { try IPCMessage.writeMessage(fd: clientFd, message: IPCResponse.browserImportReady(url), deadline: IPCMessage.messageDeadline) }
                             catch { DispatchQueue.main.async { bridge.cancel() } }
@@ -414,6 +420,30 @@ final class IPCServer: ObservableObject {
                         self.browserImportBridge = nil
                         self.send(.clipboardSave(response), clientFd: clientFd)
                     })
+            }
+        case .browserImportProposal(let request):
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    Self.writeAndClose(.browserImportProposal(.init(error: .notFound)), clientFd: clientFd)
+                    return
+                }
+                do {
+                    try request.validate()
+                    guard let bridge = self.browserImportBridges[request.id] else {
+                        self.send(.browserImportProposal(.init(error: .notFound)), clientFd: clientFd)
+                        return
+                    }
+                    if request.action == .open {
+                        guard !bridge.snapshot.state.isTerminal else {
+                            self.send(.browserImportProposal(.init(error: .noLongerOpen)), clientFd: clientFd)
+                            return
+                        }
+                        bridge.reopen()
+                    }
+                    self.send(.browserImportProposal(.init(proposal: bridge.snapshot)), clientFd: clientFd)
+                } catch {
+                    self.send(.browserImportProposal(.init(error: .invalidID)), clientFd: clientFd)
+                }
             }
         case .clipboardSave(let request):
             DispatchQueue.main.async { [weak self] in

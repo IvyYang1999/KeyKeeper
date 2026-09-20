@@ -62,6 +62,7 @@ public enum IPCRequest: Codable, Sendable {
     case sourceImport(SourceImportRequest)
     case envImport(EnvImportRequest)
     case browserImport(ClipboardSaveRequest)
+    case browserImportProposal(BrowserImportProposalRequest)
     case clipboardSave(ClipboardSaveRequest)
     case auth(AuthRequest)
     case value(ValueRequest)
@@ -104,6 +105,9 @@ public enum IPCRequest: Codable, Sendable {
         case .browserImport(let r):
             try c.encode("browserImport", forKey: .type)
             try c.encode(r, forKey: .data)
+        case .browserImportProposal(let r):
+            try c.encode("browserImportProposal", forKey: .type)
+            try c.encode(r, forKey: .data)
         case .clipboardSave(let r):
             // Old Apps reject this discriminator instead of silently ignoring new safeguards.
             try c.encode(r.isReplacement || r.expectedEd25519PublicKey != nil ? "clipboardReplace" : "clipboardSave", forKey: .type)
@@ -131,6 +135,7 @@ public enum IPCRequest: Codable, Sendable {
         case "sourceImport": self = .sourceImport(try c.decode(SourceImportRequest.self, forKey: .data))
         case "envImport": self = .envImport(try c.decode(EnvImportRequest.self, forKey: .data))
         case "browserImport": self = .browserImport(try c.decode(ClipboardSaveRequest.self, forKey: .data))
+        case "browserImportProposal": self = .browserImportProposal(try c.decode(BrowserImportProposalRequest.self, forKey: .data))
         case "clipboardSave", "clipboardReplace":
             let request = try c.decode(ClipboardSaveRequest.self, forKey: .data)
             let protectedRequest = request.isReplacement || request.expectedEd25519PublicKey != nil
@@ -156,6 +161,7 @@ public enum IPCRequest: Codable, Sendable {
 public enum IPCResponse: Codable, Sendable {
     case browserSession(BrowserSessionResponse)
     case browserImportReady(String)
+    case browserImportProposal(BrowserImportProposalResponse)
     case clipboardSave(ClipboardSaveResponse)
     case auth(AuthResponse)
     case value(ValueResponse)
@@ -189,6 +195,9 @@ public enum IPCResponse: Codable, Sendable {
         case .browserImportReady(let url):
             try c.encode("browserImportReady", forKey: .type)
             try c.encode(url, forKey: .data)
+        case .browserImportProposal(let r):
+            try c.encode("browserImportProposal", forKey: .type)
+            try c.encode(r, forKey: .data)
         case .clipboardSave(let r):
             try c.encode("clipboardSave", forKey: .type)
             try c.encode(r, forKey: .data)
@@ -212,6 +221,7 @@ public enum IPCResponse: Codable, Sendable {
         switch try c.decode(String.self, forKey: .type) {
         case "browserSession": self = .browserSession(try c.decode(BrowserSessionResponse.self, forKey: .data))
         case "browserImportReady": self = .browserImportReady(try c.decode(String.self, forKey: .data))
+        case "browserImportProposal": self = .browserImportProposal(try c.decode(BrowserImportProposalResponse.self, forKey: .data))
         case "clipboardSave": self = .clipboardSave(try c.decode(ClipboardSaveResponse.self, forKey: .data))
         case "auth":  self = .auth(try c.decode(AuthResponse.self, forKey: .data))
         case "value": self = .value(try c.decode(ValueResponse.self, forKey: .data))

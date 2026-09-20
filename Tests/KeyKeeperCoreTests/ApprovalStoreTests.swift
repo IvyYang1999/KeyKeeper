@@ -145,6 +145,26 @@ final class ApprovalStoreTests: XCTestCase {
         XCTAssertEqual(moved.first { $0.duration == .once }?.onceFieldsRemaining, ["api-key"])
     }
 
+    func test新增字段前把整组授权冻结在旧字段() throws {
+        let store = ApprovalStore.inMemory()
+        try store.add(Approval(subject: agent, target: .credential(id: "oauth", fields: nil), duration: .always))
+        try store.add(Approval(subject: .init(fingerprint: "unsigned:path=once", displayName: "once"),
+                               target: .credential(id: "oauth", fields: nil), duration: .once,
+                               onceFieldsRemaining: ["client-id"]))
+
+        try store.freezeWildcardCredentialApprovals(credentialId: "oauth", existingFields: ["client-id"])
+
+        let frozen = try store.approvals(forCredential: "oauth")
+        XCTAssertEqual(Set(frozen.compactMap { approval -> String? in
+            guard case .credential(_, let fields) = approval.target else { return nil }
+            return fields?.joined(separator: ",")
+        }), ["client-id"])
+        XCTAssertNotNil(try store.valid(credentialId: "oauth", field: "client-id",
+                                        fingerprint: agent.fingerprint, terminalSession: nil))
+        XCTAssertNil(try store.valid(credentialId: "oauth", field: "client-secret",
+                                     fingerprint: agent.fingerprint, terminalSession: nil))
+    }
+
     func test撤销_容量_并发() throws {
         let store = ApprovalStore.inMemory()
         let a = Approval(subject: agent, target: .credential(id: "c", fields: nil), duration: .always)

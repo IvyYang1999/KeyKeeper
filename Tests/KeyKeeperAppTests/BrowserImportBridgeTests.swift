@@ -36,19 +36,30 @@ import KeyKeeperTestSupport
         bridge.start(.init(credentialId: "fixture", fieldName: "key", create: true), callerName: "Synthetic test",
             isConnected: { self.connected }, ready: { self.url = URL(string: $0); ready.fulfill() },
             completion: { self.results.append($0) })
+        XCTAssertNil(controller.pendingDeadline, "The receiver lifetime must start only after the listener is usable")
         await fulfillment(of: [ready], timeout: 3)
         XCTAssertNotNil(url); XCTAssertTrue(controller.isPending); XCTAssertNil(decision)
+        XCTAssertEqual(controller.pendingDeadline, clock.addingTimeInterval(90))
     }
     private func post(cancel: Bool = false, ticket: String? = nil) -> URLRequest {
         var target = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-        let authorization = ticket ?? target.fragment!; target.fragment = nil; target.path = "/import"
+        let authorization = ticket ?? target.fragment!; target.fragment = nil; target.path = cancel ? "/cancel" : "/import"
         var request = URLRequest(url: target.url!)
         request.httpMethod = "POST"; request.httpBody = Data("synthetic-browser".utf8)
         request.setValue("http://127.0.0.1:\(url.port!)", forHTTPHeaderField: "Origin")
         request.setValue("text/plain;charset=UTF-8", forHTTPHeaderField: "Content-Type")
         request.setValue(authorization, forHTTPHeaderField: "X-KeyKeeper-Session")
-        if cancel { request.setValue("1", forHTTPHeaderField: "X-KeyKeeper-Cancel") }
         request.timeoutInterval = 4
+        return request
+    }
+    private func status() -> URLRequest {
+        var target = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        let authorization = target.fragment!; target.fragment = nil; target.path = "/status"
+        var request = URLRequest(url: target.url!)
+        request.httpMethod = "POST"; request.httpBody = Data("status".utf8)
+        request.setValue("http://127.0.0.1:\(url.port!)", forHTTPHeaderField: "Origin")
+        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+        request.setValue(authorization, forHTTPHeaderField: "X-KeyKeeper-Session")
         return request
     }
     func testRealHTTPRequiresApprovalAndReturnsOnlyConstantResult() async throws {
@@ -69,12 +80,14 @@ import KeyKeeperTestSupport
         let (_, replay) = try await URLSession.shared.data(for: post())
         XCTAssertEqual((replay as? HTTPURLResponse)?.statusCode, 400)
         XCTAssertTrue(controller.isPending, "A rejected replay must not cancel the original approval")
+        let (accepted, acceptedResponse) = try await submission.value
+        XCTAssertEqual((acceptedResponse as? HTTPURLResponse)?.statusCode, 202)
+        XCTAssertEqual(try JSONDecoder().decode(BrowserImportProposalSnapshot.self, from: accepted).state, .pasteReceived)
+        XCTAssertEqual(controller.pendingDeadline, clock.addingTimeInterval(10 * 60))
         decision?(true)
-        let (body, _) = try await submission.value
-        let saved = try JSONDecoder().decode(ClipboardSaveResponse.self, from: body)
-        XCTAssertEqual(saved.success, true)
-        // 形状可以回（长度、是否 Base64），值永远不回。粘贴页本来就持有这个值，回形状不扩大暴露面。
-        XCTAssertEqual(saved.shape, ValueShape.of("synthetic-browser"))
+        let (body, _) = try await URLSession.shared.data(for: status())
+        let saved = try JSONDecoder().decode(BrowserImportProposalSnapshot.self, from: body)
+        XCTAssertEqual(saved.state, .committed)
         XCTAssertFalse(String(decoding: body, as: UTF8.self).contains("synthetic-browser"))
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "synthetic-browser")
         XCTAssertEqual(try meta.load().credentials["fixture"]?.security, .strict)
@@ -89,7 +102,7 @@ import KeyKeeperTestSupport
         _ = try await URLSession.shared.data(for: post(cancel: true))
         XCTAssertEqual(results.last?.errorCode, .denied); XCTAssertEqual(io.writes, 0)
     }
-    func testBrowserDisconnectCancelsPendingApprovalAndCannotSaveLater() async throws {
+    func testBrowserAndCLIDisconnectAfterPasteKeepProposalRecoverable() async throws {
         try await start()
         let submission = Task { try await URLSession.shared.data(for: post()) }
         for _ in 0..<150 {
@@ -97,14 +110,16 @@ import KeyKeeperTestSupport
             try await Task.sleep(nanoseconds: 20_000_000)
         }
         XCTAssertNotNil(decision)
+        connected = false
         submission.cancel()
         _ = try? await submission.value
-        for _ in 0..<150 {
-            if !controller.isPending { break }
-            try await Task.sleep(nanoseconds: 20_000_000)
-        }
-        XCTAssertEqual(results.last?.errorCode, .disconnected)
-        decision?(true); XCTAssertEqual(io.writes, 0)
+        controller.expireIfNeeded()
+        XCTAssertTrue(controller.isPending)
+        XCTAssertEqual(bridge.snapshot.state, .approvalVisible)
+        bridge.reopen()
+        decision?(true)
+        XCTAssertEqual(io.writes, 1)
+        XCTAssertEqual(bridge.snapshot.state, .committed)
     }
     func testNativeDenialAfterPasteAndExpiredBridgeCannotCancelNewRequest() async throws {
         try await start()
@@ -115,8 +130,9 @@ import KeyKeeperTestSupport
             try await Task.sleep(nanoseconds: 20_000_000)
         }
         XCTAssertNotNil(decision); decision?(false)
-        let (data, _) = try await submission.value
-        XCTAssertEqual(try JSONDecoder().decode(ClipboardSaveResponse.self, from: data).errorCode, .denied)
+        _ = try await submission.value
+        let (data, _) = try await URLSession.shared.data(for: status())
+        XCTAssertEqual(try JSONDecoder().decode(BrowserImportProposalSnapshot.self, from: data).state, .cancelled)
         XCTAssertEqual(io.writes, 0)
         decision = nil; bridge = BrowserImportBridge(controller: controller)
         try await start()
@@ -124,11 +140,14 @@ import KeyKeeperTestSupport
         XCTAssertTrue(controller.isPending)
         controller.cancel()
     }
-    func testExpireAndDisconnectedCLIReleaseReservationWithoutSaving() async throws {
+    func testReceiverExpiresButDisconnectedCLIDoesNotCancelProposal() async throws {
         try await start(); clock.addTimeInterval(91); controller.expireIfNeeded()
         XCTAssertEqual(results.last?.errorCode, .expired); XCTAssertEqual(io.writes, 0)
         bridge = BrowserImportBridge(controller: controller)
+        let completedCount = results.count
         try await start(); connected = false; controller.expireIfNeeded()
-        XCTAssertEqual(results.last?.errorCode, .disconnected); XCTAssertEqual(io.writes, 0)
+        XCTAssertTrue(controller.isPending)
+        XCTAssertEqual(results.count, completedCount, "Closing the original CLI is not a proposal decision")
+        XCTAssertEqual(io.writes, 0)
     }
 }

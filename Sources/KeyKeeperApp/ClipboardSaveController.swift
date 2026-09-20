@@ -57,8 +57,10 @@ extension ClipboardSaveSource {
         var changeCount: Int
         let valueFingerprint: Data?
         let source: ClipboardSaveSource
-        let expiresAt: Date
+        var expiresAt: Date?
+        let survivesDisconnect: Bool
         let isConnected: () -> Bool
+        let willCommit: (() -> Void)?
         let completion: (ClipboardSaveResponse) -> Void
     }
     private let service: KeychainCredentialService
@@ -76,6 +78,7 @@ extension ClipboardSaveSource {
     /// The prompt is already up; only its rows changed (the clipboard moved).
     private let update: (Presentation) -> Void
     private let dismiss: () -> Void
+    private let reopen: () -> Void
     private var pending: Pending?
     private var timer: Timer?
     private var isPresented = false
@@ -86,6 +89,7 @@ extension ClipboardSaveSource {
          present: ((Presentation, @escaping (Bool) -> Void) -> Void)? = nil,
          update: ((Presentation) -> Void)? = nil,
          dismiss: (() -> Void)? = nil,
+         reopen: (() -> Void)? = nil,
          probe: (@Sendable (ProviderValidation, String) async -> CredentialValidation)? = nil) {
         self.service = service; self.metaStore = metaStore; self.approvals = approvals
         self.clipboard = clipboard ?? SystemClipboardSaveSource(); self.now = now
@@ -97,11 +101,14 @@ extension ClipboardSaveSource {
         }
         self.update = update ?? { info in window.update(info) }
         self.dismiss = dismiss ?? { window.dismiss() }
+        self.reopen = reopen ?? { window.bringToFront() }
     }
 
     func receive(_ request: ClipboardSaveRequest, callerName: String,
                  isConnected: @escaping () -> Bool,
                  source: ClipboardSaveSource? = nil, deferPresentation: Bool = false,
+                 expiresAfter: TimeInterval? = 90, survivesDisconnect: Bool = false,
+                 willCommit: (() -> Void)? = nil,
                  completion: @escaping (ClipboardSaveResponse) -> Void) {
         guard pending == nil else { completion(.init(success: false, errorCode: .busy)); return }
         do {
@@ -112,7 +119,7 @@ extension ClipboardSaveSource {
             guard isConnected() else { throw ClipboardSaveError.disconnected }
             let metadata = try metaStore.load()
             try validateTarget(request, metadata: metadata, fileFormat: source?.fileFormat)
-            let expiresAt = now().addingTimeInterval(90)
+            let expiresAt = expiresAfter.map { now().addingTimeInterval($0) }
             let source = source ?? clipboard
             let info = Presentation(request: request, callerName: callerName,
                 fromBrowser: source.displayFilePath == nil && !source.isSystemClipboard,
@@ -123,8 +130,8 @@ extension ClipboardSaveSource {
                 changeCount: source.changeCount,
                 valueFingerprint: request.isReplacement ? try service.valueFingerprint(
                     credentialId: request.credentialId, fieldName: request.fieldName) : nil,
-                source: source, expiresAt: expiresAt,
-                isConnected: isConnected, completion: completion)
+                source: source, expiresAt: expiresAt, survivesDisconnect: survivesDisconnect,
+                isConnected: isConnected, willCommit: willCommit, completion: completion)
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.tick() }
             }
@@ -144,6 +151,22 @@ extension ClipboardSaveSource {
         }
     }
 
+    var pendingDeadline: Date? { pending?.expiresAt }
+
+    func armDeadline(after interval: TimeInterval) {
+        guard pending != nil else { return }
+        let deadline = now().addingTimeInterval(interval)
+        pending?.expiresAt = deadline
+        pending?.presentation.expiresAt = deadline
+        if isPresented, let presentation = pending?.presentation { update(presentation) }
+    }
+
+    func reopenPending() {
+        expireIfNeeded()
+        guard pending != nil else { return }
+        if isPresented { reopen() } else { presentPending() }
+    }
+
     /// Once a second while a save is pending: expire, or follow the clipboard so the prompt
     /// always shows what approving would store.
     func tick() {
@@ -156,8 +179,11 @@ extension ClipboardSaveSource {
 
     func expireIfNeeded() {
         guard let pending, !validating else { return }
-        if now() >= pending.expiresAt { finish(.init(success: false, errorCode: .expired)) }
-        else if !pending.isConnected() { finish(.init(success: false, errorCode: .disconnected)) }
+        if let deadline = pending.expiresAt, now() >= deadline {
+            finish(.init(success: false, errorCode: .expired))
+        } else if !pending.survivesDisconnect && !pending.isConnected() {
+            finish(.init(success: false, errorCode: .disconnected))
+        }
     }
 
     func cancel() { if pending != nil { finish(.init(success: false, errorCode: .denied)) } }
@@ -199,7 +225,8 @@ extension ClipboardSaveSource {
             // there when the save runs, and "saved" must not mean "stored whatever was there".
             let shape = ValueShape.of(value)
             // The provider's key shape, when the caller named one: refused before a byte is written.
-            let template = request.provider.flatMap(ProviderCatalog.find)
+            let boundProvider = metadata.credentials[request.credentialId]?.provider
+            let template = (request.provider ?? (request.addField ? boundProvider : nil)).flatMap(ProviderCatalog.find)
             if let template, let problem = template.shapeProblem(for: value, fieldName: request.fieldName) {
                 shapeOnFailure = shape
                 refusalDetail = problem
@@ -214,8 +241,8 @@ extension ClipboardSaveSource {
                     throw ClipboardSaveError.shapeMismatch
                 }
             }
-            guard now() < pending.expiresAt else { throw ClipboardSaveError.expired }
-            guard pending.isConnected() else { throw ClipboardSaveError.disconnected }
+            if let deadline = pending.expiresAt, now() >= deadline { throw ClipboardSaveError.expired }
+            if !pending.survivesDisconnect, !pending.isConnected() { throw ClipboardSaveError.disconnected }
             if let expected = request.expectedEd25519PublicKey {
                 guard let seed = Data(base64Encoded: value), seed.count == 32,
                       let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: seed),
@@ -223,10 +250,11 @@ extension ClipboardSaveSource {
                     throw ClipboardSaveError.identityMismatch
                 }
             }
+            pending.willCommit?()
             if request.isReplacement {
                 guard let fingerprint = pending.valueFingerprint else { throw ClipboardSaveError.invalidReplacement }
-                guard now() < pending.expiresAt else { throw ClipboardSaveError.expired }
-                guard pending.isConnected() else { throw ClipboardSaveError.disconnected }
+                if let deadline = pending.expiresAt, now() >= deadline { throw ClipboardSaveError.expired }
+                if !pending.survivesDisconnect, !pending.isConnected() { throw ClipboardSaveError.disconnected }
                 try service.replaceExisting(credentialId: request.credentialId, fieldName: request.fieldName,
                     value: value, expectedFingerprint: fingerprint)
             } else {
@@ -253,6 +281,32 @@ extension ClipboardSaveSource {
                     provider: template?.id)
                 do { try metaStore.save(metadata) }
                 catch { throw ClipboardSaveError.metadataCommitFailed }
+            } else if request.addField {
+                guard var credential = metadata.credentials[request.credentialId] else {
+                    throw ClipboardSaveError.targetNotFound
+                }
+                let existingSecretFields = credential.fields.compactMap { $0.value.secret ? $0.key : nil }
+                let fieldTemplate = template?.field(named: request.fieldName)
+                credential.fields[request.fieldName] = .init(
+                    secret: true,
+                    fileFormat: clipboard.fileFormat,
+                    displayName: fieldTemplate?.label,
+                    aliases: fieldTemplate.flatMap { field in
+                        let aliases = ([field.name] + (field.aliases ?? [])).filter { $0 != request.fieldName }
+                        return aliases.isEmpty ? nil : aliases
+                    })
+                credential.updated = ISO8601DateFormatter().string(from: now())
+                metadata.credentials[request.credentialId] = credential
+                do {
+                    try approvals.freezeWildcardCredentialApprovals(
+                        credentialId: request.credentialId, existingFields: existingSecretFields)
+                    try metaStore.save(metadata)
+                } catch {
+                    // The value was new in this request, so a failed schema commit can safely
+                    // remove it instead of stranding an invisible value that blocks a retry.
+                    try? service.delete(credentialId: request.credentialId, fieldName: request.fieldName)
+                    throw ClipboardSaveError.metadataCommitFailed
+                }
             }
             // Restore keeps original metadata/grants byte-for-byte. Verify in-process, never return the value.
             guard try service.retrieve(credentialId: request.credentialId, fieldName: request.fieldName) == value else {
@@ -285,7 +339,10 @@ extension ClipboardSaveSource {
     private func validateTarget(_ request: ClipboardSaveRequest, metadata: MetaFile,
                                 fileFormat: CredentialFileFormat?) throws {
         guard metadata.version == 1 else { throw ClipboardSaveError.storageUnavailable }
-        if let providerID = request.provider {
+        let existing = metadata.credentials[request.credentialId]
+        if request.addField, let requested = request.provider, let bound = existing?.provider,
+           requested != bound { throw ClipboardSaveError.invalidProvider }
+        if let providerID = request.provider ?? (request.addField ? existing?.provider : nil) {
             guard let template = ProviderCatalog.find(providerID), template.contractProblems.isEmpty,
                   let field = template.field(named: request.fieldName), field.isSaveableSecret,
                   !request.create || field.isPrimary else { throw ClipboardSaveError.invalidProvider }
@@ -293,7 +350,7 @@ extension ClipboardSaveSource {
         }
         // 【独立审计 2026-09-13】the field name comes straight from the agent's request. Refused
         // before any prompt: nobody should be asked to approve a name that would steer `run`.
-        if request.create, EnvironmentVariableName.isReserved(fieldName: request.fieldName) {
+        if (request.create || request.addField), EnvironmentVariableName.isReserved(fieldName: request.fieldName) {
             throw ClipboardSaveError.reservedFieldName
         }
         if request.create {
@@ -302,6 +359,9 @@ extension ClipboardSaveSource {
             guard try !approvals.hasApprovals(forCredential: request.credentialId) else {
                 throw ClipboardSaveError.staleGrants
             }
+        } else if request.addField {
+            guard let credential = existing else { throw ClipboardSaveError.targetNotFound }
+            guard credential.fields[request.fieldName] == nil else { throw ClipboardSaveError.valueExists }
         } else {
             guard metadata.credentials[request.credentialId]?.fields[request.fieldName]?.secret == true else {
                 throw ClipboardSaveError.targetNotFound
@@ -357,4 +417,6 @@ extension Notification.Name {
     func update(_ info: ClipboardSaveController.Presentation) { presenter.update(.save(info)) }
 
     func dismiss() { presenter.dismiss() }
+
+    func bringToFront() { presenter.bringToFront() }
 }
