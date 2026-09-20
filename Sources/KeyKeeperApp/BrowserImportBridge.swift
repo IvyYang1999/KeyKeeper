@@ -21,6 +21,8 @@ import KeyKeeperCore
     private let controller: ClipboardSaveController
     private let proposalStore: BrowserImportProposalStore
     private let now: () -> Date
+    /// Metadata-only lifecycle used by the App shell. The candidate never crosses this seam.
+    private let onSnapshotChange: (BrowserImportProposalSnapshot) -> Void
     private let source = BrowserPasteSource()
     private var listener: NWListener?
     private var peers: [UUID: Peer] = [:]
@@ -35,10 +37,12 @@ import KeyKeeperCore
         state: .failed, nextAction: nil, errorCode: .storageUnavailable)
 
     init(controller: ClipboardSaveController, proposalStore: BrowserImportProposalStore,
-         now: @escaping () -> Date = Date.init) {
+         now: @escaping () -> Date = Date.init,
+         onSnapshotChange: @escaping (BrowserImportProposalSnapshot) -> Void = { _ in }) {
         self.controller = controller
         self.proposalStore = proposalStore
         self.now = now
+        self.onSnapshotChange = onSnapshotChange
     }
 
     func cancel() { if active, !snapshot.state.isTerminal { controller.cancel() } }
@@ -223,6 +227,7 @@ import KeyKeeperCore
                             createdAt: timestamp,
                             updatedAt: timestamp
                         ))
+                        onSnapshotChange(snapshot)
                     } catch {
                         controller.fail(.storageUnavailable)
                         throw BrowserImportHTTP.Rejected.invalid
@@ -277,7 +282,9 @@ import KeyKeeperCore
         else { state = .failed }
         setState(state, deadline: nil, nextAction: nil, errorCode: response.errorCode)
         source.text = nil
-        try? proposalStore.finish(id: snapshot.id, snapshot: snapshot, now: now())
+        if (try? proposalStore.finish(id: snapshot.id, snapshot: snapshot, now: now())) != nil {
+            onSnapshotChange(snapshot)
+        }
         let callback = completion; completion = nil; callback?(response)
         DispatchQueue.main.asyncAfter(deadline: .now() + 10 * 60) { [weak self] in self?.shutdown() }
     }
@@ -306,5 +313,6 @@ import KeyKeeperCore
         updated.errorCode = nil
         try proposalStore.update(id: updated.id, snapshot: updated, now: now())
         snapshot = updated
+        onSnapshotChange(snapshot)
     }
 }

@@ -160,6 +160,9 @@ extension AppL10n {
         "{0} keys in total": "共 {0} 把 key",
         "Allow": "允许",
         "Deny": "拒绝",
+        "Finish saving this browser paste": "完成这次浏览器粘贴",
+        "The pasted value stays hidden in Keychain until you review or cancel it.": "粘贴的内容会隐藏保存在钥匙串中，等你查看或取消。",
+        "Review…": "查看并决定…",
         "{0} wants to use {1}": "{0} 想使用 {1}",
         // Credential detail
         "Note for your agent": "给 Agent 的备注",

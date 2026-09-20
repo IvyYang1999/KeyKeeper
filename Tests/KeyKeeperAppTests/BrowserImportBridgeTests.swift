@@ -22,6 +22,7 @@ private final class BridgeProposalMarker: BrowserImportProposalMarker, @unchecke
     private var url: URL!
     private var results: [ClipboardSaveResponse] = []
     private var decision: ((Bool) -> Void)?
+    private var publishedSnapshots: [BrowserImportProposalSnapshot] = []
     private var clock = Date()
     private var connected = true
 
@@ -35,8 +36,10 @@ private final class BridgeProposalMarker: BrowserImportProposalMarker, @unchecke
         proposalStore = BrowserImportProposalStore(io: proposalIO, marker: proposalMarker)
         controller = ClipboardSaveController(service: service, metaStore: meta, approvals: .inMemory(), now: { self.clock },
             present: { _, decide in self.decision = decide }, dismiss: {})
-        bridge = BrowserImportBridge(controller: controller, proposalStore: proposalStore, now: { self.clock })
+        bridge = BrowserImportBridge(controller: controller, proposalStore: proposalStore, now: { self.clock },
+            onSnapshotChange: { self.publishedSnapshots.append($0) })
         connected = true; results = []; decision = nil; clock = Date()
+        publishedSnapshots = []
     }
     override func tearDownWithError() throws {
         controller.cancel(); decision = nil; bridge = nil; controller = nil
@@ -195,6 +198,41 @@ private final class BridgeProposalMarker: BrowserImportProposalMarker, @unchecke
         XCTAssertEqual(bridge.snapshot.state, .committed)
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "synthetic-browser")
         XCTAssertNil(try reopenedStore.record(id: proposalID)?.candidate)
+    }
+
+    /// 【曾经的 bug】App restart recovered the proposal in the Keychain, but the menu panel had
+    /// no observable state to show it or remove it after a decision.
+    func testRecoveredProposalPublishesOnlyMetadataLifecycleForThePanel() async throws {
+        try await start()
+        let submission = Task { try await URLSession.shared.data(for: post()) }
+        for _ in 0..<150 {
+            if decision != nil { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertNotNil(decision)
+        _ = try await submission.value
+        let proposalID = bridge.snapshot.id
+        XCTAssertTrue(bridge.suspendForTermination())
+
+        let reopenedStore = BrowserImportProposalStore(
+            io: io.keychain.io("com.keykeeper.test.browser-import-proposals"), marker: proposalMarker)
+        controller = ClipboardSaveController(service: service, metaStore: meta, approvals: .inMemory(), now: { self.clock },
+            present: { _, decide in self.decision = decide }, dismiss: {})
+        publishedSnapshots = []
+        bridge = BrowserImportBridge(controller: controller, proposalStore: reopenedStore, now: { self.clock },
+            onSnapshotChange: { self.publishedSnapshots.append($0) })
+
+        XCTAssertTrue(bridge.recover(try XCTUnwrap(reopenedStore.record(id: proposalID))))
+        XCTAssertEqual(publishedSnapshots.last?.state, .pasteReceived)
+        XCTAssertEqual(publishedSnapshots.last?.credentialId, "fixture")
+        XCTAssertEqual(publishedSnapshots.last?.fieldName, "key")
+
+        bridge.reopen()
+        XCTAssertEqual(publishedSnapshots.last?.state, .approvalVisible)
+        decision?(false)
+        XCTAssertEqual(publishedSnapshots.last?.state, .cancelled)
+        XCTAssertNil(try reopenedStore.record(id: proposalID)?.candidate)
+        XCTAssertEqual(io.writes, 0)
     }
 
     func testRecoveryRejectsMetadataChangedWhileAppWasStoppedAndScrubsCandidate() async throws {

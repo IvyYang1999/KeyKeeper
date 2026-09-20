@@ -19,6 +19,7 @@ struct MainView: View {
     @StateObject private var viewModel: CredentialListViewModel
     @StateObject private var addVM: AddCredentialViewModel
     @ObservedObject private var approvals = ApprovalCenter.shared
+    @ObservedObject private var ipcServer: IPCServer
     @ObservedObject private var inbox = UICommandInbox.shared
     @State private var page: Page = .home
     @FocusState private var searchFocused: Bool
@@ -34,10 +35,12 @@ struct MainView: View {
     private var reopenPopover: () -> Void
 
     init(session: any CredentialSessionManaging,
+         ipcServer: IPCServer,
          importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)? = nil,
          openMainWindow: @escaping (MainWindowRouter.Section?, String?) -> Void = { _, _ in },
          reopenPopover: @escaping () -> Void = {}) {
         self.session = session
+        self.ipcServer = ipcServer
         self.importFile = importFile
         self.openMainWindow = openMainWindow
         self.reopenPopover = reopenPopover
@@ -135,6 +138,14 @@ struct MainView: View {
 
             if !approvals.items.isEmpty {
                 waitingSection
+            }
+
+            if let proposal = BrowserImportProposalDisplay.recoverable(ipcServer.browserImportProposal) {
+                BrowserImportProposalNotice(
+                    proposal: proposal,
+                    onReview: { ipcServer.reopenBrowserImportProposal(id: proposal.id) },
+                    onCancel: { ipcServer.cancelBrowserImportProposal(id: proposal.id) }
+                )
             }
 
             if !approvals.missed.isEmpty || approvals.missedLoadFailed || UserDefaults.standard.bool(forKey: "missedApprovalRecordError") {

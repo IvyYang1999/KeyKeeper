@@ -96,7 +96,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // which is what you want while pasting several keys.
         popover.delegate = self
         let popoverContent = NSHostingController(
-            rootView: MainView(session: credentialService,
+            rootView: MainView(session: credentialService, ipcServer: ipcServer,
                 importFile: { [weak self] request, completion in
                     guard let self else { completion(.init(success: false, errorCode: .storageUnavailable)); return }
                     self.ipcServer.importFile(request, completion: completion)
@@ -115,9 +115,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // The status item shows how many requests are waiting, so they are visible even
         // when the floating prompt is behind another window.
-        Publishers.CombineLatest(ApprovalCenter.shared.$items, ApprovalCenter.shared.$missed)
+        Publishers.CombineLatest3(ApprovalCenter.shared.$items, ApprovalCenter.shared.$missed,
+                                  ipcServer.$browserImportProposal)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] items, missed in self?.updateStatusBadge(count: items.count + missed.count) }
+            .sink { [weak self] items, missed, proposal in
+                self?.updateStatusBadge(count: items.count + missed.count
+                    + BrowserImportProposalDisplay.badgeCount(proposal))
+            }
             .store(in: &cancellables)
 
         ApprovalCenter.shared.refreshMissed()

@@ -26,6 +26,9 @@ final class IPCServer: ObservableObject {
     /// Requests waiting behind the one currently shown. They used to be denied outright,
     /// which made concurrent cron jobs fail with "denied" although nobody had denied them.
     @Published private(set) var waitingCount = 0
+    /// Metadata-only projection for the menu panel. The pasted candidate remains inside the
+    /// bridge and its dedicated Keychain journal.
+    @Published private(set) var browserImportProposal: BrowserImportProposalSnapshot?
 
     static let maximumWaiting = 16
     static let busyMessage =
@@ -304,6 +307,16 @@ final class IPCServer: ObservableObject {
         respond(to: pending, with: AuthResponse(granted: false, error: "User denied"))
     }
 
+    func reopenBrowserImportProposal(id: String) {
+        guard browserImportProposal?.id == id else { return }
+        browserImportBridges[id]?.reopen()
+    }
+
+    func cancelBrowserImportProposal(id: String) {
+        guard browserImportProposal?.id == id else { return }
+        browserImportBridges[id]?.cancel()
+    }
+
     /// Called only after this process owns the IPC socket, so a duplicate launch never reads or
     /// mutates the proposal Keychain item. At most one nonterminal record is admitted by the store.
     private func restoreBrowserImportProposal() {
@@ -315,7 +328,7 @@ final class IPCServer: ObservableObject {
                 browserImportStoreAvailable = false
                 return
             }
-            let bridge = BrowserImportBridge(controller: controller, proposalStore: store)
+            let bridge = makeBrowserImportBridge(controller: controller, store: store)
             browserImportBridge = bridge
             browserImportBridges[record.snapshot.id] = bridge
             _ = bridge.recover(record)
@@ -324,6 +337,14 @@ final class IPCServer: ObservableObject {
             // journal over an unreadable or missing first one.
             browserImportStoreAvailable = false
         }
+    }
+
+    private func makeBrowserImportBridge(controller: ClipboardSaveController,
+                                         store: BrowserImportProposalStore) -> BrowserImportBridge {
+        BrowserImportBridge(controller: controller, proposalStore: store,
+            onSnapshotChange: { [weak self] snapshot in
+                self?.browserImportProposal = snapshot.state.isTerminal ? nil : snapshot
+            })
     }
 
     // MARK: - Private
@@ -441,7 +462,7 @@ final class IPCServer: ObservableObject {
                     self.send(.clipboardSave(.init(success: false, errorCode: .busy)), clientFd: clientFd)
                     return
                 }
-                let bridge = BrowserImportBridge(controller: controller, proposalStore: proposalStore)
+                let bridge = self.makeBrowserImportBridge(controller: controller, store: proposalStore)
                 self.browserImportBridge = bridge
                 bridge.start(request, callerName: callerIdentity.displayName,
                     isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
@@ -495,7 +516,7 @@ final class IPCServer: ObservableObject {
                             self.send(.browserImportProposal(.init(proposal: record.snapshot)), clientFd: clientFd)
                             return
                         }
-                        let bridge = BrowserImportBridge(controller: controller, proposalStore: store)
+                        let bridge = self.makeBrowserImportBridge(controller: controller, store: store)
                         self.browserImportBridge = bridge
                         self.browserImportBridges[request.id] = bridge
                         _ = bridge.recover(record)
