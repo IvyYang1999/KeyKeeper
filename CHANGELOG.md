@@ -2,9 +2,7 @@
 
 ## Unreleased
 
-- License: the app, CLI and core move from MIT to FSL-1.1-MIT (source public, no competing products, MIT again after two years). SDKs, skill and plugin stay MIT. Earlier releases remain MIT.
-
-## 0.3.5 - 2026-09-16
+## 0.3.5 - 2026-09-20
 
 - Import a project's dotenv file with `keykeeper import`: the App previews variable names, asks for approval and stores all imported values in the Keychain. Imported credentials are inject-only; originals remain untouched. Single-line assignments only; malformed/multiline syntax fails closed, and empty/reserved/unsupported names are reported as skipped. No shell interpolation is performed.
 - 113 provider templates, separated by region, plan and credential type; searchable brand/category picker, provider icons, expiry guidance and official management links. Templates can be selected while adding a credential or bound afterwards without renaming its existing fields.
@@ -13,6 +11,11 @@
 - Fix approval status refresh and window corners after expanding/collapsing details. Keep both Chrome import and KeyKeeper login available after saving a website session.
 - Import hardening: never guess a value safe for plain metadata, preserve escaped quotes, reject partial parsing, and verify stored values before committing metadata.
 - Missing request reasons are visibly flagged in the approval window rather than refusing the request outright.
+- Browser imports now expose one metadata-only proposal state across the CLI, receiver and App. Paste has a short receiver window; after paste the proposal remains recoverable for ten minutes, survives an App restart, and can be reviewed or cancelled from the menu panel without copying the value again.
+- Browser-import commits are idempotent and validate the original target before writing. Terminal states scrub the held candidate; `keykeeper proposal status/open` reports or reopens the same proposal without exposing it.
+- Text fields can persist URL rejection and public prefix/suffix rules, so later restores and replacements reject the same wrong-value shapes before writing.
+- Live approval requests no longer disappear merely because their original window was missed; the menu panel keeps them actionable and distinguishes pending work from history.
+- License: the app, CLI and core move from MIT to FSL-1.1-MIT (source public, no competing products, MIT again after two years). SDKs, skill and plugin stay MIT. Earlier releases remain MIT.
 
 ## 0.3.4 - 2026-09-15
 
