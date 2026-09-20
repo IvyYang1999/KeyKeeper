@@ -16,7 +16,8 @@ import KeyKeeperCore
         for language in ["en", "zh-Hans"] {
             defaults.setVolatileDomain([AppL10n.preferenceName: language], forName: UserDefaults.argumentDomain)
             let model = TrustPromptModel.save(.init(request: .init(credentialId: "signing-fixture",
-                fieldName: "private-key", expect: "base64:32", replaceExisting: true), callerName: "Test Agent"))
+                fieldName: "private-key", expect: "base64:32", replaceExisting: true,
+                validation: .init(rejectURL: true, prefixes: ["fixture-"])), callerName: "Test Agent"))
             let view = NSHostingView(rootView: TrustPromptView(model: model, onCancel: {}, onConfirm: {}))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 600),
                 styleMask: [.titled], backing: .buffered, defer: false)

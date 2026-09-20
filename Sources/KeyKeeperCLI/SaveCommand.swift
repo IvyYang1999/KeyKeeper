@@ -27,9 +27,15 @@ struct SaveCommand: ParsableCommand {
     var addField = false
     @Option(help: "What the value should look like: base64[:BYTES], hex[:BYTES], bytes:N or chars:N. Refuses the save if it does not match, before anything is written.")
     var expect: String?
+    @Flag(name: .customLong("reject-url"), help: "Persist a field rule that rejects http/https URLs now and on every future restore or replacement.")
+    var rejectURL = false
+    @Option(name: .customLong("expect-prefix"), help: "Persist a required public prefix (repeat for alternatives). 1–64 printable ASCII characters; never put secret material here.")
+    var expectedPrefixes: [String] = []
+    @Option(name: .customLong("expect-suffix"), help: "Persist a required public suffix (repeat for alternatives). 1–64 printable ASCII characters; never put secret material here.")
+    var expectedSuffixes: [String] = []
     @Flag(help: .hidden)   // 0.3.3 needed it; the current clipboard is now always what is saved.
     var useCurrentClipboard = false
-    @Flag(name: .customLong("replace"), help: "Replace one existing text field after explicit confirmation. Requires --from-clipboard and --expect; keeps existing permissions.")
+    @Flag(name: .customLong("replace"), help: "Replace one existing text field after explicit confirmation. Requires --from-clipboard and either a declared check or an already stored field rule; keeps existing permissions.")
     var replaceExisting = false
     @Option(name: .customLong("expect-ed25519-public-key"), help: "Expected PUBLIC key in Base64; derive and match before saving a base64:32 private seed. Never pass a private key here.")
     var expectedEd25519PublicKey: String?
@@ -68,6 +74,11 @@ struct SaveCommand: ParsableCommand {
     var fileFormat: CredentialFileFormat? {
         guard fromFile != nil else { return nil }
         return templateField?.fileFormat ?? (template == nil ? .serviceAccountJSON : nil)
+    }
+    var persistentValidation: CredentialFieldValidation? {
+        let validation = CredentialFieldValidation(
+            rejectURL: rejectURL, prefixes: expectedPrefixes, suffixes: expectedSuffixes)
+        return validation.isEmpty ? nil : validation
     }
 
     mutating func validate() throws {
@@ -109,6 +120,9 @@ struct SaveCommand: ParsableCommand {
         guard (fromSource != nil) == (pythonSymbol != nil) else {
             throw ValidationError("--from-source requires --python-symbol; --python-symbol is not valid with other sources.")
         }
+        if persistentValidation != nil, fromFile != nil || fromSource != nil {
+            throw ValidationError("Persistent prefix, suffix and URL rules apply to text pasted through --from-clipboard or --from-browser.")
+        }
         if security == .standard, intent == nil {
             throw ValidationError("--security standard needs --purpose: say in one line what unattended use this key is for.")
         }
@@ -128,7 +142,8 @@ struct SaveCommand: ParsableCommand {
         .init(credentialId: credentialId, fieldName: fieldName, create: create, expect: expect,
               useCurrentClipboard: useCurrentClipboard, replaceExisting: replaceExisting,
               expectedEd25519PublicKey: expectedEd25519PublicKey, security: security, expires: expires,
-              intent: intent, provider: template?.id, addField: addField)
+              intent: intent, provider: template?.id, addField: addField,
+              validation: persistentValidation)
     }
 
     /// A refusal, with the app's one-line reason and the clipboard's shape when it gave them.
@@ -151,6 +166,11 @@ struct SaveCommand: ParsableCommand {
         if replaceExisting { return " Replaced the existing field. Existing permissions are unchanged." }
         if addField { return " Added the secret field. Existing permissions do not include it." }
         return ""
+    }
+
+    var persistentValidationNote: String {
+        guard let validation = persistentValidation, let checked = try? validation.validated() else { return "" }
+        return " Persistent field validation saved (\(checked.summary)); future safe restores and replacements enforce it automatically."
     }
 
     /// A provider bundle is deliberately created from one secret at a time. Say what is still
@@ -203,6 +223,7 @@ struct SaveCommand: ParsableCommand {
             guard result.success else { throw CommandFailure(Self.failureMessage(result)) }
             var note = "Saved source candidate. Original retained. No read permission was granted."
             note += mutationNote
+            note += persistentValidationNote
             note += verificationSuffix(result)
             note += remainingFieldsNote
             print(note)
@@ -213,6 +234,7 @@ struct SaveCommand: ParsableCommand {
             guard result.success else { throw CommandFailure(Self.failureMessage(result)) }
             var note = "Saved credential file. Original file retained. No read permission was granted."
             note += mutationNote
+            note += persistentValidationNote
             note += verificationSuffix(result)
             note += remainingFieldsNote
             print(note)
@@ -239,6 +261,7 @@ struct SaveCommand: ParsableCommand {
         var note = fromBrowser ? "Saved. Browser clipboard was not cleared. No read permission was granted." : "Saved. Clipboard cleared if unchanged. No read permission was granted."
         if let shape = result.shape { note += " Stored: \(Self.storedSummary(shape))." }
         note += mutationNote
+        note += persistentValidationNote
         if let validation = result.validation, validation != .skipped, let template {
             note += " " + Self.validationNote(validation, provider: template.name)
         }

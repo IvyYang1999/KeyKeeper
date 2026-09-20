@@ -2,6 +2,20 @@ import XCTest
 @testable import KeyKeeperCore
 
 final class CredentialEditPlanTests: XCTestCase {
+    func testExistingPersistentValidationRejectsGUIReplacementBeforeAnyWrite() {
+        let existing = ["client-secret": CredentialField(
+            secret: true,
+            validation: .init(rejectURL: true, prefixes: ["GOCSPX-"])
+        )]
+        let plan = CredentialEditPlan(
+            inputFields: [.init(name: "client-secret", value: "http://127.0.0.1:4000/#wrong",
+                                originalName: "client-secret", isSecret: true)],
+            existingFields: existing,
+            security: .strict
+        )
+        XCTAssertEqual(plan.validationFailures.map(\.fieldName), ["client-secret"])
+        XCTAssertTrue(plan.valueWrites.isEmpty, "an invalid replacement must never reach the Keychain write plan")
+    }
     func test曾经的Bug编辑时密钥留空不写存储保留Meta并更新Security() {
         XCTContext.runActivity(named: "【曾经的 bug】编辑时密钥留空") { _ in
             let existingFields = [

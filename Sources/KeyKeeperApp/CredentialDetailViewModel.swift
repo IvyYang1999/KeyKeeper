@@ -220,6 +220,10 @@ final class CredentialDetailViewModel: ObservableObject {
                 existingFields: existingFields,
                 security: security
             )
+            if let failure = plan.validationFailures.first {
+                errorMessage = L("\(failure.fieldName): \(failure.reason)")
+                return false
+            }
             var displayNamesChanged = false
             for entry in fields where !entry.name.isEmpty {
                 let trimmed = entry.displayName.trimmingCharacters(in: .whitespacesAndNewlines)

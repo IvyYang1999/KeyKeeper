@@ -55,23 +55,50 @@ struct TrustPromptModel: Equatable {
         return line.isEmpty ? L("Unknown Caller") : line
     }
 
+    private static func validationSummary(_ validation: CredentialFieldValidation) -> String {
+        var rules: [String] = []
+        if validation.rejectURL { rules.append(L("Reject web URLs")) }
+        if !validation.prefixes.isEmpty {
+            rules.append(L("Prefix: \(validation.prefixes.joined(separator: " or "))"))
+        }
+        if !validation.suffixes.isEmpty {
+            rules.append(L("Suffix: \(validation.suffixes.joined(separator: " or "))"))
+        }
+        return rules.joined(separator: " · ")
+    }
+
     // MARK: Saves (clipboard, browser paste, service-account file, Python source)
 
     static func save(_ info: ClipboardSaveController.Presentation, now: Date = Date()) -> TrustPromptModel {
         let caller = sanitizedCaller(info.callerName)
         let request = info.request
         let target = "\(request.credentialId) · \(request.fieldName)"
+        let effectiveValidation: CredentialFieldValidation? = {
+            switch (info.storedValidation, request.validation) {
+            case let (stored?, requested?): return try? stored.tightening(with: requested)
+            case let (stored?, nil): return stored
+            case let (nil, requested?): return requested
+            case (nil, nil): return nil
+            }
+        }()
         if request.isReplacement {
             var details = [L("Copy exactly once after this request, then confirm. Failed checks keep the old value. Existing permissions still apply to the replacement. This request expires in 90 seconds.")]
             if let expected = request.expectedEd25519PublicKey {
                 details.append(L("Expected public key (caller supplied): \(expected)"))
             }
+            var rows = [Row(label: L("Save as"), value: target, monospaced: true, note: L("Replace existing value")),
+                        Row(label: L("Source"), value: L("Clipboard · copied after this request")),
+                        Row(label: L("Requested by"), value: caller)]
+            if let validation = effectiveValidation {
+                rows.append(Row(label: L("Checks"), value: validationSummary(validation), monospaced: true,
+                                note: L("Also enforced on future replacements")))
+            }
+            if let expect = request.expect {
+                rows.append(Row(label: L("Expected format"), value: expect, monospaced: true))
+            }
             return TrustPromptModel(
                 title: L("Replace this saved value?"), subtitle: L("\(caller) wants to put it in KeyKeeper"),
-                rows: [Row(label: L("Save as"), value: target, monospaced: true, note: L("Replace existing value")),
-                       Row(label: L("Source"), value: L("Clipboard · copied after this request")),
-                       Row(label: L("Requested by"), value: caller),
-                       Row(label: L("Expected format"), value: request.expect ?? "", monospaced: true)],
+                rows: rows,
                 assurance: L("Only this field is replaced after validation. Permissions stay unchanged. The caller never sees the value."),
                 tone: .caution, details: details, confirmTitle: L("Replace value"), expiresAt: info.expiresAt)
         }
@@ -142,6 +169,10 @@ struct TrustPromptModel: Equatable {
         }
         if request.create, let expires = request.expires {
             rows.append(Row(label: L("Expires"), value: expires, monospaced: true, note: L("Suggested by \(caller)")))
+        }
+        if let validation = effectiveValidation {
+            rows.append(Row(label: L("Checks"), value: validationSummary(validation), monospaced: true,
+                            note: L("Also enforced on future restores and replacements")))
         }
         if let template = request.provider.flatMap(ProviderCatalog.find) {
             var providerNotes: [String] = []

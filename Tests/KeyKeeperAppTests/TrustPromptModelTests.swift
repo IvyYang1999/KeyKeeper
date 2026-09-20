@@ -13,6 +13,18 @@ final class TrustPromptModelTests: XCTestCase {
         XCTAssertFalse(model.assurance.contains("nothing is overwritten"))
         XCTAssertTrue(model.details.contains { $0.contains("Existing permissions") })
     }
+
+    func testReplacementShowsExistingDurableChecksEvenWhenCallerDoesNotRepeatThem() {
+        let info = ClipboardSaveController.Presentation(
+            request: .init(credentialId: "oauth", fieldName: "client-secret", replaceExisting: true),
+            callerName: "Test",
+            storedValidation: .init(rejectURL: true, prefixes: ["GOCSPX-"])
+        )
+        let model = TrustPromptModel.save(info)
+        let row = model.rows.first { $0.label == "Checks" }
+        XCTAssertEqual(row?.value, "Reject web URLs · Prefix: GOCSPX-")
+        XCTAssertEqual(row?.note, "Also enforced on future replacements")
+    }
     private func presentation(file: String? = nil, symbol: String? = nil, browser: Bool = false,
                               create: Bool = true, caller: String = "claude",
                               useCurrentClipboard: Bool = false) -> ClipboardSaveController.Presentation {

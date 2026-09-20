@@ -25,6 +25,48 @@ final class ModelsTests: XCTestCase {
         XCTAssertTrue(field.secret)
     }
 
+    func testPersistentFieldValidationRejectsURLAndEnforcesPublicShapeFragments() throws {
+        let validation = try CredentialFieldValidation(
+            rejectURL: true,
+            prefixes: ["GOCSPX-"],
+            suffixes: [".apps.googleusercontent.com"]
+        ).validated()
+
+        XCTAssertNotNil(validation.problem(for: "http://127.0.0.1:49152/#receiver"))
+        XCTAssertNotNil(validation.problem(for: "wrong.apps.googleusercontent.com"))
+        XCTAssertNotNil(validation.problem(for: "GOCSPX-synthetic"))
+        XCTAssertNotNil(validation.problem(for: "GOCSPX-synthetic.apps.googleusercontent.com\n"),
+                        "suffix rules apply to the exact stored value, not a silently trimmed copy")
+        XCTAssertNil(validation.problem(for: "GOCSPX-synthetic.apps.googleusercontent.com"))
+        XCTAssertThrowsError(try CredentialFieldValidation(prefixes: ["contains a space"]).validated())
+        XCTAssertThrowsError(try CredentialFieldValidation(suffixes: [String(repeating: "x", count: 65)]).validated())
+    }
+
+    func testCredentialFieldValidationIsBackwardCompatibleAndRoundTrips() throws {
+        let old = Data(#"{"secret":true}"#.utf8)
+        XCTAssertNil(try JSONDecoder().decode(CredentialField.self, from: old).validation)
+
+        let field = CredentialField(secret: true, validation: .init(
+            rejectURL: true, prefixes: ["sk-"], suffixes: [".example"]
+        ))
+        let decoded = try JSONDecoder().decode(CredentialField.self, from: JSONEncoder().encode(field))
+        XCTAssertEqual(decoded.validation, field.validation)
+    }
+
+    func testPersistentValidationCanOnlyTightenNeverBroaden() throws {
+        let existing = CredentialFieldValidation(
+            rejectURL: true, prefixes: ["sk-"], suffixes: [".example"])
+        let narrower = try existing.tightening(with: .init(
+            prefixes: ["sk-project-"], suffixes: [".api.example"])
+        )
+        XCTAssertEqual(narrower.prefixes, ["sk-project-"])
+        XCTAssertEqual(narrower.suffixes, [".api.example"])
+        XCTAssertTrue(narrower.rejectURL)
+        XCTAssertThrowsError(try existing.tightening(with: .init(prefixes: ["AKIA"])),
+                             "adding an unrelated alternative would silently broaden the field")
+        XCTAssertThrowsError(try existing.tightening(with: .init(suffixes: [".invalid"])))
+    }
+
     func testCredentialCodable() throws {
         let cred = Credential(
             label: "Test API", notes: "some notes",

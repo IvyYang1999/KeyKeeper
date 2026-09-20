@@ -134,6 +134,71 @@ OUT="$("$KK" proposal status "$PROPOSAL_ID" --json 2>&1)"
 expect_contains "terminal proposal remains queryable" '"state":"committed"' "$OUT"
 expect_not_contains "proposal status contains no secret" "synthetic-browser-e2e" "$OUT"
 
+echo "==> durable field validation: reject a receiver URL before write, then persist the rule"
+VALIDATION_LOG="$TMP/browser-validation.log"
+"$KK" save -c oauth-fixture --field client-id --from-browser --create --reject-url \
+    --expect-suffix .apps.googleusercontent.com --purpose "e2e: validated browser import" >"$VALIDATION_LOG" 2>&1 &
+VALIDATION_PID=$!
+VALIDATION_URL=""
+for _ in $(seq 1 40); do
+    VALIDATION_URL="$(grep -m1 '^http://127\.0\.0\.1:' "$VALIDATION_LOG" 2>/dev/null || true)"
+    [ -n "$VALIDATION_URL" ] && break
+    sleep 0.25
+done
+if [ -z "$VALIDATION_URL" ]; then
+    fail "validation receiver returned" "$(head -8 "$VALIDATION_LOG")"
+    kill "$VALIDATION_PID" 2>/dev/null || true
+    wait "$VALIDATION_PID" 2>/dev/null || true
+    exit 1
+fi
+VALIDATION_FRAGMENT="${VALIDATION_URL##*#}"
+VALIDATION_BASE="${VALIDATION_URL%%#*}"
+VALIDATION_ORIGIN="${VALIDATION_BASE%/}"
+OUT="$(/usr/bin/curl -sS --max-time 5 -X POST "${VALIDATION_BASE}import" \
+    -H "Origin: $VALIDATION_ORIGIN" -H 'Content-Type: text/plain;charset=UTF-8' \
+    -H "X-KeyKeeper-Session: $VALIDATION_FRAGMENT" --data-binary "$VALIDATION_BASE")"
+expect_contains "wrong URL reaches validation proposal" '"state":"pasteReceived"' "$OUT"
+if wait "$VALIDATION_PID"; then
+    fail "receiver URL refused before write" "$(head -8 "$VALIDATION_LOG")"
+else
+    OUT="$(cat "$VALIDATION_LOG")"
+    expect_contains "receiver URL refused before write" "rejects web URLs" "$OUT"
+fi
+OUT="$("$KK" list 2>&1)"; expect_not_contains "refused value created no credential" "oauth-fixture |" "$OUT"
+
+: >"$VALIDATION_LOG"
+"$KK" save -c oauth-fixture --field client-id --from-browser --create --reject-url \
+    --expect-suffix .apps.googleusercontent.com --purpose "e2e: validated browser import" >"$VALIDATION_LOG" 2>&1 &
+VALIDATION_PID=$!
+VALIDATION_URL=""
+for _ in $(seq 1 40); do
+    VALIDATION_URL="$(grep -m1 '^http://127\.0\.0\.1:' "$VALIDATION_LOG" 2>/dev/null || true)"
+    [ -n "$VALIDATION_URL" ] && break
+    sleep 0.25
+done
+if [ -z "$VALIDATION_URL" ]; then
+    fail "validation receiver returned" "$(head -8 "$VALIDATION_LOG")"
+    kill "$VALIDATION_PID" 2>/dev/null || true
+    wait "$VALIDATION_PID" 2>/dev/null || true
+    exit 1
+fi
+VALIDATION_FRAGMENT="${VALIDATION_URL##*#}"
+VALIDATION_BASE="${VALIDATION_URL%%#*}"
+VALIDATION_ORIGIN="${VALIDATION_BASE%/}"
+OUT="$(/usr/bin/curl -sS --max-time 5 -X POST "${VALIDATION_BASE}import" \
+    -H "Origin: $VALIDATION_ORIGIN" -H 'Content-Type: text/plain;charset=UTF-8' \
+    -H "X-KeyKeeper-Session: $VALIDATION_FRAGMENT" --data-binary 'synthetic.apps.googleusercontent.com')"
+expect_contains "matching value reaches validation proposal" '"state":"pasteReceived"' "$OUT"
+if wait "$VALIDATION_PID"; then
+    OUT="$(cat "$VALIDATION_LOG")"
+    expect_contains "matching value commits" "Persistent field validation saved" "$OUT"
+else
+    fail "matching value commits" "$(head -8 "$VALIDATION_LOG")"
+fi
+OUT="$("$KK" meta oauth-fixture 2>&1)"
+expect_contains "metadata records durable URL rejection" '"rejectURL" : true' "$OUT"
+expect_contains "metadata records durable suffix" '.apps.googleusercontent.com' "$OUT"
+
 echo "==> provider aliases: one stored value reaches official SDK variables"
 OUT="$("$KK" save --provider zhipu-cn --from-source "$TMP/config.py" --python-symbol TOKEN --create --purpose "e2e: new SDK aliases" 2>&1)"
 expect_contains "new canonical provider saved" "Saved" "$OUT"

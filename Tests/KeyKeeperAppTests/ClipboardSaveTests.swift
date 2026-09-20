@@ -339,7 +339,9 @@ import KeyKeeperTestSupport
         try approvals.add(Approval(subject: subject, target: .credential(id: "fixture", fields: nil), duration: .always))
 
         clipboard.text = "synthetic-secret"
-        controller.receive(.init(credentialId: "fixture", fieldName: "client-secret", addField: true),
+        let validation = CredentialFieldValidation(rejectURL: true)
+        controller.receive(.init(credentialId: "fixture", fieldName: "client-secret", addField: true,
+                                 validation: validation),
             callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
         controller.resolve(approved: true)
 
@@ -348,6 +350,7 @@ import KeyKeeperTestSupport
         XCTAssertEqual(saved.label, "OAuth")
         XCTAssertEqual(saved.notes, "keep")
         XCTAssertEqual(saved.fields["client-secret"]?.secret, true)
+        XCTAssertEqual(saved.fields["client-secret"]?.validation, validation)
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "client-id"), "synthetic-id")
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "client-secret"), "synthetic-secret")
         XCTAssertNotNil(try approvals.valid(credentialId: "fixture", field: "client-id",
@@ -500,6 +503,73 @@ import KeyKeeperTestSupport
         XCTAssertEqual(results.first?.success, true)
         XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), key)
         XCTAssertEqual(results.first?.shape?.base64DecodedBytes, 32)
+    }
+
+    func test持久字段规则在写入前拒绝localhostURL并且正确值会记住规则() throws {
+        let validation = CredentialFieldValidation(
+            rejectURL: true, suffixes: [".apps.googleusercontent.com"]
+        )
+        clipboard.text = "http://127.0.0.1:43123/#synthetic-ticket"
+        controller.receive(.init(credentialId: "oauth", fieldName: "client-id", create: true,
+                                 validation: validation),
+            callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.last?.errorCode, .fieldValidationFailed)
+        XCTAssertEqual(io.writes, 0, "规则失败时一个字节都不能写")
+        XCTAssertFalse(results.last?.detail?.contains("127.0.0.1") ?? true, "错误不能回显候选值")
+
+        results = []
+        clipboard.text = "synthetic.apps.googleusercontent.com"
+        clipboard.changeCount += 1
+        controller.receive(.init(credentialId: "oauth", fieldName: "client-id", create: true,
+                                 validation: validation),
+            callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
+        controller.resolve(approved: true)
+        XCTAssertEqual(results.last?.success, true)
+        XCTAssertEqual(try meta.load().credentials["oauth"]?.fields["client-id"]?.validation, validation)
+    }
+
+    func test以后替换自动执行已存规则_不必由Agent重新声明() throws {
+        var existing = credential()
+        existing.fields["key"]?.validation = .init(rejectURL: true, prefixes: ["GOCSPX-"])
+        try service.save(credentialId: "fixture", fieldName: "key", value: "GOCSPX-old", security: .standard)
+        try meta.save(.init(credentials: ["fixture": existing]))
+
+        controller.receive(.init(credentialId: "fixture", fieldName: "key", replaceExisting: true),
+            callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
+        copyToClipboard("http://127.0.0.1:4000/#synthetic")
+        controller.resolve(approved: true)
+
+        XCTAssertEqual(results.last?.errorCode, .fieldValidationFailed)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "GOCSPX-old")
+    }
+
+    func test没有一次性或持久规则的替换在读剪贴板前拒绝() throws {
+        try service.save(credentialId: "fixture", fieldName: "key", value: "old-fixture", security: .standard)
+        try meta.save(.init(credentials: ["fixture": credential()]))
+        controller.receive(.init(credentialId: "fixture", fieldName: "key", replaceExisting: true),
+            callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
+        XCTAssertEqual(results.last?.errorCode, .invalidReplacement)
+        XCTAssertEqual(clipboard.reads, 0)
+    }
+
+    func test替换新增持久规则时元数据失败会恢复旧值() throws {
+        try service.save(credentialId: "fixture", fieldName: "key", value: "old-fixture", security: .standard)
+        try meta.save(.init(credentials: ["fixture": credential()]))
+        io.afterWrite = {
+            self.io.afterWrite = nil
+            try FileManager.default.removeItem(at: self.meta.fileURL)
+            try FileManager.default.createDirectory(at: self.meta.fileURL, withIntermediateDirectories: false)
+        }
+        controller.receive(.init(credentialId: "fixture", fieldName: "key", expect: "chars:16",
+                                 replaceExisting: true, validation: .init(rejectURL: true)),
+            callerName: "Test", isConnected: { true }, completion: { self.results.append($0) })
+        copyToClipboard("synthetic-import")
+        controller.resolve(approved: true)
+
+        XCTAssertEqual(results.last?.errorCode, .metadataCommitRolledBack)
+        try FileManager.default.removeItem(at: meta.fileURL)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "old-fixture")
     }
 
     /// 声明本身写错了，也是拒绝，不是放行。

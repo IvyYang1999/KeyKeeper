@@ -37,7 +37,8 @@ final class AppLocalizationTests: XCTestCase {
     func testStorageCreationAndRecoveryErrorsAreTranslatedWithoutSecretInterpolation() {
         let errors: [any LocalizedError] = [CredentialStorageError.missingStore, CredentialStorageError.incompleteStore,
             ClipboardSaveError.valueExists, ClipboardSaveError.invalidTarget, ClipboardSaveError.staleGrants,
-            ClipboardSaveError.storageUnavailable, ClipboardSaveError.metadataCommitFailed]
+            ClipboardSaveError.storageUnavailable, ClipboardSaveError.metadataCommitFailed,
+            ClipboardSaveError.metadataCommitRolledBack]
         for error in errors {
             let message = error.errorDescription!
             XCTAssertNotNil(AppL10n.chinese[message])

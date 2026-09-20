@@ -207,6 +207,7 @@ extension AppL10n {
         "This ID has old read permissions. Choose a fresh credential ID; no permissions were changed.": "此 ID 仍有旧的读取授权，请使用全新 ID。没有更改任何权限。",
         "Storage cannot be safely updated. Check KeyKeeper; no automatic store recreation was attempted.": "暂时无法安全更新存储，请检查 KeyKeeper。没有自动重建存储。",
         "The value was stored, but its metadata could not be committed. Do not retry or delete it; repair the metadata first.": "密钥已写入，但凭据目录保存失败。请勿重复保存或删除，需先修复目录；密钥仍被保留。",
+        "Credential metadata could not be committed, so KeyKeeper restored the field's prior state. Nothing from this request was kept.": "凭据目录保存失败，KeyKeeper 已把字段恢复到操作前的状态；本次请求没有留下任何更改。",
         "Couldn't change Launch at Login": "无法更改登录时启动设置",
         "\n\nYou can also add KeyKeeper under System Settings › General › Login Items.": "\n\n你也可以在“系统设置 › 通用 › 登录项”中添加 KeyKeeper。",
         "Authorization Request": "授权请求",

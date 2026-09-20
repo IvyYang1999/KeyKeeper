@@ -103,14 +103,18 @@ public enum IPCRequest: Codable, Sendable {
             try c.encode("envImport", forKey: .type)
             try c.encode(r, forKey: .data)
         case .browserImport(let r):
-            try c.encode("browserImport", forKey: .type)
+            // An older App must reject the request, not silently ignore durable validation.
+            try c.encode(r.hasPersistentValidation ? "browserValidatedImport" : "browserImport", forKey: .type)
             try c.encode(r, forKey: .data)
         case .browserImportProposal(let r):
             try c.encode("browserImportProposal", forKey: .type)
             try c.encode(r, forKey: .data)
         case .clipboardSave(let r):
             // Old Apps reject this discriminator instead of silently ignoring new safeguards.
-            try c.encode(r.isReplacement || r.expectedEd25519PublicKey != nil ? "clipboardReplace" : "clipboardSave", forKey: .type)
+            let type = r.hasPersistentValidation
+                ? "clipboardValidatedSave"
+                : (r.isReplacement || r.expectedEd25519PublicKey != nil ? "clipboardReplace" : "clipboardSave")
+            try c.encode(type, forKey: .type)
             try c.encode(r, forKey: .data)
         case .auth(let r):
             try c.encode("auth", forKey: .type)
@@ -134,13 +138,24 @@ public enum IPCRequest: Codable, Sendable {
         case "fileImport": self = .fileImport(try c.decode(FileImportRequest.self, forKey: .data))
         case "sourceImport": self = .sourceImport(try c.decode(SourceImportRequest.self, forKey: .data))
         case "envImport": self = .envImport(try c.decode(EnvImportRequest.self, forKey: .data))
-        case "browserImport": self = .browserImport(try c.decode(ClipboardSaveRequest.self, forKey: .data))
-        case "browserImportProposal": self = .browserImportProposal(try c.decode(BrowserImportProposalRequest.self, forKey: .data))
-        case "clipboardSave", "clipboardReplace":
+        case "browserImport", "browserValidatedImport":
             let request = try c.decode(ClipboardSaveRequest.self, forKey: .data)
-            let protectedRequest = request.isReplacement || request.expectedEd25519PublicKey != nil
-            guard (try c.decode(String.self, forKey: .type) == "clipboardReplace") == protectedRequest else {
-                throw ClipboardSaveError.invalidReplacement
+            let type = try c.decode(String.self, forKey: .type)
+            guard (type == "browserValidatedImport") == request.hasPersistentValidation else {
+                throw ClipboardSaveError.invalidFieldValidation
+            }
+            self = .browserImport(request)
+        case "browserImportProposal": self = .browserImportProposal(try c.decode(BrowserImportProposalRequest.self, forKey: .data))
+        case "clipboardSave", "clipboardReplace", "clipboardValidatedSave":
+            let request = try c.decode(ClipboardSaveRequest.self, forKey: .data)
+            let type = try c.decode(String.self, forKey: .type)
+            if type == "clipboardValidatedSave" {
+                guard request.hasPersistentValidation else { throw ClipboardSaveError.invalidFieldValidation }
+            } else {
+                let protectedRequest = request.isReplacement || request.expectedEd25519PublicKey != nil
+                guard (type == "clipboardReplace") == protectedRequest, !request.hasPersistentValidation else {
+                    throw ClipboardSaveError.invalidReplacement
+                }
             }
             self = .clipboardSave(request)
         case "auth":  self = .auth(try c.decode(AuthRequest.self, forKey: .data))

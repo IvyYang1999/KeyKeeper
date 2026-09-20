@@ -51,6 +51,15 @@ public struct CredentialEditPlan: Sendable {
         }
     }
 
+    public struct ValidationFailure: Equatable, Sendable {
+        public var fieldName: String
+        public var reason: String
+        public init(fieldName: String, reason: String) {
+            self.fieldName = fieldName
+            self.reason = reason
+        }
+    }
+
     public var valueWrites: [ValueWrite]
     public var valueRenames: [ValueRename]
     /// Every field whose name changed, old → new, whether or not its value moved. Earlier
@@ -62,6 +71,8 @@ public struct CredentialEditPlan: Sendable {
     /// first would lose the value outright if the commit then failed.
     public var keychainDropsAfterCommit: [String]
     public var metadata: Metadata
+    /// Existing durable rules are checked before a GUI edit produces any Keychain write.
+    public var validationFailures: [ValidationFailure]
 
     public init(
         inputFields: [InputField],
@@ -72,6 +83,7 @@ public struct CredentialEditPlan: Sendable {
         var valueRenames: [ValueRename] = []
         var fieldRenames: [String: String] = [:]
         var metadataFields: [String: CredentialField] = [:]
+        var validationFailures: [ValidationFailure] = []
 
         /// The field as it existed, renamed: the old name joins its aliases.
         func carried(_ existing: CredentialField, from original: String, to name: String) -> CredentialField {
@@ -112,6 +124,19 @@ public struct CredentialEditPlan: Sendable {
             }
 
             if !field.value.isEmpty {
+                if let validation = existing?.validation {
+                    let problem: String?
+                    do { problem = try validation.validated().problem(for: field.value) }
+                    catch { problem = error.localizedDescription }
+                    if let problem {
+                        validationFailures.append(.init(fieldName: field.name, reason: problem))
+                        if let existing {
+                            metadataFields[field.name] = carried(
+                                existing, from: field.originalName ?? field.name, to: field.name)
+                        }
+                        continue
+                    }
+                }
                 valueWrites.append(.init(fieldName: field.name, value: field.value))
                 // A new value for a field that already existed keeps its display name and old names.
                 if let original = field.originalName, let existing = existingFields[original] {
@@ -162,5 +187,6 @@ public struct CredentialEditPlan: Sendable {
             .map(\.key)
             .sorted()
         self.metadata = Metadata(fields: metadataFields, security: security)
+        self.validationFailures = validationFailures
     }
 }

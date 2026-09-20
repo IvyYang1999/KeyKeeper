@@ -319,6 +319,10 @@ class AddCredentialViewModel: ObservableObject {
                 existingFields: [:],
                 security: security
             )
+            if let failure = plan.validationFailures.first {
+                errorMessage = L("\(failure.fieldName): \(failure.reason)")
+                return false
+            }
             for (entry, machine) in zip(named, machineNames) {
                 let typed = entry.name.trimmingCharacters(in: .whitespacesAndNewlines)
                 if typed != machine { plan.metadata.fields[machine]?.displayName = typed }

@@ -36,18 +36,23 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
     /// Explicitly add one secret field to an existing credential. This is never inferred from a
     /// misspelled field name: the person must see and approve the schema change.
     public var addField: Bool
+    /// New durable rules to attach to this field after the approved write. Existing durable rules
+    /// are always enforced too, even when a later caller omits this property.
+    public var validation: CredentialFieldValidation?
     public var isReplacement: Bool { replaceExisting == true }
+    public var hasPersistentValidation: Bool { validation?.isEmpty == false }
 
     private enum CodingKeys: String, CodingKey {
         case credentialId, fieldName, create, expect, useCurrentClipboard, replaceExisting,
-             expectedEd25519PublicKey, security, expires, intent, provider, addField
+             expectedEd25519PublicKey, security, expires, intent, provider, addField, validation
     }
 
     public init(credentialId: String, fieldName: String, create: Bool = false,
                 expect: String? = nil, useCurrentClipboard: Bool = false,
                 replaceExisting: Bool = false, expectedEd25519PublicKey: String? = nil,
                 security: SecurityLevel? = nil, expires: String? = nil, intent: UsageIntent? = nil,
-                provider: String? = nil, addField: Bool = false) {
+                provider: String? = nil, addField: Bool = false,
+                validation: CredentialFieldValidation? = nil) {
         self.credentialId = credentialId
         self.fieldName = fieldName
         self.create = create
@@ -60,6 +65,7 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
         self.intent = intent
         self.provider = provider
         self.addField = addField
+        self.validation = validation
     }
 
     public init(from decoder: Decoder) throws {
@@ -76,6 +82,7 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
         intent = try c.decodeIfPresent(UsageIntent.self, forKey: .intent)
         provider = try c.decodeIfPresent(String.self, forKey: .provider)
         addField = try c.decodeIfPresent(Bool.self, forKey: .addField) ?? false
+        validation = try c.decodeIfPresent(CredentialFieldValidation.self, forKey: .validation)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -92,6 +99,7 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
         try c.encodeIfPresent(intent, forKey: .intent)
         try c.encodeIfPresent(provider, forKey: .provider)
         if addField { try c.encode(true, forKey: .addField) }
+        try c.encodeIfPresent(validation, forKey: .validation)
     }
 
     public func validate() throws {
@@ -102,7 +110,7 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
             guard CredentialExpiry.normalize(expires) == expires else { throw ClipboardSaveError.invalidExpiry }
         }
         if isReplacement {
-            guard !create, !addField, expect != nil else { throw ClipboardSaveError.invalidReplacement }
+            guard !create, !addField else { throw ClipboardSaveError.invalidReplacement }
         }
         if addField { guard !create else { throw ClipboardSaveError.invalidAddField } }
         if let expectedEd25519PublicKey {
@@ -112,6 +120,11 @@ public struct ClipboardSaveRequest: Codable, Sendable, Equatable {
         }
         if let expect {
             guard ValueExpectation.parse(expect) != nil else { throw ClipboardSaveError.invalidExpectation }
+        }
+        if let validation {
+            guard !validation.isEmpty else { throw ClipboardSaveError.invalidFieldValidation }
+            do { _ = try validation.validated() }
+            catch { throw ClipboardSaveError.invalidFieldValidation }
         }
         for name in [credentialId, fieldName] {
             guard !name.isEmpty, name.utf8.count <= 128,
@@ -129,8 +142,9 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
     case invalidSource, unsupportedSource, sourceParserUnavailable
     case invalidFile, fileChanged, wrongFieldType
     case invalidTarget, valueExists, targetNotFound, metadataChanged, clipboardChanged
-    case invalidExpectation, shapeMismatch, clipboardNotCopiedYet, clipboardCopiedMoreThanOnce
-    case emptyClipboard, busy, denied, expired, disconnected, storageUnavailable, metadataCommitFailed, staleGrants
+    case invalidExpectation, invalidFieldValidation, shapeMismatch, fieldValidationFailed, clipboardNotCopiedYet, clipboardCopiedMoreThanOnce
+    case emptyClipboard, busy, denied, expired, disconnected, storageUnavailable
+    case metadataCommitFailed, metadataCommitRolledBack, staleGrants
     case reservedFieldName, suggestionRequiresCreate, invalidExpiry
     case invalidEnvFile, emptyEnvFile, credentialExists
     public var errorDescription: String? {
@@ -158,7 +172,9 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
         case .metadataChanged: return "Credential metadata changed. Check the target and retry."
         case .clipboardChanged: return "Clipboard changed while awaiting approval. Copy the intended key and try again."
         case .invalidExpectation: return "Use --expect base64[:BYTES], hex[:BYTES], bytes:N or chars:N. Nothing was read or saved."
+        case .invalidFieldValidation: return "Persistent validation needs --reject-url and/or short public --expect-prefix/--expect-suffix fragments. Nothing was read or saved."
         case .shapeMismatch: return "The value does not look like what you said to expect, so nothing was saved. Check what is actually on the clipboard."
+        case .fieldValidationFailed: return "The value failed this field's persistent validation, so nothing was saved. Check that you copied the credential rather than a page or receiver URL."
         // No longer raised since 0.3.4; kept so older apps and clients still decode each other.
         case .clipboardNotCopiedYet: return "Nothing was saved. Copy the value and run the command again."
         case .clipboardCopiedMoreThanOnce: return "Nothing was saved. Copy the value and run the command again."
@@ -169,6 +185,7 @@ public enum ClipboardSaveError: String, Error, Codable, Sendable, LocalizedError
         case .disconnected: return "The requesting process disconnected. Nothing was saved."
         case .storageUnavailable: return "Storage cannot be safely updated. Check KeyKeeper; no automatic store recreation was attempted."
         case .metadataCommitFailed: return "The value was stored, but its metadata could not be committed. Do not retry or delete it; repair the metadata first."
+        case .metadataCommitRolledBack: return "Credential metadata could not be committed, so KeyKeeper restored the field's prior state. Nothing from this request was kept."
         case .staleGrants: return "This ID has old read permissions. Choose a fresh credential ID; no permissions were changed."
         }
     }

@@ -10,7 +10,8 @@ final class SaveCommandTests: XCTestCase {
         XCTAssertThrowsError(try SaveCommand.parse(base + ["--create"]))
         // 2026-09-14：这个开关不再有含义，旧脚本带着它也不该报错。
         XCTAssertNoThrow(try SaveCommand.parse(base + ["--use-current-clipboard"]))
-        XCTAssertThrowsError(try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-clipboard", "--replace"]))
+        XCTAssertNoThrow(try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-clipboard", "--replace"]),
+                         "the App accepts this only when the field already has a durable rule")
         XCTAssertThrowsError(try SaveCommand.parse(["-c", "fixture", "--field", "key", "--from-browser", "--replace", "--expect", "chars:16"]))
         let data = try JSONEncoder().encode(IPCRequest.clipboardSave(command.request))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -156,5 +157,41 @@ final class SaveCommandTests: XCTestCase {
                        "44 characters, Base64 (32 bytes)")
         XCTAssertEqual(SaveCommand.storedSummary(ValueShape.of("请把这个存进去\n第二行")),
                        "11 characters, 31 bytes, 2 lines, non-ASCII")
+    }
+
+    func testPersistentValidationFlagsUseFailClosedWireTypes() throws {
+        let command = try SaveCommand.parse([
+            "-c", "oauth", "--field", "client-id", "--from-browser", "--create",
+            "--reject-url", "--expect-prefix", "123-", "--expect-suffix", ".apps.googleusercontent.com",
+        ])
+        XCTAssertEqual(command.request.validation, CredentialFieldValidation(
+            rejectURL: true, prefixes: ["123-"], suffixes: [".apps.googleusercontent.com"]
+        ))
+
+        let encoded = try JSONEncoder().encode(IPCRequest.browserImport(command.request))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(json["type"] as? String, "browserValidatedImport",
+                       "an old App must reject the whole request, not ignore the new safeguard")
+        guard case .browserImport(let decoded) = try JSONDecoder().decode(IPCRequest.self, from: encoded) else {
+            return XCTFail()
+        }
+        XCTAssertEqual(decoded.validation, command.request.validation)
+
+        let clipboard = try SaveCommand.parse([
+            "-c", "oauth", "--field", "client-secret", "--from-clipboard", "--replace", "--reject-url",
+        ])
+        XCTAssertEqual(clipboard.request.validation, .init(rejectURL: true))
+        let clipboardJSON = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(IPCRequest.clipboardSave(clipboard.request))) as? [String: Any])
+        XCTAssertEqual(clipboardJSON["type"] as? String, "clipboardValidatedSave")
+
+        XCTAssertThrowsError(try SaveCommand.parse([
+            "-c", "oauth", "--field", "key", "--from-source", "/tmp/synthetic.py",
+            "--python-symbol", "KEY", "--create", "--reject-url",
+        ]))
+        XCTAssertThrowsError(try SaveCommand.parse([
+            "-c", "oauth", "--field", "key", "--from-clipboard", "--create",
+            "--expect-prefix", "not public",
+        ]))
     }
 }

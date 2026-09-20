@@ -5,6 +5,118 @@ public enum SecurityLevel: String, Codable, Sendable {
     case strict
 }
 
+/// Durable, local-only shape rules for one secret field. These are deliberately smaller than a
+/// regular-expression language: an untrusted caller may ask for a stricter save, but must not be
+/// able to hand the App a catastrophic regex that burns CPU. The fragments are public format
+/// constants (for example `GOCSPX-`), never secret material.
+public struct CredentialFieldValidation: Codable, Equatable, Sendable {
+    public var rejectURL: Bool
+    public var prefixes: [String]
+    public var suffixes: [String]
+
+    public init(rejectURL: Bool = false, prefixes: [String] = [], suffixes: [String] = []) {
+        self.rejectURL = rejectURL
+        self.prefixes = prefixes
+        self.suffixes = suffixes
+    }
+
+    private enum CodingKeys: String, CodingKey { case rejectURL, prefixes, suffixes }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rejectURL = try c.decodeIfPresent(Bool.self, forKey: .rejectURL) ?? false
+        prefixes = try c.decodeIfPresent([String].self, forKey: .prefixes) ?? []
+        suffixes = try c.decodeIfPresent([String].self, forKey: .suffixes) ?? []
+    }
+
+    public var isEmpty: Bool { !rejectURL && prefixes.isEmpty && suffixes.isEmpty }
+
+    /// Validate and canonicalize a rule declaration before it crosses a trust boundary or lands
+    /// in metadata. Only short printable ASCII fragments are allowed because metadata is visible.
+    public func validated() throws -> Self {
+        func checked(_ fragments: [String]) throws -> [String] {
+            guard fragments.count <= 8 else { throw CredentialFieldValidationError.invalidDeclaration }
+            var unique: [String] = []
+            for fragment in fragments {
+                guard !fragment.isEmpty, fragment.utf8.count <= 64,
+                      fragment.unicodeScalars.allSatisfy({ $0.isASCII && !CharacterSet.whitespacesAndNewlines.contains($0) && !CharacterSet.controlCharacters.contains($0) })
+                else { throw CredentialFieldValidationError.invalidDeclaration }
+                if !unique.contains(fragment) { unique.append(fragment) }
+            }
+            return unique
+        }
+        return Self(rejectURL: rejectURL, prefixes: try checked(prefixes), suffixes: try checked(suffixes))
+    }
+
+    /// Combine an already approved rule with a new request without ever broadening what may pass.
+    /// Two prefix (or suffix) alternative sets are intersected; incompatible sets are refused.
+    public func tightening(with other: Self) throws -> Self {
+        let left = try validated(), right = try other.validated()
+        func intersect(_ old: [String], _ new: [String], compatible: (String, String) -> String?) throws -> [String] {
+            if old.isEmpty { return new }
+            if new.isEmpty { return old }
+            var result: [String] = []
+            for a in old {
+                for b in new {
+                    if let stricter = compatible(a, b), !result.contains(stricter) { result.append(stricter) }
+                }
+            }
+            guard !result.isEmpty else { throw CredentialFieldValidationError.wouldBroadenOrConflict }
+            return result
+        }
+        let narrowedPrefixes = try intersect(left.prefixes, right.prefixes) { a, b in
+            if a.hasPrefix(b) { return a }
+            if b.hasPrefix(a) { return b }
+            return nil
+        }
+        let narrowedSuffixes = try intersect(left.suffixes, right.suffixes) { a, b in
+            if a.hasSuffix(b) { return a }
+            if b.hasSuffix(a) { return b }
+            return nil
+        }
+        return Self(rejectURL: left.rejectURL || right.rejectURL,
+                    prefixes: narrowedPrefixes, suffixes: narrowedSuffixes)
+    }
+
+    /// Nil means the value satisfies every rule. The reason names only the failed rule; it never
+    /// includes any part of the candidate value or the configured public fragment.
+    public func problem(for value: String) -> String? {
+        if rejectURL {
+            let lower = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
+                return "This field rejects web URLs. Copy the credential value, not the receiver or console URL."
+            }
+        }
+        if !prefixes.isEmpty, !prefixes.contains(where: value.hasPrefix) {
+            return "The value does not start with this field's configured prefix."
+        }
+        if !suffixes.isEmpty, !suffixes.contains(where: value.hasSuffix) {
+            return "The value does not end with this field's configured suffix."
+        }
+        return nil
+    }
+
+    public var summary: String {
+        var rules: [String] = []
+        if rejectURL { rules.append("reject web URLs") }
+        if !prefixes.isEmpty { rules.append("prefix " + prefixes.joined(separator: " or ")) }
+        if !suffixes.isEmpty { rules.append("suffix " + suffixes.joined(separator: " or ")) }
+        return rules.joined(separator: ", ")
+    }
+}
+
+public enum CredentialFieldValidationError: Error, LocalizedError {
+    case invalidDeclaration, wouldBroadenOrConflict
+    public var errorDescription: String? {
+        switch self {
+        case .invalidDeclaration:
+            return "Persistent validation fragments must be 1–64 printable ASCII characters without spaces; at most 8 prefixes or suffixes."
+        case .wouldBroadenOrConflict:
+            return "New persistent validation must narrow the field's existing prefixes and suffixes, not replace them with unrelated alternatives."
+        }
+    }
+}
+
 public struct CredentialField: Codable, Sendable {
     public var value: String?
     public var secret: Bool
@@ -20,15 +132,20 @@ public struct CredentialField: Codable, Sendable {
     /// next to a key sends the key wherever the value says — so a value a caller set without a
     /// prompt is not injected until the person has seen it in the app. 【独立审计 2026-09-14】
     public var setByCaller: String?
+    /// Shape rules approved with this field. Every later safe restore or replacement reuses them;
+    /// nil means an older field has no durable custom rule.
+    public var validation: CredentialFieldValidation?
 
     public init(value: String? = nil, secret: Bool, fileFormat: CredentialFileFormat? = nil,
-                displayName: String? = nil, aliases: [String]? = nil, setByCaller: String? = nil) {
+                displayName: String? = nil, aliases: [String]? = nil, setByCaller: String? = nil,
+                validation: CredentialFieldValidation? = nil) {
         self.value = value
         self.secret = secret
         self.fileFormat = fileFormat
         self.displayName = displayName
         self.setByCaller = setByCaller
         self.aliases = aliases
+        self.validation = validation
     }
 }
 
@@ -110,4 +227,3 @@ public struct MetaFile: Codable, Sendable {
 }
 
 // MARK: - Grant System
-
