@@ -19,6 +19,8 @@ import KeyKeeperCore
         init(_ connection: NWConnection) { self.connection = connection }
     }
     private let controller: ClipboardSaveController
+    private let proposalStore: BrowserImportProposalStore
+    private let now: () -> Date
     private let source = BrowserPasteSource()
     private var listener: NWListener?
     private var peers: [UUID: Peer] = [:]
@@ -32,25 +34,87 @@ import KeyKeeperCore
         id: String(repeating: "0", count: 64), credentialId: "", fieldName: "",
         state: .failed, nextAction: nil, errorCode: .storageUnavailable)
 
-    init(controller: ClipboardSaveController) { self.controller = controller }
+    init(controller: ClipboardSaveController, proposalStore: BrowserImportProposalStore,
+         now: @escaping () -> Date = Date.init) {
+        self.controller = controller
+        self.proposalStore = proposalStore
+        self.now = now
+    }
 
     func cancel() { if active, !snapshot.state.isTerminal { controller.cancel() } }
+
+    func suspendForTermination() -> Bool {
+        guard active, [.pasteReceived, .approvalVisible, .committing].contains(snapshot.state) else { return false }
+        return controller.suspendRecoverableForTermination()
+    }
     func shutdown() {
         active = false; listener?.cancel(); listener = nil
         for id in Array(peers.keys) { lost(id) }
         source.text = nil; ticket = ""; page = ""
+        startedRequest = nil; startedCallerName = nil
     }
 
     func reopen() {
         guard active, [.pasteReceived, .approvalVisible].contains(snapshot.state) else { return }
-        controller.reopenPending()
-        setState(.approvalVisible, nextAction: "Approve or cancel in KeyKeeper.")
+        do {
+            try persistState(.approvalVisible, deadline: controller.pendingDeadline,
+                             nextAction: "Approve or cancel in KeyKeeper.")
+            controller.reopenPending()
+        } catch {
+            controller.fail(.storageUnavailable)
+        }
+    }
+
+    /// Reconstructs a pasted-but-unfinished proposal after the App process restarted. It never
+    /// presents or approves by itself: `proposal open` remains the explicit user action.
+    @discardableResult
+    func recover(_ record: BrowserImportProposalRecord) -> Bool {
+        guard !active, !controller.isPending,
+              !record.snapshot.state.isTerminal,
+              let request = record.request,
+              let callerName = record.callerName,
+              let candidate = record.candidate,
+              let metadataFingerprint = record.metadataFingerprint,
+              let deadline = record.snapshot.deadline else { return false }
+        active = true
+        submitted = true
+        snapshot = record.snapshot
+        source.text = candidate
+        if now() >= deadline {
+            finish(.init(success: false, errorCode: .expired))
+            return false
+        }
+        controller.receive(
+            request, callerName: callerName, isConnected: { true }, source: source,
+            deferPresentation: true, expiresAfter: deadline.timeIntervalSince(now()),
+            survivesDisconnect: true,
+            willCommit: { [weak self] in try self?.markCommitting() },
+            completion: { [weak self] in self?.finish($0) }
+        )
+        guard let context = controller.recoveryContext() else { return false }
+        guard context.metadataFingerprint == metadataFingerprint else {
+            controller.fail(.metadataChanged)
+            return false
+        }
+        guard context.targetValueFingerprint == record.targetValueFingerprint else {
+            controller.fail(.targetValueChanged)
+            return false
+        }
+        do {
+            try persistState(.pasteReceived, deadline: deadline,
+                             nextAction: "Run keykeeper proposal open to approve or cancel in KeyKeeper.")
+            return true
+        } catch {
+            controller.fail(.storageUnavailable)
+            return false
+        }
     }
 
     func start(_ request: ClipboardSaveRequest, callerName: String, isConnected: @escaping () -> Bool,
                ready: @escaping (String) -> Void, completion: @escaping (ClipboardSaveResponse) -> Void) {
         guard !active, !controller.isPending else { completion(.init(success: false, errorCode: .busy)); return }
         active = true; self.completion = completion
+        startedRequest = request; startedCallerName = callerName
         do {
             var random = [UInt8](repeating: 0, count: 32)
             guard SecRandomCopyBytes(kSecRandomDefault, random.count, &random) == errSecSuccess else {
@@ -64,10 +128,7 @@ import KeyKeeperCore
             controller.receive(request, callerName: callerName,
                 isConnected: isConnected, source: source, deferPresentation: true,
                 expiresAfter: nil, survivesDisconnect: true,
-                willCommit: { [weak self] in
-                    self?.setState(.committing, deadline: self?.controller.pendingDeadline,
-                                   nextAction: "Wait for KeyKeeper to finish the local write.")
-                },
+                willCommit: { [weak self] in try self?.markCommitting() },
                 completion: { [weak self] in self?.finish($0) })
             guard controller.isPending else { return }
             let parameters = NWParameters.tcp
@@ -142,11 +203,39 @@ import KeyKeeperCore
                     controller.armDeadline(after: 10 * 60)
                     setState(.pasteReceived, deadline: controller.pendingDeadline,
                              nextAction: "Approve or cancel in KeyKeeper.")
+                    guard let context = controller.recoveryContext(), let deadline = controller.pendingDeadline else {
+                        controller.fail(.storageUnavailable)
+                        throw BrowserImportHTTP.Rejected.invalid
+                    }
+                    guard let startedRequest, let startedCallerName else {
+                        controller.fail(.storageUnavailable)
+                        throw BrowserImportHTTP.Rejected.invalid
+                    }
+                    do {
+                        let timestamp = now()
+                        try proposalStore.stage(.init(
+                            snapshot: snapshot,
+                            request: startedRequest,
+                            callerName: startedCallerName,
+                            candidate: text,
+                            metadataFingerprint: context.metadataFingerprint,
+                            targetValueFingerprint: context.targetValueFingerprint,
+                            createdAt: timestamp,
+                            updatedAt: timestamp
+                        ))
+                    } catch {
+                        controller.fail(.storageUnavailable)
+                        throw BrowserImportHTTP.Rejected.invalid
+                    }
                     respondJSON(id, status: 202, snapshot)
-                    controller.presentPending()
                     if !snapshot.state.isTerminal {
-                        setState(.approvalVisible, deadline: controller.pendingDeadline,
-                                 nextAction: "Approve or cancel in KeyKeeper.")
+                        do {
+                            try persistState(.approvalVisible, deadline: deadline,
+                                             nextAction: "Approve or cancel in KeyKeeper.")
+                            controller.presentPending()
+                        } catch {
+                            controller.fail(.storageUnavailable)
+                        }
                     }
                 }
                 return
@@ -188,6 +277,7 @@ import KeyKeeperCore
         else { state = .failed }
         setState(state, deadline: nil, nextAction: nil, errorCode: response.errorCode)
         source.text = nil
+        try? proposalStore.finish(id: snapshot.id, snapshot: snapshot, now: now())
         let callback = completion; completion = nil; callback?(response)
         DispatchQueue.main.asyncAfter(deadline: .now() + 10 * 60) { [weak self] in self?.shutdown() }
     }
@@ -198,5 +288,23 @@ import KeyKeeperCore
         snapshot.deadline = deadline
         snapshot.nextAction = nextAction
         snapshot.errorCode = errorCode
+    }
+
+    private var startedRequest: ClipboardSaveRequest?
+    private var startedCallerName: String?
+
+    private func markCommitting() throws {
+        try persistState(.committing, deadline: controller.pendingDeadline,
+                         nextAction: "Wait for KeyKeeper to finish the local write.")
+    }
+
+    private func persistState(_ state: BrowserImportProposalState, deadline: Date?, nextAction: String?) throws {
+        var updated = snapshot
+        updated.state = state
+        updated.deadline = deadline
+        updated.nextAction = nextAction
+        updated.errorCode = nil
+        try proposalStore.update(id: updated.id, snapshot: updated, now: now())
+        snapshot = updated
     }
 }

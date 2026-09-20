@@ -40,6 +40,10 @@ extension ClipboardSaveSource {
 
 /// One single-use request at a time. No queue: a queued request could capture the wrong copy.
 @MainActor final class ClipboardSaveController {
+    struct RecoveryContext: Equatable {
+        let metadataFingerprint: Data
+        let targetValueFingerprint: Data?
+    }
     struct Presentation {
         let request: ClipboardSaveRequest
         let callerName: String
@@ -63,7 +67,7 @@ extension ClipboardSaveSource {
         var expiresAt: Date?
         let survivesDisconnect: Bool
         let isConnected: () -> Bool
-        let willCommit: (() -> Void)?
+        let willCommit: (() throws -> Void)?
         let completion: (ClipboardSaveResponse) -> Void
     }
     private let service: KeychainCredentialService
@@ -111,7 +115,7 @@ extension ClipboardSaveSource {
                  isConnected: @escaping () -> Bool,
                  source: ClipboardSaveSource? = nil, deferPresentation: Bool = false,
                  expiresAfter: TimeInterval? = 90, survivesDisconnect: Bool = false,
-                 willCommit: (() -> Void)? = nil,
+                 willCommit: (() throws -> Void)? = nil,
                  completion: @escaping (ClipboardSaveResponse) -> Void) {
         guard pending == nil else { completion(.init(success: false, errorCode: .busy)); return }
         do {
@@ -158,6 +162,16 @@ extension ClipboardSaveSource {
 
     var pendingDeadline: Date? { pending?.expiresAt }
 
+    /// Opaque concurrency guards for a crash-recoverable browser import. Both remain inside the
+    /// app and its dedicated Keychain item; neither is returned over IPC.
+    func recoveryContext() -> RecoveryContext? {
+        guard let pending else { return nil }
+        return RecoveryContext(
+            metadataFingerprint: Data(SHA256.hash(data: pending.metadata)),
+            targetValueFingerprint: pending.valueFingerprint
+        )
+    }
+
     func armDeadline(after interval: TimeInterval) {
         guard pending != nil else { return }
         let deadline = now().addingTimeInterval(interval)
@@ -192,6 +206,22 @@ extension ClipboardSaveSource {
     }
 
     func cancel() { if pending != nil { finish(.init(success: false, errorCode: .denied)) } }
+
+    func fail(_ error: ClipboardSaveError) {
+        if pending != nil { finish(.init(success: false, errorCode: error)) }
+    }
+
+    /// Process shutdown is not a user decision. A browser candidate already staged in the
+    /// Keychain must remain recoverable instead of being converted into a denial by App quit.
+    func suspendRecoverableForTermination() -> Bool {
+        guard pending?.survivesDisconnect == true else { return false }
+        pending = nil
+        isPresented = false
+        timer?.invalidate()
+        timer = nil
+        dismiss()
+        return true
+    }
 
     func resolve(approved: Bool) {
         expireIfNeeded()
@@ -280,7 +310,7 @@ extension ClipboardSaveSource {
                     throw ClipboardSaveError.identityMismatch
                 }
             }
-            pending.willCommit?()
+            try pending.willCommit?()
             let shouldCommitValidation = checkedRequestedValidation != nil
                 && checkedStoredValidation != effectiveValidation
             var previousReplacementValue: String?

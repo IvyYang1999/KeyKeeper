@@ -45,6 +45,7 @@ enum TestInstance {
         var services: [String] = []
         if let credentials = try? SecItemBlobIO.serviceName(environment: environment) { services.append(credentials) }
         if let sessions = try? BrowserSessionStore.serviceName(environment: environment) { services.append(sessions) }
+        if let proposals = try? BrowserImportProposalStore.serviceName(environment: environment) { services.append(proposals) }
         if let approvals = try? ApprovalStore.serviceName(environment: environment) { services.append(approvals) }
         services.append(IntegrityKeyNames.service("metadata-mac", environment: environment))
         return services.filter { $0.hasPrefix("com.keykeeper.test.") }

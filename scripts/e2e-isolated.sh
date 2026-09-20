@@ -134,6 +134,44 @@ OUT="$("$KK" proposal status "$PROPOSAL_ID" --json 2>&1)"
 expect_contains "terminal proposal remains queryable" '"state":"committed"' "$OUT"
 expect_not_contains "proposal status contains no secret" "synthetic-browser-e2e" "$OUT"
 
+echo "==> browser proposal: pasted candidate survives an App restart without another paste"
+export KEYKEEPER_TEST_AUTO_APPROVE=
+stop_app; start_app
+RECOVERY_LOG="$TMP/browser-recovery.log"
+"$KK" save -c browser-restart-fixture --field key --from-browser --create --purpose "e2e: restart recovery" >"$RECOVERY_LOG" 2>&1 &
+RECOVERY_PID=$!
+RECOVERY_URL=""; RECOVERY_ID=""
+for _ in $(seq 1 40); do
+    RECOVERY_URL="$(grep -m1 '^http://127\.0\.0\.1:' "$RECOVERY_LOG" 2>/dev/null || true)"
+    RECOVERY_ID="$(sed -n 's/^Proposal ID: //p' "$RECOVERY_LOG" | head -1)"
+    [ -n "$RECOVERY_URL" ] && [ -n "$RECOVERY_ID" ] && break
+    sleep 0.25
+done
+RECOVERY_FRAGMENT="${RECOVERY_URL##*#}"
+RECOVERY_BASE="${RECOVERY_URL%%#*}"
+RECOVERY_ORIGIN="${RECOVERY_BASE%/}"
+OUT="$(/usr/bin/curl -sS --max-time 5 -X POST "${RECOVERY_BASE}import" \
+    -H "Origin: $RECOVERY_ORIGIN" -H 'Content-Type: text/plain;charset=UTF-8' \
+    -H "X-KeyKeeper-Session: $RECOVERY_FRAGMENT" --data-binary 'synthetic-browser-restart-e2e')"
+expect_contains "restart candidate staged before quit" '"state":"pasteReceived"' "$OUT"
+stop_app
+wait "$RECOVERY_PID" 2>/dev/null || true
+export KEYKEEPER_TEST_AUTO_APPROVE=once
+start_app
+OUT="$("$KK" proposal status "$RECOVERY_ID" --json 2>&1)"
+expect_contains "same proposal id is recoverable after restart" '"state":"pasteReceived"' "$OUT"
+expect_not_contains "recovered status contains no secret" "synthetic-browser-restart-e2e" "$OUT"
+"$KK" proposal open "$RECOVERY_ID" --json >/dev/null
+OUT=""
+for _ in $(seq 1 40); do
+    OUT="$("$KK" proposal status "$RECOVERY_ID" --json 2>&1 || true)"
+    [[ "$OUT" == *'"state":"committed"'* ]] && break
+    sleep 0.25
+done
+expect_contains "reopened proposal commits without another paste" '"state":"committed"' "$OUT"
+OUT="$("$KK" run -c browser-restart-fixture --reason "e2e: recovered value" -- sh -c 'test "$KEY" = synthetic-browser-restart-e2e && echo MATCH' 2>&1)"
+expect_contains "recovered candidate became the intended credential" "MATCH" "$OUT"
+
 echo "==> durable field validation: reject a receiver URL before write, then persist the rule"
 VALIDATION_LOG="$TMP/browser-validation.log"
 "$KK" save -c oauth-fixture --field client-id --from-browser --create --reject-url \
@@ -288,6 +326,11 @@ LISTED="$(printf '%s' "$OUT" | grep -c 'credential: strict1')"; SPENT="$(printf 
 if [ "$LISTED" -ge 1 ] && [ "$LISTED" = "$SPENT" ]; then pass "every once-approval for strict1 is spent"; else fail "every once-approval for strict1 is spent" "listed $LISTED, spent $SPENT"; fi
 OUT="$("$KK" grants revoke no-such-id 2>&1 || true)"; expect_contains "revoking a wrong id says so" "No approval has that ID" "$OUT"
 
+echo "==> relaunch: nothing lost"
+stop_app; start_app
+OUT="$("$KK" run -c svc -- sh -c 'test "$TOKEN" = synthetic-token-e2e && echo MATCH' 2>&1)"
+expect_contains "values survive relaunch" "MATCH" "$OUT"
+
 echo "==> meta.json is signed, and a forged line is not honored"
 OUT="$(grep -c '"integrity"' "$KEYKEEPER_DATA_DIR/meta.json")"
 expect_contains "meta.json signed" "1" "$OUT"
@@ -299,15 +342,17 @@ PY
 OUT="$("$KK" get svc region 2>&1 || true)"; expect_contains "tampered meta.json refused" "changed outside KeyKeeper" "$OUT"
 expect_not_contains "tampered value not served" "attacker" "$OUT"
 
-echo "==> relaunch: nothing lost"
+echo "==> relaunch: tampered metadata stays refused"
 stop_app; start_app
-OUT="$("$KK" run -c svc -- sh -c 'test "$TOKEN" = synthetic-token-e2e && echo MATCH' 2>&1)"
-expect_contains "values survive relaunch" "MATCH" "$OUT"
+OUT="$("$KK" run -c svc -- sh -c 'test "$TOKEN" = synthetic-token-e2e && echo MATCH' 2>&1 || true)"
+expect_contains "relaunch does not bless tampered metadata" "changed outside KeyKeeper" "$OUT"
+expect_not_contains "tampered relaunch injects no value" "MATCH" "$OUT"
 
 echo "==> quit with cleanup: no Keychain item left behind"
 stop_app; start_app 1; stop_app
 LEFT=0
 for svc in "$KEYKEEPER_KEYCHAIN_SERVICE" "$KEYKEEPER_KEYCHAIN_SERVICE.browser-sessions" \
+           "$KEYKEEPER_KEYCHAIN_SERVICE.browser-import-proposals" \
            "$KEYKEEPER_KEYCHAIN_SERVICE.approvals" "$KEYKEEPER_KEYCHAIN_SERVICE.metadata-mac"; do
     if security find-generic-password -s "$svc" >/dev/null 2>&1; then LEFT=$((LEFT+1)); echo "       left behind: $svc"; fi
 done

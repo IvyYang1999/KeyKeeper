@@ -31,10 +31,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
         StandingApprovalRequester.shared.handler = { [weak self] request in self?.handleStandingApproval(request) }
+        let browserImportProposalStore: BrowserImportProposalStore
+        do {
+            browserImportProposalStore = try .production()
+        } catch {
+            writeToStandardError("KeyKeeper browser import storage setup failed: \(error.localizedDescription)")
+            terminateGracefully()
+            return
+        }
         ipcServer = IPCServer(session: credentialService, approvals: .shared,
             clipboardSaveController: ClipboardSaveController(service: credentialService, approvals: .shared),
             envImportController: EnvImportController(service: credentialService, approvals: .shared),
-            browserSessionController: browserSessions.controller)
+            browserSessionController: browserSessions.controller,
+            browserImportProposalStore: browserImportProposalStore)
         switch ipcServer.start() {
         case .started(let disposition):
             if disposition == .replacedStaleSocket {

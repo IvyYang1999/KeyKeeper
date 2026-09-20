@@ -3,6 +3,11 @@ import KeyKeeperCore
 @testable import KeyKeeperApp
 import KeyKeeperTestSupport
 
+private final class BridgeProposalMarker: BrowserImportProposalMarker, @unchecked Sendable {
+    var created = false
+    func wasCreated() throws -> Bool { created }
+    func markCreated() throws { created = true }
+}
 
 @MainActor final class BrowserImportBridgeTests: XCTestCase {
     private var directory: URL!
@@ -11,6 +16,9 @@ import KeyKeeperTestSupport
     private var service: KeychainCredentialService!
     private var controller: ClipboardSaveController!
     private var bridge: BrowserImportBridge!
+    private var proposalStore: BrowserImportProposalStore!
+    private var proposalMarker: BridgeProposalMarker!
+    private var proposalIO: FakeKeychainIO!
     private var url: URL!
     private var results: [ClipboardSaveResponse] = []
     private var decision: ((Bool) -> Void)?
@@ -22,9 +30,12 @@ import KeyKeeperTestSupport
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         meta = MetaStore(directory: directory); io = FakeKeychainIO()
         service = KeychainCredentialService(store: KeychainBlobStore(io: io, loadMetadata: { try self.meta.load() }))
+        proposalMarker = BridgeProposalMarker()
+        proposalIO = io.keychain.io("com.keykeeper.test.browser-import-proposals")
+        proposalStore = BrowserImportProposalStore(io: proposalIO, marker: proposalMarker)
         controller = ClipboardSaveController(service: service, metaStore: meta, approvals: .inMemory(), now: { self.clock },
             present: { _, decide in self.decision = decide }, dismiss: {})
-        bridge = BrowserImportBridge(controller: controller)
+        bridge = BrowserImportBridge(controller: controller, proposalStore: proposalStore, now: { self.clock })
         connected = true; results = []; decision = nil; clock = Date()
     }
     override func tearDownWithError() throws {
@@ -134,7 +145,8 @@ import KeyKeeperTestSupport
         let (data, _) = try await URLSession.shared.data(for: status())
         XCTAssertEqual(try JSONDecoder().decode(BrowserImportProposalSnapshot.self, from: data).state, .cancelled)
         XCTAssertEqual(io.writes, 0)
-        decision = nil; bridge = BrowserImportBridge(controller: controller)
+        decision = nil
+        bridge = BrowserImportBridge(controller: controller, proposalStore: proposalStore, now: { self.clock })
         try await start()
         oldBridge?.cancel()
         XCTAssertTrue(controller.isPending)
@@ -143,11 +155,94 @@ import KeyKeeperTestSupport
     func testReceiverExpiresButDisconnectedCLIDoesNotCancelProposal() async throws {
         try await start(); clock.addTimeInterval(91); controller.expireIfNeeded()
         XCTAssertEqual(results.last?.errorCode, .expired); XCTAssertEqual(io.writes, 0)
-        bridge = BrowserImportBridge(controller: controller)
+        bridge = BrowserImportBridge(controller: controller, proposalStore: proposalStore, now: { self.clock })
         let completedCount = results.count
         try await start(); connected = false; controller.expireIfNeeded()
         XCTAssertTrue(controller.isPending)
         XCTAssertEqual(results.count, completedCount, "Closing the original CLI is not a proposal decision")
         XCTAssertEqual(io.writes, 0)
+    }
+
+    func testPastedProposalSurvivesAppRestartAndCommitsWithoutAnotherPaste() async throws {
+        try await start()
+        let submission = Task { try await URLSession.shared.data(for: post()) }
+        for _ in 0..<150 {
+            if decision != nil { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertNotNil(decision)
+        _ = try await submission.value
+        let proposalID = bridge.snapshot.id
+        XCTAssertEqual(try proposalStore.record(id: proposalID)?.candidate, "synthetic-browser")
+
+        // Simulate process death: no denial callback and no cleanup gets to run.
+        XCTAssertTrue(bridge.suspendForTermination())
+        decision = nil
+        let reopenedStore = BrowserImportProposalStore(
+            io: io.keychain.io("com.keykeeper.test.browser-import-proposals"), marker: proposalMarker)
+        controller = ClipboardSaveController(service: service, metaStore: meta, approvals: .inMemory(), now: { self.clock },
+            present: { _, decide in self.decision = decide }, dismiss: {})
+        bridge = BrowserImportBridge(controller: controller, proposalStore: reopenedStore, now: { self.clock })
+        let record = try XCTUnwrap(reopenedStore.record(id: proposalID))
+
+        XCTAssertTrue(bridge.recover(record))
+        XCTAssertEqual(bridge.snapshot.state, .pasteReceived)
+        XCTAssertNil(decision, "Recovery must not approve or show a stale window by itself")
+        bridge.reopen()
+        XCTAssertNotNil(decision)
+        decision?(true)
+
+        XCTAssertEqual(bridge.snapshot.state, .committed)
+        XCTAssertEqual(try service.retrieve(credentialId: "fixture", fieldName: "key"), "synthetic-browser")
+        XCTAssertNil(try reopenedStore.record(id: proposalID)?.candidate)
+    }
+
+    func testRecoveryRejectsMetadataChangedWhileAppWasStoppedAndScrubsCandidate() async throws {
+        try await start()
+        let submission = Task { try await URLSession.shared.data(for: post()) }
+        for _ in 0..<150 {
+            if decision != nil { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertNotNil(decision)
+        _ = try await submission.value
+        let proposalID = bridge.snapshot.id
+
+        var changed = try meta.load()
+        changed.credentials["unrelated"] = Credential(label: "unrelated", notes: "", links: [], fields: [:],
+                                                        security: .strict, created: "", updated: "")
+        try meta.save(changed)
+        decision = nil
+        let reopenedStore = BrowserImportProposalStore(
+            io: io.keychain.io("com.keykeeper.test.browser-import-proposals"), marker: proposalMarker)
+        controller = ClipboardSaveController(service: service, metaStore: meta, approvals: .inMemory(), now: { self.clock },
+            present: { _, decide in self.decision = decide }, dismiss: {})
+        bridge = BrowserImportBridge(controller: controller, proposalStore: reopenedStore, now: { self.clock })
+
+        XCTAssertFalse(bridge.recover(try XCTUnwrap(reopenedStore.record(id: proposalID))))
+        XCTAssertEqual(bridge.snapshot.state, .failed)
+        XCTAssertEqual(bridge.snapshot.errorCode, .metadataChanged)
+        XCTAssertNil(try reopenedStore.record(id: proposalID)?.candidate)
+        XCTAssertNil(decision)
+        XCTAssertEqual(io.writes, 0)
+    }
+
+    func testCommitJournalFailureStopsBeforeCredentialWrite() async throws {
+        try await start()
+        let submission = Task { try await URLSession.shared.data(for: post()) }
+        for _ in 0..<150 {
+            if decision != nil { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertNotNil(decision)
+        _ = try await submission.value
+        proposalIO.failWrites = true
+
+        decision?(true)
+
+        XCTAssertEqual(bridge.snapshot.state, .failed)
+        XCTAssertEqual(bridge.snapshot.errorCode, .storageUnavailable)
+        XCTAssertEqual(io.writes, 0, "A missing committing journal entry must stop before the credential vault")
+        XCTAssertThrowsError(try service.retrieve(credentialId: "fixture", fieldName: "key"))
     }
 }

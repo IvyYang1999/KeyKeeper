@@ -62,6 +62,8 @@ final class IPCServer: ObservableObject {
     private let clipboardSaveController: ClipboardSaveController?
     private let envImportController: EnvImportController?
     private let browserSessionController: BrowserSessionController?
+    private let browserImportProposalStore: BrowserImportProposalStore?
+    private var browserImportStoreAvailable = true
     private var browserImportBridge: BrowserImportBridge?
     private var browserImportBridges: [String: BrowserImportBridge] = [:]
 
@@ -129,7 +131,8 @@ final class IPCServer: ObservableObject {
         approvals: ApprovalStore,
         clipboardSaveController: ClipboardSaveController? = nil,
         envImportController: EnvImportController? = nil,
-        browserSessionController: BrowserSessionController? = nil
+        browserSessionController: BrowserSessionController? = nil,
+        browserImportProposalStore: BrowserImportProposalStore? = nil
     ) {
         self.session = session
         self.metaStore = metaStore
@@ -137,6 +140,7 @@ final class IPCServer: ObservableObject {
         self.clipboardSaveController = clipboardSaveController
         self.envImportController = envImportController
         self.browserSessionController = browserSessionController
+        self.browserImportProposalStore = browserImportProposalStore
         browserSessionController?.otherApprovalPending = { [weak self] in
             guard let self else { return true }
             return self.pendingRequest != nil || self.pendingServiceRequest != nil || self.clipboardSaveController?.isPending == true || self.envImportController?.isPending == true
@@ -219,11 +223,12 @@ final class IPCServer: ObservableObject {
         source.resume()
         listenSource = source
         listenCancellationSemaphore = cancellationSemaphore
+        restoreBrowserImportProposal()
         return .started(disposition)
     }
 
     func stop() {
-        clipboardSaveController?.cancel()
+        if browserImportBridge?.suspendForTermination() != true { clipboardSaveController?.cancel() }
         envImportController?.cancel()
         browserSessionController?.stopAll()
         guard let listener else { return }
@@ -297,6 +302,28 @@ final class IPCServer: ObservableObject {
     func denyPending() {
         guard let pending = pendingRequest else { return }
         respond(to: pending, with: AuthResponse(granted: false, error: "User denied"))
+    }
+
+    /// Called only after this process owns the IPC socket, so a duplicate launch never reads or
+    /// mutates the proposal Keychain item. At most one nonterminal record is admitted by the store.
+    private func restoreBrowserImportProposal() {
+        guard let store = browserImportProposalStore else { return }
+        do {
+            let records = try store.records()
+            guard let record = records.first(where: { !$0.snapshot.state.isTerminal }) else { return }
+            guard let controller = clipboardSaveController, !controller.isPending else {
+                browserImportStoreAvailable = false
+                return
+            }
+            let bridge = BrowserImportBridge(controller: controller, proposalStore: store)
+            browserImportBridge = bridge
+            browserImportBridges[record.snapshot.id] = bridge
+            _ = bridge.recover(record)
+        } catch {
+            // Other KeyKeeper features remain usable, but browser import must not create a second
+            // journal over an unreadable or missing first one.
+            browserImportStoreAvailable = false
+        }
     }
 
     // MARK: - Private
@@ -394,15 +421,27 @@ final class IPCServer: ObservableObject {
             }
         case .browserImport(let request):
             DispatchQueue.main.async { [weak self] in
-                guard let self, let controller = self.clipboardSaveController else {
+                guard let self, let controller = self.clipboardSaveController,
+                      let proposalStore = self.browserImportProposalStore,
+                      self.browserImportStoreAvailable else {
                     Self.writeAndClose(.clipboardSave(.init(success: false, errorCode: .storageUnavailable)), clientFd: clientFd)
+                    return
+                }
+                do {
+                    guard try proposalStore.records().allSatisfy({ $0.snapshot.state.isTerminal }) else {
+                        self.send(.clipboardSave(.init(success: false, errorCode: .busy)), clientFd: clientFd)
+                        return
+                    }
+                } catch {
+                    self.browserImportStoreAvailable = false
+                    self.send(.clipboardSave(.init(success: false, errorCode: .storageUnavailable)), clientFd: clientFd)
                     return
                 }
                 guard self.pendingRequest == nil, self.pendingServiceRequest == nil, !controller.isPending, self.browserSessionController?.isPending != true, self.envImportController?.isPending != true, envImportController?.isPending != true else {
                     self.send(.clipboardSave(.init(success: false, errorCode: .busy)), clientFd: clientFd)
                     return
                 }
-                let bridge = BrowserImportBridge(controller: controller)
+                let bridge = BrowserImportBridge(controller: controller, proposalStore: proposalStore)
                 self.browserImportBridge = bridge
                 bridge.start(request, callerName: callerIdentity.displayName,
                     isConnected: { peerPID > 0 && Self.isClientConnected(clientFd) },
@@ -417,7 +456,7 @@ final class IPCServer: ObservableObject {
                             catch { DispatchQueue.main.async { bridge.cancel() } }
                         }
                     }, completion: { response in
-                        self.browserImportBridge = nil
+                        if self.browserImportBridge === bridge { self.browserImportBridge = nil }
                         self.send(.clipboardSave(response), clientFd: clientFd)
                     })
             }
@@ -429,20 +468,49 @@ final class IPCServer: ObservableObject {
                 }
                 do {
                     try request.validate()
-                    guard let bridge = self.browserImportBridges[request.id] else {
+                    if let bridge = self.browserImportBridges[request.id] {
+                        if request.action == .open {
+                            guard !bridge.snapshot.state.isTerminal else {
+                                self.send(.browserImportProposal(.init(error: .noLongerOpen)), clientFd: clientFd)
+                                return
+                            }
+                            bridge.reopen()
+                        }
+                        self.send(.browserImportProposal(.init(proposal: bridge.snapshot)), clientFd: clientFd)
+                        return
+                    }
+                    guard self.browserImportStoreAvailable,
+                          let record = try self.browserImportProposalStore?.record(id: request.id) else {
                         self.send(.browserImportProposal(.init(error: .notFound)), clientFd: clientFd)
                         return
                     }
                     if request.action == .open {
-                        guard !bridge.snapshot.state.isTerminal else {
+                        guard !record.snapshot.state.isTerminal else {
                             self.send(.browserImportProposal(.init(error: .noLongerOpen)), clientFd: clientFd)
                             return
                         }
+                        guard let controller = self.clipboardSaveController,
+                              !controller.isPending,
+                              let store = self.browserImportProposalStore else {
+                            self.send(.browserImportProposal(.init(proposal: record.snapshot)), clientFd: clientFd)
+                            return
+                        }
+                        let bridge = BrowserImportBridge(controller: controller, proposalStore: store)
+                        self.browserImportBridge = bridge
+                        self.browserImportBridges[request.id] = bridge
+                        _ = bridge.recover(record)
                         bridge.reopen()
+                        self.send(.browserImportProposal(.init(proposal: bridge.snapshot)), clientFd: clientFd)
+                        return
                     }
-                    self.send(.browserImportProposal(.init(proposal: bridge.snapshot)), clientFd: clientFd)
+                    self.send(.browserImportProposal(.init(proposal: record.snapshot)), clientFd: clientFd)
                 } catch {
-                    self.send(.browserImportProposal(.init(error: .invalidID)), clientFd: clientFd)
+                    if error is BrowserImportProposalStoreError {
+                        self.browserImportStoreAvailable = false
+                        self.send(.browserImportProposal(.init(error: .notFound)), clientFd: clientFd)
+                    } else {
+                        self.send(.browserImportProposal(.init(error: .invalidID)), clientFd: clientFd)
+                    }
                 }
             }
         case .clipboardSave(let request):
