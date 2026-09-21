@@ -23,10 +23,15 @@ struct RunCommand: ParsableCommand {
         redact child-process output.
 
         Environment variable names are derived from field names: uppercased with \
-        non-alphanumeric characters replaced by underscores.
+        non-alphanumeric characters replaced by underscores. Use --env when a program \
+        requires a different exact variable name. Use --plan to inspect final names, \
+        conflicts, local value presence and access policy without reading a secret or \
+        starting the command.
 
         Example:
           keykeeper run -c my-api -- python script.py
+          keykeeper run -c my-api --env my-api:key=PROVIDER_API_KEY -- python script.py
+          keykeeper run -c my-api --plan --env my-api:key=PROVIDER_API_KEY
           keykeeper run -c my-api --tty -- vim
           keykeeper run -c stripe -c openai -- node server.js
 
@@ -41,6 +46,9 @@ struct RunCommand: ParsableCommand {
 
     @Option(name: .long, help: "Prefix for injected environment variable names (e.g. KEYKEEPER_).")
     var prefix: String = ""
+
+    @Option(name: .customLong("env"), help: "Text mapping credential-id:field=ENV_NAME (repeatable; requires -c for that credential). Replaces that field's derived and alias names.")
+    var environment: [String] = []
 
     @Option(name: .long, help: "File mapping credential-id:field=ENV_NAME (repeatable; requires -c for that credential). JSON contents never become an env value.")
     var file: [String] = []
@@ -57,16 +65,20 @@ struct RunCommand: ParsableCommand {
     @Flag(name: .long, help: "Run with inherited TTY; disables stdout/stderr redaction for TUI programs.")
     var tty: Bool = false
 
+    @Flag(name: .long, help: "Preview final field-to-variable mappings and local value presence without reading secrets or starting the command.")
+    var plan: Bool = false
+
     @Argument(parsing: .postTerminator, help: "The command and arguments to run.")
-    var command: [String]
+    var command: [String] = []
 
     func validate() throws {
-        guard !command.isEmpty else {
+        guard plan || !command.isEmpty else {
             throw ValidationError("No command specified. Use '--' before the command, e.g.: keykeeper run -c my-api -- python script.py")
         }
         guard !credential.isEmpty else {
             throw ValidationError("At least one credential ID is required (-c <id>).")
         }
+        guard !plan || !tty else { throw ValidationError("--plan cannot be combined with --tty because it never starts a command.") }
         guard file.isEmpty || !tty else { throw ValidationError("Credential files require output redaction; --file cannot be combined with --tty.") }
     }
 
@@ -169,18 +181,27 @@ struct RunCommand: ParsableCommand {
     func run() throws {
         let store = MetaStore.default
         let meta = try store.load()
-        let session = SessionResolver.resolve()
         let credentialIds = try Self.resolveCredentialIds(credential, in: meta)
-        let filePlan = try FileInjectionPlan(credentials: credentialIds, mappings: file, prefix: prefix, meta: meta)
-        if filePlan.hasFiles { try CredentialFileLease.sweepStale() }
+        let injectionPlan = try RunInjectionPlan(
+            credentials: credentialIds,
+            environmentMappings: environment,
+            fileMappings: file,
+            prefix: prefix,
+            meta: meta
+        )
+        if plan {
+            print(injectionPlan.render(meta: meta, inventory: ValueAvailabilityQuery.inventory()))
+            return
+        }
+
+        let session = SessionResolver.resolve()
+        if injectionPlan.hasFiles { try CredentialFileLease.sweepStale() }
         var fileLease: CredentialFileLease?
         defer { fileLease?.close() }
 
         // Plain values are injected straight from meta.json; refuse if that file is not the one
         // the app signed. Only asked when something plain would actually be injected.
-        let injectsPlainValues = credentialIds.contains { id in
-            meta.credentials[id]?.fields.values.contains { !$0.secret && $0.setByCaller == nil && $0.value?.isEmpty == false } == true
-        }
+        let injectsPlainValues = injectionPlan.bindings.contains { $0.kind == .plainText }
         for id in credentialIds {
             if let cred = meta.credentials[id], let note = Self.unconfirmedPlainNote(credentialId: id, credential: cred) {
                 FileHandle.standardError.write(Data((note + "\n").utf8))
@@ -204,44 +225,35 @@ struct RunCommand: ParsableCommand {
                 FileHandle.standardError.write(Data((warning + "\n").utf8))
             }
 
-            // Plain metadata values (an account id, a region): straight from meta.json.
-            try Self.mergePlainFields(of: cred, prefix: prefix, into: &injectedEnv, aliases: &aliasEnv)
-
             let secretFieldNames = cred.fields
                 .filter(\.value.secret)
                 .map(\.key)
                 .sorted()
 
-            for fieldName in secretFieldNames {
-                let envName = filePlan.environmentName(credential: credId, field: fieldName)
-                    ?? (prefix + Self.envVarName(from: fieldName))
-
-                if injectedEnv[envName] != nil {
-                    throw CommandFailure(
-                        "Environment variable conflict: '\(envName)' would be set by multiple fields. " +
-                        "Use --prefix to disambiguate."
-                    )
+            for binding in injectionPlan.bindings where binding.credentialId == credId {
+                if binding.kind == .plainText {
+                    guard let value = cred.fields[binding.fieldName]?.value else { continue }
+                    injectedEnv[binding.environmentName] = value
+                    for alias in binding.aliasEnvironmentNames { aliasEnv[alias] = value }
+                    continue
                 }
 
-                // Read secret via IPC — App owns the unlocked age session
+                // Read secret via IPC only after the complete mapping has passed validation.
                 let value = try Self.readSecret(
-                    credentialId: credId, credential: cred, fieldName: fieldName,
+                    credentialId: credId, credential: cred, fieldName: binding.fieldName,
                     requestedFieldNames: secretFieldNames, session: session, statedReason: statedReason(),
                     requestedDuration: duration, commandSummary: Self.commandSummary(command)
                 )
-                if let format = cred.fields[fieldName]?.fileFormat {
+                if binding.kind == .secretFile,
+                   let format = cred.fields[binding.fieldName]?.fileFormat {
                     _ = try format.validate(Data(value.utf8))
                     if fileLease == nil { fileLease = try CredentialFileLease() }
-                    injectedEnv[envName] = try fileLease!.write(Data(value.utf8))
+                    injectedEnv[binding.environmentName] = try fileLease!.write(Data(value.utf8))
                     secretValues += format.redactionValues(for: value)
                 } else {
-                    injectedEnv[envName] = value
+                    injectedEnv[binding.environmentName] = value
                     secretValues.append(value)
-                    // Earlier field names keep their variables, so scripts written before a
-                    // rename still work. A current name always wins over an old one.
-                    for oldName in Self.aliasEnvironmentNames(for: cred, field: fieldName, prefix: prefix) {
-                        aliasEnv[oldName] = aliasEnv[oldName] ?? value
-                    }
+                    for alias in binding.aliasEnvironmentNames { aliasEnv[alias] = value }
                 }
             }
         }

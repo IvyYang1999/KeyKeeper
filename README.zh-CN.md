@@ -73,6 +73,9 @@ open /Applications/KeyKeeper.app
    keykeeper run -c openai -- claude               # AI 工具从头到尾看不到值
    ```
 
+   如果程序要求另一个固定变量名，加上可重复的 `--env <id>:<字段>=<变量名>` 映射；
+   先用 `--plan` 预览完整映射。
+
 设置就这么多。不用想密码短语，不用收好恢复码。
 
 ## 工作原理
@@ -99,7 +102,7 @@ sequenceDiagram
 ```
 
 - **存** — 在应用里添加 key，或用 `keykeeper://add?label=…&fields=…` 链接打开预填好的表单。机密值进入一条钥匙串项，由 macOS 加密，不同步到任何地方。名字、备注、字段名，以及你标为明文的字段，都放在明文的 `meta.json` 里。
-- **用** — `keykeeper run -c <id> -- <命令>` 把秘密字段注入为环境变量。命令输出里只要含有秘密，就会被替换成 `[REDACTED]`。应用按需自动启动。
+- **用** — `keykeeper run -c <id> -- <命令>` 把秘密字段注入为环境变量。程序要求另一个固定变量名时，用 `--env <id>:<字段>=<变量名>` 精确映射；`--plan` 能在不读取秘密、不启动命令的前提下预览最终变量名、冲突、本地存储状态和授权策略。命令输出里只要含有秘密，就会被替换成 `[REDACTED]`。应用按需自动启动。
 - **批准** — 新的终端会话、脚本或 agent 第一次请求某把 key 时，KeyKeeper 会显示*谁*在请求，你点一次允许即可。批准记录列在凭据页面上，可以撤销。
 - **重启后** — 登录一次，一切（包括 cron）就恢复工作。日常不会弹任何窗。
 
@@ -124,7 +127,8 @@ sequenceDiagram
 | `keykeeper list` | ID 和名字 |
 | `keykeeper list --detail` | 外加备注和字段名（秘密显示为 `********`） |
 | `keykeeper meta <id>` | 一条凭据的 JSON，不含值 |
-| `keykeeper run -c <id> [-c <id2>] [--prefix PREFIX_] [--verbose] [--tty] -- <命令>` | 带着 key 运行命令 |
+| `keykeeper run -c <id> [-c <id2>] [--env <id>:<字段>=<变量名>] [--prefix PREFIX_] [--verbose] [--tty] -- <命令>` | 带着 key 运行命令；显式映射会替代该字段自动推导的变量名和旧名 |
+| `keykeeper run -c <id> [映射选项] --plan` | 预览最终变量名、冲突、本地存储状态和授权策略；不读取秘密，也不启动命令 |
 | `keykeeper status` | 应用是否可达（反正它会按需启动） |
 | `keykeeper grants list` / `grants revoke <id>` | 授权：哪些调用方可以用哪些 key 或登录态、多久 |
 | `keykeeper requests list` | 正在等待的授权窗口 |

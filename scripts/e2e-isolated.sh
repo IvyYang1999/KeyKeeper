@@ -263,6 +263,16 @@ expect_contains "value injected" "MATCH" "$OUT"
 OUT="$("$KK" run -c svc -- sh -c 'echo "$TOKEN"' 2>&1)"
 expect_contains "child output redacted" "[REDACTED]" "$OUT"; expect_not_contains "value never printed" "synthetic-token-e2e" "$OUT"
 
+echo "==> run planning and exact text-field mapping"
+TEXT_MAPPING="$(printf '%s%b%s' 'svc:token' '\x3d' 'SERVICE_API_KEY')"
+OUT="$("$KK" run -c svc --plan --env "$TEXT_MAPPING" 2>&1)"
+expect_contains "plan shows the exact final variable" "svc:token -> SERVICE_API_KEY" "$OUT"
+expect_contains "plan checks local presence without reading" "stored: yes" "$OUT"
+expect_contains "plan states that no command started" "No secret values were read. No command was started." "$OUT"
+expect_not_contains "plan contains no secret" "synthetic-token-e2e" "$OUT"
+OUT="$("$KK" run -c svc --env "$TEXT_MAPPING" -- sh -c 'test "$SERVICE_API_KEY" = synthetic-token-e2e && test -z "${TOKEN+x}" && echo MATCH' 2>&1)"
+expect_contains "explicit mapping replaces the default variable" "MATCH" "$OUT"
+
 echo "==> add one missing secret field without renaming or replacing the credential"
 OUT="$("$KK" save -c svc --field second-token --from-source "$TMP/config.py" --python-symbol STRICT_KEY --add-field 2>&1)"
 expect_contains "add-field is explicit and succeeds" "Added the secret field" "$OUT"
@@ -311,6 +321,10 @@ expect_contains "a non-.env file is refused before the App reads it" ".env" "$OU
 echo "==> strict credential: every run asks, the instance answers 'once'"
 OUT="$("$KK" save -c strict1 --field key --from-source "$TMP/config.py" --python-symbol STRICT_KEY --create 2>&1)"
 expect_contains "save strict" "Saved" "$OUT"
+OUT="$("$KK" run -c strict1 --plan 2>&1)"
+expect_contains "strict plan reports runtime approval policy" "access: checked at run time (Ask Every Time)" "$OUT"
+OUT="$("$KK" grants list --credential strict1 2>&1)"
+expect_contains "plan did not create an approval" "No approvals." "$OUT"
 # 2026-09-15: a request without a reason still gets its window (the window says so); the
 # isolated instance answers it like any other, so the run goes through.
 OUT="$("$KK" run -c strict1 -- sh -c 'test "$KEY" = synthetic-strict-e2e && echo MATCH' 2>&1)"

@@ -37,6 +37,13 @@ File fields require an explicit `--file` mapping and provide a temporary path in
 contents (see Credential files below). Output redaction is a safety net for known values,
 not protection against arbitrary encoding, transformation or a malicious child process.
 
+When a program requires a different exact variable name, use the repeatable
+`--env <credential-id>:<field>=<name>` mapping. It replaces that field's derived current and
+alias names. Before a multi-credential run or a new explicit mapping, use `--plan` with the
+same credential and mapping options but no business command. It previews names, conflicts,
+local value presence and access policy without reading secrets or starting the command. A plan
+is not provider verification and does not prove that runtime approval already exists.
+
 ```bash
 keykeeper run -c <credential-id> -- python script.py
 keykeeper run -c stripe -c openai -- node server.js        # several credentials

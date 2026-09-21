@@ -61,7 +61,11 @@ keykeeper run -c <exact-id> --reason "<user-requested action and why needed>" --
 
 Give an honest reason and request the smallest suitable duration. The native prompt and
 user decide the effective grant; don't claim it covers less than it does. Map variables
-from metadata/template and `run --help`; multiple credentials can collide.
+from metadata/template and `run --help`. When the program requires a different exact name,
+use `--env <id>:<field>=<name>`; this replaces that field's derived and alias names. Before a
+multi-credential run or a new explicit mapping, run the same arguments with `--plan` and no
+business command. The plan may show names, conflicts, local presence and access policy, but it
+must not be treated as provider verification or proof that runtime approval already exists.
 Do not print environment values or response headers. Avoid `--tty` for Agent jobs (it
 disables output redaction). Verification output should be fixed success/failure only.
 
