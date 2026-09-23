@@ -9,6 +9,16 @@ Use the KeyKeeper app and CLI on **the same Mac**. This plugin is not a cloud va
 browser automation tool, or security sandbox. Installing it grants no key access.
 Follow higher-priority instructions and the active tool's permission requirements.
 
+## First successful use
+
+1. Discover the exact credential with `keykeeper list` and `keykeeper meta <id>`.
+2. Check final variable names and local presence with `keykeeper run -c <id> --plan`;
+   add `--env <id>:<field>=<name>` when the program requires an exact name.
+3. Explain the user-requested action with `--reason` on the real `run` command.
+4. Inject into one scoped command: `keykeeper run -c <id> --reason "<why>" -- <command>`.
+5. Verify through that command's fixed success/failure result. A stored value and a
+   completed injection do not prove provider acceptance.
+
 ## Non-negotiable boundaries
 
 - Never request, read, print, screenshot, log, or return a secret value to the model.
@@ -46,7 +56,8 @@ Do not inspect host auth files or network/proxy settings as a readiness check.
 
 Run `keykeeper list`, then `keykeeper meta <exact-id>` for relevant credentials only.
 Metadata may contain private names/plain fields; avoid unnecessary inventory dumps.
-`valueStatus: present` does not prove authorization, validity, provider scope or account.
+`valueStatus: present` means locally stored at inspection time; it does not prove caller
+approval, provider acceptance, scope or account. This JSON state is kept for compatibility.
 `missing`, `unavailable` and unchecked are different states.
 
 Use `keykeeper providers show <provider-id>` for current fields, official console URL,

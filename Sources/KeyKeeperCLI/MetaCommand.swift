@@ -5,7 +5,8 @@ import KeyKeeperCore
 struct MetaCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "meta",
-        abstract: "Show credential metadata as JSON (no secret values)"
+        abstract: "Show credential metadata as JSON (no secret values)",
+        discussion: "valueStatus is a point-in-time local storage check. present does not mean this caller is approved or the provider accepts the credential."
     )
 
     @Argument(help: "Credential ID")

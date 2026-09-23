@@ -5,7 +5,7 @@ import KeyKeeperCore
 /// There is no unlock/lock any more: the keychain opens with the user's login
 /// (decision 2026-09-03). `status` only reports whether the app is reachable.
 struct StatusCommand: ParsableCommand {
-    @Flag(name: .long, help: "Check local value presence without prompts; no provider validation or read grant")
+    @Flag(name: .long, help: "Check local value presence without prompts; present does not prove caller approval or provider acceptance")
     var checkValues = false
     static let configuration = CommandConfiguration(
         commandName: "status",

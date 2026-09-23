@@ -10,6 +10,16 @@ Secret values live in the macOS Keychain and are served only by the KeyKeeper ap
 which starts automatically when a key is requested.
 **Secret values MUST NOT appear in this conversation, in code, or in terminal output.**
 
+## First successful use
+
+1. Discover: `keykeeper list`, then `keykeeper meta <id>` for the relevant credential.
+2. Check: `keykeeper run -c <id> --plan` to confirm final variable names and local presence;
+   add `--env <id>:<field>=<name>` if the program requires a particular name.
+3. Explain: put the user-requested action in `--reason` on the actual `run` command.
+4. Inject: `keykeeper run -c <id> --reason "<why>" -- <command>`.
+5. Verify: the scoped command should emit a fixed success/failure result. Local storage and
+   completed injection do not prove the provider accepts the credential.
+
 ## Discovering available credentials
 
 ```bash
@@ -21,9 +31,10 @@ keykeeper status --check-values # local value-presence states only; never prints
 
 The **ID** (left of the `|` in `keykeeper list`) is what you pass to `-c`.
 Current `meta` also reports `valueStatus`: `present` means the required fields existed
-in local storage at the time of inspection, NOT that a provider accepts them or that
-the caller has read permission. `missing` lists the absent field names; `unavailable`
-means the App could not check without prompting (or is unavailable/too old), not data
+in local storage at the time of inspection, not that a provider accepts them or that
+the caller has read permission. The JSON state remains for compatibility. `missing` lists
+the absent field names; `unavailable` means the App could not check without prompting
+(or is unavailable/too old), not data
 loss. An older reply without `valueStatus` is unchecked. Plain `status` only says the
 App is reachable. Presence checks never restore, delete or overwrite values.
 Field names become environment variable names: `api-key` → `API_KEY`, `base url` → `BASE_URL`.
@@ -41,8 +52,8 @@ When a program requires a different exact variable name, use the repeatable
 `--env <credential-id>:<field>=<name>` mapping. It replaces that field's derived current and
 alias names. Before a multi-credential run or a new explicit mapping, use `--plan` with the
 same credential and mapping options but no business command. It previews names, conflicts,
-local value presence and access policy without reading secrets or starting the command. A plan
-is not provider verification and does not prove that runtime approval already exists.
+local value presence and access policy without returning secret values to the CLI or starting
+the command. A plan is not provider verification and does not prove that runtime approval exists.
 
 ```bash
 keykeeper run -c <credential-id> -- python script.py

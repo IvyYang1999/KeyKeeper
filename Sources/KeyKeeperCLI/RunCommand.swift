@@ -25,8 +25,11 @@ struct RunCommand: ParsableCommand {
         Environment variable names are derived from field names: uppercased with \
         non-alphanumeric characters replaced by underscores. Use --env when a program \
         requires a different exact variable name. Use --plan to inspect final names, \
-        conflicts, local value presence and access policy without reading a secret or \
-        starting the command.
+        conflicts, local value presence and access policy without returning secret \
+        values to the CLI or starting the command. Local presence does not prove \
+        caller approval or provider acceptance. If the child command exits \
+        unsuccessfully, a short diagnostic \
+        distinguishes completed injection from the child result; --verbose adds names.
 
         Example:
           keykeeper run -c my-api -- python script.py
@@ -65,7 +68,7 @@ struct RunCommand: ParsableCommand {
     @Flag(name: .long, help: "Run with inherited TTY; disables stdout/stderr redaction for TUI programs.")
     var tty: Bool = false
 
-    @Flag(name: .long, help: "Preview final field-to-variable mappings and local value presence without reading secrets or starting the command.")
+    @Flag(name: .long, help: "Preview final mappings and local value presence without returning secret values to the CLI or starting the command.")
     var plan: Bool = false
 
     @Argument(parsing: .postTerminator, help: "The command and arguments to run.")
@@ -166,6 +169,18 @@ struct RunCommand: ParsableCommand {
     static func commandSummary(_ command: [String]) -> String? {
         let line = CallerStatedReason.printableLine(command.joined(separator: " "), limit: 200)
         return line.isEmpty ? nil : line
+    }
+
+    /// Only called after the child has started and returned. No values or command output enter
+    /// this message; `--verbose` already prints the injected variable names separately.
+    static func failureSummary(exitStatus: Int32, injectedVariableCount: Int) -> String? {
+        guard exitStatus != 0 else { return nil }
+        let noun = injectedVariableCount == 1 ? "variable" : "variables"
+        let injection = injectedVariableCount == 0
+            ? "no values were injected"
+            : "injected \(injectedVariableCount) environment \(noun)"
+        return "KeyKeeper: \(injection). Command exited with status \(exitStatus). "
+            + "Provider acceptance and request correctness were not verified."
     }
 
     /// `-c` accepts current and earlier group IDs; everything after this uses the current one.
@@ -302,7 +317,11 @@ struct RunCommand: ParsableCommand {
             defer { terminalControl?.restore() }
             child.resume()
 
-            throw ExitCode(try child.wait())
+            let terminationStatus = try child.wait()
+            if let summary = Self.failureSummary(exitStatus: terminationStatus, injectedVariableCount: injectedEnv.count) {
+                FileHandle.standardError.write(Data((summary + "\n").utf8))
+            }
+            throw ExitCode(terminationStatus)
         }
 
         // Pipe output for redaction in the default safety mode.
@@ -355,6 +374,10 @@ struct RunCommand: ParsableCommand {
 
         // Wait for all output to be flushed
         redactor.waitUntilDone()
+
+        if let summary = Self.failureSummary(exitStatus: terminationStatus, injectedVariableCount: injectedEnv.count) {
+            FileHandle.standardError.write(Data((summary + "\n").utf8))
+        }
 
         // Exit with the same code as the child
         throw ExitCode(terminationStatus)

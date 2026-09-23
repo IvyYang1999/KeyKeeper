@@ -132,7 +132,8 @@ struct RunInjectionPlan {
         }
         if bindings.isEmpty { lines.append("- Nothing to inject.") }
         lines.append("No conflicts detected.")
-        lines.append("No secret values were read. No command was started.")
+        lines.append("Local storage presence does not prove caller approval or provider acceptance.")
+        lines.append("No secret values were returned to the CLI. No command was started.")
         return lines.joined(separator: "\n")
     }
 

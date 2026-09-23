@@ -118,7 +118,8 @@ final class RunInjectionPlanTests: XCTestCase {
         XCTAssertTrue(output.contains("access: not required"))
         XCTAssertFalse(output.contains("plain-value-must-not-appear"))
         XCTAssertTrue(output.contains("No conflicts detected."))
-        XCTAssertTrue(output.contains("No secret values were read. No command was started."))
+        XCTAssertTrue(output.contains("Local storage presence does not prove caller approval or provider acceptance."))
+        XCTAssertTrue(output.contains("No secret values were returned to the CLI. No command was started."))
     }
 
     func testPlanFlagMakesCommandOptionalButNormalRunStillRequiresOne() throws {

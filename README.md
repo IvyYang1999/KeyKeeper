@@ -102,7 +102,8 @@ sequenceDiagram
 ```
 
 - **Store** — add a key in the app, or open a prefilled form with a `keykeeper://add?label=…&fields=…` link. Secret values go into a single Keychain item, encrypted by macOS and synced to nothing. Names, notes, field names — and any field you mark plain — stay in a plain `meta.json`.
-- **Use** — `keykeeper run -c <id> -- <command>` injects the secret fields as environment variables. `--env <id>:<field>=<name>` supplies an exact name when a program expects something different; `--plan` previews names, conflicts, local presence and access policy without reading a secret or starting the command. Anything the command prints that contains a secret comes out as `[REDACTED]`. The app starts on demand.
+- **Use** — `keykeeper run -c <id> -- <command>` injects the secret fields as environment variables. `--env <id>:<field>=<name>` supplies an exact name when a program expects something different; `--plan` previews names, conflicts, local presence and access policy without returning values to the CLI or starting the command. The App checks local presence without showing an authorization prompt. Anything the command prints that contains a secret comes out as `[REDACTED]`. The app starts on demand.
+- **Diagnose** — if the child command fails after injection, `run` reports its exit status and whether anything was injected. `--verbose` shows variable names, never values. Local presence and completed injection do not prove that the provider accepts the credential or the request.
 - **Approve** — the first time a new terminal session, script or agent asks for a key, KeyKeeper shows *who* is asking and lets you say yes once. Approvals are listed on the credential's page and can be revoked.
 - **Reboot** — log in once and everything, cron jobs included, works again. No prompts in day-to-day use.
 
@@ -129,7 +130,7 @@ The moat is the fourth row. Token-based tools hand out a reusable secret that an
 | `keykeeper meta <id>` | one credential as JSON, no values |
 | `keykeeper providers` / `providers show <id>` | built-in provider contracts: official creation page, complete fields, least privilege and safe validation |
 | `keykeeper run -c <id> [-c <id2>] [--env <id>:<field>=<name>] [--prefix PREFIX_] [--verbose] [--tty] -- <command>` | run a command with the keys injected; an explicit mapping replaces that field's derived and alias names |
-| `keykeeper run -c <id> [mapping options] --plan` | preview final variable names, conflicts, local value presence and access policy; reads no secrets and starts no command |
+| `keykeeper run -c <id> [mapping options] --plan` | preview final variable names, conflicts, local value presence and access policy; returns no secret values and starts no command |
 | `keykeeper status` | is the app reachable (it starts on demand anyway) |
 | `keykeeper grants list` / `grants revoke <id>` | approvals: which callers may use which keys or logins, for how long |
 | `keykeeper requests list` | approval windows currently waiting |
