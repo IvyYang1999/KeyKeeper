@@ -331,31 +331,55 @@ struct AuthorizationView: View {
     private var choices: [DurationChoice] { DurationChoice.available(canRemember: callerAssurance.canRemember, canBindToRun: canBindToRun) }
     private var recommended: DurationChoice { DurationChoice.recommended(canRemember: callerAssurance.canRemember, canBindToRun: canBindToRun, review: review, reasonMissing: prompt.reasonMissing) }
 
-    // yyt 2026-09-14: one thing per band, top to bottom — who wants what; what it says; what
-    // KeyKeeper thinks; the three answers. Everything else is behind "Details".
+    // yyt 2026-09-27: "我每次基本上啥都不看的，直接就摁了「以后都不问」". So the window is built
+    // for the one glance it actually gets: whose icon, which key, its sentence, three buttons.
+    // KeyKeeper speaks only when something is off — one orange line — and everything else
+    // is behind "Details". Compare 1Password's prompt: an icon pair, one sentence, buttons.
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(spacing: 0) {
             header
-            statedReasonSection
-            adviceSection
+            reasonSection
+                .padding(.top, 14)
+            flagSection
+                .padding(.top, 10)
             choiceButtons
+                .padding(.top, 18)
             callerDetailsSection
+                .padding(.top, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             if let error = errorMessage {
                 Text(error)
                     .font(.caption)
                     .foregroundColor(.red)
+                    .padding(.top, 8)
             }
         }
         .padding(.horizontal, 24)
         .padding(.top, 40)   // the window's traffic lights sit in this band
-        .padding(.bottom, 22)
-        // Frosted like a system prompt, and the same surface as the save confirmations.
-        // Capped at what the screen can show: expanded caller details used to make the window
-        // taller than the display, and a clamped window shows only the middle of the glass —
-        // which reads as four square corners.
-        .authorizationPanel(width: 440, maxHeight: Self.availableHeight)
+        .padding(.bottom, 20)
+        // yyt 2026-09-27: "这个预览图的黄蓝渐变也很好看" — the brand's pale yellow and blue, only in
+        // the top band and only here, behind the icon pair. The rest of the app stays uncoloured.
+        .background(brandTint)
+        .authorizationPanel(width: 420, maxHeight: Self.availableHeight)
         .onAppear { startSettleTimer() }
+        .task {
+            guard let review, ReviewerService.shared.isEnabled, reviewerOutcome == nil else { return }
+            reviewerOutcome = await ReviewerService.shared.review(review.input)
+        }
+    }
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var brandTint: some View {
+        let strength = colorScheme == .dark ? 0.45 : 1.0
+        return ZStack {
+            RadialGradient(colors: [Color(red: 1, green: 0.94, blue: 0.76).opacity(0.9 * strength), .clear],
+                           center: UnitPoint(x: 0.22, y: 0), startRadius: 0, endRadius: 260)
+            RadialGradient(colors: [Color(red: 0.83, green: 0.89, blue: 1).opacity(0.9 * strength), .clear],
+                           center: UnitPoint(x: 0.85, y: 0.05), startRadius: 0, endRadius: 260)
+        }
+        .allowsHitTesting(false)
     }
 
     static var availableHeight: CGFloat {
@@ -369,53 +393,60 @@ struct AuthorizationView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + max(0, remaining)) { canApprove = true }
     }
 
+    /// "Codex", not "com.openai.codex.cli". The identifier is in Details.
     private var callerName: String {
-        TrustPromptModel.sanitizedCaller(prompt.callerIdentity?.displayName ?? L("Unknown Caller"))
+        let raw = prompt.callerIdentity?.displayName ?? L("Unknown Caller")
+        if let id = prompt.callerIdentity?.bundleIdentifier, let name = CallerAppIcon.friendlyName(for: id) { return name }
+        if let name = CallerAppIcon.friendlyName(for: raw) { return name }
+        // An app KeyKeeper has no name for: what the Finder calls it ("Dark Console"), not its bundle id.
+        if let path = prompt.callerIdentity?.executablePath, let app = appBundlePath(from: path) {
+            let shown = FileManager.default.displayName(atPath: app).replacingOccurrences(of: ".app", with: "")
+            let line = CallerStatedReason.printableLine(shown, limit: 60)
+            if !line.isEmpty { return line }
+        }
+        return TrustPromptModel.sanitizedCaller(raw)
     }
 
     // MARK: - Bands
 
-    /// Who wants what, and how sure KeyKeeper is about the who. The credential's ID is shown
-    /// when it differs from the title, because any local process can retitle a credential
-    /// without a prompt and the ID cannot be changed that way. 【独立审计 2026-09-14】
+    /// The caller's own icon, large, with KeyKeeper as the badge; one bold line saying who wants
+    /// which key. The credential's ID appears only when it differs from the title, because any
+    /// local process can retitle a credential without a prompt. 【独立审计 2026-09-14】
     private var header: some View {
-        HStack(alignment: .top, spacing: 14) {
-            ZStack(alignment: .bottomTrailing) {
+        VStack(spacing: 14) {
+            // yyt 2026-09-27: like 1Password — the caller on the left, KeyKeeper on the right,
+            // a link between them; not one icon badged with the other.
+            HStack(spacing: 0) {
+                callerKindIcon
+                    .frame(width: 56, height: 56)
+                HStack(spacing: 0) {
+                    Rectangle().fill(Color.secondary.opacity(0.35)).frame(width: 34, height: 2)
+                    Image(systemName: callerAssurance.canRemember ? "checkmark.circle.fill" : "questionmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(callerAssurance.canRemember ? .green : .orange)
+                        .background(Circle().fill(.background).padding(1))
+                    Rectangle().fill(Color.secondary.opacity(0.35)).frame(width: 34, height: 2)
+                }
                 Image(nsImage: NSApp.applicationIconImage)
                     .resizable()
-                    .frame(width: 52, height: 52)
-                callerKindIcon
-                    .scaleEffect(0.55)
-                    .frame(width: 24, height: 24)
-                    .background(Circle().fill(.background))
-                    .offset(x: 4, y: 4)
+                    .frame(width: 56, height: 56)
             }
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(spacing: 3) {
                 Text(L("\(callerName) wants to use \(prompt.credentialLabel)"))
                     .font(.system(size: 17, weight: .bold))
+                    .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) {
-                    Image(systemName: callerAssurance.symbolName)
-                        .foregroundColor(callerAssurance.isReassuring ? .secondary : .orange)
-                    Text(callerAssurance.label)
-                    Text("·")
-                    Text(prompt.fieldNames.joined(separator: ", "))
+                if prompt.credentialId != prompt.credentialLabel {
+                    Text(prompt.credentialId)
                         .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    if prompt.credentialId != prompt.credentialLabel {
-                        Text("·")
-                        Text(prompt.credentialId)
-                            .font(.caption.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
                 }
-                .font(.caption)
-                .foregroundColor(.secondary)
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
@@ -424,162 +455,124 @@ struct AuthorizationView: View {
             // The real icon when the Mac has it: a command-line agent (Claude Code, Codex CLI)
             // shows the desktop app it belongs to. yyt 2026-09-15: "一目了然".
             if let image = CallerAppIcon.image(for: caller.bundleIdentifier ?? caller.subject.displayName) {
-                Image(nsImage: image)
-                    .resizable()
-                    .frame(width: 40, height: 40)
-                    .cornerRadius(8)
+                Image(nsImage: image).resizable().cornerRadius(11)
             } else {
-            switch caller.subject.kind {
-            case .app:
-                if let path = caller.executablePath,
-                   let appPath = appBundlePath(from: path) {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: appPath))
-                        .resizable()
-                        .frame(width: 40, height: 40)
-                        .cornerRadius(8)
-                } else {
-                    Image(systemName: "app.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(.blue)
+                switch caller.subject.kind {
+                case .app:
+                    if let path = caller.executablePath, let appPath = appBundlePath(from: path) {
+                        Image(nsImage: NSWorkspace.shared.icon(forFile: appPath)).resizable().cornerRadius(11)
+                    } else {
+                        genericIcon("app.fill", .blue)
+                    }
+                case .script: genericIcon("doc.text.fill", .orange)
+                case .executable: genericIcon("terminal.fill", .purple)
                 }
-            case .script:
-                Image(systemName: "doc.text.fill")
-                    .font(.system(size: 32))
-                    .foregroundColor(.orange)
-            case .executable:
-                Image(systemName: "terminal.fill")
-                    .font(.system(size: 32))
-                    .foregroundColor(.purple)
-            }
             }
         } else {
-            Image(systemName: "questionmark.app")
-                .font(.system(size: 32))
-                .foregroundColor(.secondary)
+            genericIcon("questionmark.app", .secondary)
         }
     }
 
-    /// What the caller wrote — the thing the person actually decides on, so it gets the room.
-    /// Plain text, one label saying whose words these are and that nobody checked them; the
-    /// command line under it in small type when the caller reported one.
-    @ViewBuilder
-    private var statedReasonSection: some View {
-        if prompt.reasonMissing {
-            // yyt 2026-09-15: silence is shown, not punished. The recommended answer is "once".
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.bubble").foregroundColor(.orange)
-                Text(L("\(callerName) gave no reason for this request."))
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .surface(.card)
-        }
-        if prompt.statedReason != nil || review?.input.command != nil {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "quote.bubble")
-                    Text(L("\(callerName) says"))
-                    Text(L("not verified"))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.secondary.opacity(0.15)))
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
+    private func genericIcon(_ symbol: String, _ color: Color) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 30))
+            .foregroundColor(color)
+            .frame(width: 52, height: 52)
+            .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.secondary.opacity(0.12)))
+    }
 
-                if let reason = prompt.statedReason {
-                    Text(verbatim: reason.text)
-                        .font(.system(size: 15))
-                        .foregroundColor(.primary)
-                        .lineLimit(5)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                }
-                if let command = review?.input.command {
-                    Text(verbatim: "$ " + command)
-                        .font(.caption.monospaced())
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                }
+    /// The caller's sentence in a card labelled with its name: "Codex says". That is the whole
+    /// decision most of the time, so it gets the room and a surface of its own.
+    @ViewBuilder
+    private var reasonSection: some View {
+        if let reason = prompt.statedReason {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L("\(callerName) says"))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(verbatim: reason.text)
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .surface(.card)
+            .surface(.raised, radius: DS.Radius.md)
         }
     }
 
-    /// KeyKeeper's own line (offline rules), and the reviewer's when the person turned it on.
-    /// Nothing here when neither has anything to say.
+    /// KeyKeeper speaks only when something is off, one line, orange: no reason given, an
+    /// unverifiable caller, a request the rules call inflated, or a reviewer that objects.
+    /// A request that checks out gets no line at all.
     @ViewBuilder
-    private var adviceSection: some View {
-        if let review, review.keykeeperSuggestsLine != nil || review.agentAsksLine != nil || review.intentLine != nil || ReviewerService.shared.isEnabled {
-            VStack(alignment: .leading, spacing: 6) {
-                if let suggests = review.keykeeperSuggestsLine {
-                    adviceRow("KeyKeeper", text: suggests, symbol: "checkmark.shield",
-                              tone: review.rules.verdict == .inflated ? .orange : .secondary)
-                } else if let asks = review.agentAsksLine {
-                    adviceRow(L("Asks for"), text: asks, symbol: "hand.raised")
-                }
-                if let intent = review.intentLine {
-                    adviceRow(L("Declared use"), text: intent, symbol: "text.book.closed")
-                }
-                if ReviewerService.shared.isEnabled {
-                    switch reviewerOutcome {
-                    case nil:
-                        adviceRow(L("Reviewer"), text: L("asking…"), symbol: "person.crop.circle.badge.questionmark")
-                    case .opinion(let opinion):
-                        adviceRow(L("Reviewer"), text: ReviewerService.line(for: opinion), symbol: "person.crop.circle.badge.checkmark",
-                                  tone: opinion.minimalScope && opinion.necessity >= 3 ? .secondary : .orange)
-                    case .unavailable(let why):
-                        adviceRow(L("Reviewer"), text: L("unavailable: \(why)"), symbol: "person.crop.circle.badge.exclamationmark")
-                    case .disabled:
-                        EmptyView()
+    private var flagSection: some View {
+        let flags = warningLines
+        if !flags.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(flags, id: \.self) { line in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.caption)
+                        Text(verbatim: line).font(.callout).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                     }
+                    .foregroundColor(.orange)
                 }
             }
-            .task {
-                guard ReviewerService.shared.isEnabled, reviewerOutcome == nil else { return }
-                reviewerOutcome = await ReviewerService.shared.review(review.input)
-            }
+            .frame(maxWidth: .infinity)
         }
     }
 
-    private func adviceRow(_ label: String, text: String, symbol: String, tone: Color = .secondary) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: symbol).font(.caption).foregroundColor(tone)
-            Text(label).font(.caption.weight(.semibold)).foregroundColor(tone)
-            Text(verbatim: text)
-                .font(.caption)
-                .foregroundColor(.primary)
-                .lineLimit(3)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+    private var warningLines: [String] {
+        var lines: [String] = []
+        if prompt.reasonMissing { lines.append(L("\(callerName) gave no reason for this request.")) }
+        // Orange only for a caller that cannot be told apart from anyone else; "unsigned but
+        // identified by its file" is a fact for Details, not a warning.
+        if !callerAssurance.canRemember { lines.append(callerAssurance.label) }
+        if let review, review.rules.verdict == .inflated, let line = review.keykeeperSuggestsLine { lines.append(line) }
+        if case .opinion(let opinion) = reviewerOutcome, !(opinion.minimalScope && opinion.necessity >= 3) {
+            lines.append(ReviewerService.line(for: opinion))
         }
+        return lines
     }
 
-    /// Deny on the left; the answers on the right, the recommended one prominent. One line
-    /// under them says what "don't ask again" would cover for this caller.
+    /// One row (yyt 2026-09-27: four stacked buttons were "很难受"): Deny on the left; on the
+    /// right the recommended answer, blue and last, and before it the other answers folded into
+    /// one split button — its label is the next most likely answer, the rest are in its menu.
     private var choiceButtons: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: DS.Spacing.sm) {
-                Button(role: .destructive) { onDeny() } label: { Text(L("Deny")) }
-                    .buttonStyle(.bordered)
-                    .keyboardShortcut(.escape)
-                Spacer()
-                ForEach(choices, id: \.self) { choice in
-                    choiceButton(choice)
+        HStack(spacing: DS.Spacing.sm) {
+            Button { onDeny() } label: { Text(L("Deny")).fixedSize().foregroundStyle(.red) }
+                .buttonStyle(.bordered)
+                .keyboardShortcut(.escape)
+            Spacer()
+            if let first = otherChoices.first {
+                if otherChoices.count == 1 {
+                    choiceButton(first)
+                } else {
+                    Menu {
+                        ForEach(otherChoices.dropFirst(), id: \.self) { choice in
+                            Button(AppL10n.text(choice.rawValue)) { authenticate { try onAuthorize(choice) } }
+                        }
+                    } label: {
+                        Text(AppL10n.text(first.rawValue)).fixedSize()
+                    } primaryAction: {
+                        authenticate { try onAuthorize(first) }
+                    }
+                    .menuStyle(.button)
+                    .fixedSize()
+                    .disabled(isAuthenticating || !canApprove)
+                    .help(choiceScopeLine)
                 }
             }
-            .controlSize(.large)
-            Text(choiceScopeLine)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            choiceButton(recommended)
         }
+        .controlSize(.large)
+    }
+
+    /// The answers that are not the recommended one, most permanent first: "don't ask again"
+    /// is what the person reaches for when they disagree with a cautious recommendation.
+    private var otherChoices: [DurationChoice] {
+        [DurationChoice.always, .thisRun, .once].filter { $0 != recommended && choices.contains($0) }
     }
 
     private var choiceScopeLine: String {
@@ -611,25 +604,45 @@ struct AuthorizationView: View {
                 }
                 Text(AppL10n.text(choice.rawValue))
             }
+            .fixedSize()
         }
         .disabled(isAuthenticating || !canApprove)
+        .help(choice == .always ? choiceScopeLine : "")
         if prominent { button.buttonStyle(.borderedProminent) } else { button }
     }
 
-    /// Everything that used to fill the window: the facts, the wording about what the tier
-    /// means, the diagnostics. One click away.
+    /// Everything that used to fill the window: what the buttons cover, what the caller asked
+    /// for and declared, its command line, the reviewer, the identity facts. One click away.
     @ViewBuilder
     private var callerDetailsSection: some View {
         DisclosureGroup(isExpanded: $showCallerDetails) {
             VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                Text(choiceScopeLine)
+                    .font(.caption2).foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Divider()
                 detailRow(L("Credential"), value: prompt.credentialId == prompt.credentialLabel ? prompt.credentialLabel : "\(prompt.credentialLabel) · \(prompt.credentialId)")
                 detailRow(L("Keys"), value: prompt.fieldNames.joined(separator: ", "))
+                if let review {
+                    if let asks = review.agentAsksLine { detailRow(L("Asks for"), value: asks) }
+                    if let intent = review.intentLine { detailRow(L("Declared use"), value: intent) }
+                    if let command = review.input.command { detailRow(L("Command"), value: "$ " + command) }
+                    if let suggests = review.keykeeperSuggestsLine, review.rules.verdict != .inflated { detailRow("KeyKeeper", value: suggests) }
+                }
+                if ReviewerService.shared.isEnabled {
+                    switch reviewerOutcome {
+                    case nil: detailRow(L("Reviewer"), value: L("asking…"))
+                    case .opinion(let opinion): detailRow(L("Reviewer"), value: ReviewerService.line(for: opinion))
+                    case .unavailable(let why): detailRow(L("Reviewer"), value: L("unavailable: \(why)"))
+                    case .disabled: EmptyView()
+                    }
+                }
                 // "From" only when there is a terminal session to name; "no terminal session" is noise.
                 if prompt.hasTerminalSession, let sessionLabel = prompt.sessionLabel {
                     detailRow(L("From"), value: CallerStatedReason.printableLine(AppL10n.text(sessionLabel), limit: 80))
                 }
                 Divider()
-                // The wording that used to fill the window: still here, one click away.
+                detailRow(L("Identity"), value: callerAssurance.label)
                 Text(callerAssurance.explanation)
                     .font(.caption2).foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
