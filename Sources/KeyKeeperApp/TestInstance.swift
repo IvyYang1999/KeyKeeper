@@ -36,6 +36,14 @@ enum TestInstance {
         return environment["KEYKEEPER_TEST_AUTO_APPROVE"].flatMap(AutoApprove.init(rawValue:))
     }
 
+    /// Keep a browser-import candidate pending without showing a system window during the
+    /// restart-recovery E2E. This never applies to a production Keychain service.
+    static let deferClipboardPrompt: Bool = deferClipboardPrompt(environment: environment)
+
+    static func deferClipboardPrompt(environment: [String: String]) -> Bool {
+        isIsolated(environment: environment) && environment["KEYKEEPER_TEST_DEFER_CLIPBOARD_PROMPT"] == "1"
+    }
+
     /// Delete this instance's Keychain items when it quits, so a test run leaves nothing behind.
     static let cleansUpOnQuit: Bool = isIsolated && environment["KEYKEEPER_TEST_CLEANUP_ON_QUIT"] == "1"
 

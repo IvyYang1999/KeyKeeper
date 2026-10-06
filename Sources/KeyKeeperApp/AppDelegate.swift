@@ -173,7 +173,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.showMainWindow(section: .settings)
             }
-        } else if Self.shouldShowPopoverOnLaunch(
+        } else if !TestInstance.isIsolated && Self.shouldShowPopoverOnLaunch(
             setupComplete: UserDefaults.standard.bool(forKey: "setupComplete")
         ) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in

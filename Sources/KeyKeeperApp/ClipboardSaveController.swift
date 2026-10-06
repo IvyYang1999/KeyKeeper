@@ -104,7 +104,11 @@ extension ClipboardSaveSource {
         let window = ClipboardSaveWindow()
         self.present = present ?? { info, decide in
             // An isolated e2e instance answers itself; the prompt never appears.
-            if TestInstance.autoApprove != nil { DispatchQueue.main.async { decide(true) } } else { window.show(info, decide: decide) }
+            if TestInstance.autoApprove != nil {
+                DispatchQueue.main.async { decide(true) }
+            } else if !TestInstance.deferClipboardPrompt {
+                window.show(info, decide: decide)
+            }
         }
         self.update = update ?? { info in window.update(info) }
         self.dismiss = dismiss ?? { window.dismiss() }

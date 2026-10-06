@@ -15,6 +15,7 @@ final class TestInstanceTests: XCTestCase {
                     ["KEYKEEPER_DATA_DIR": "/tmp/x", "KEYKEEPER_TEST_AUTO_APPROVE": "always"]] {
             XCTAssertFalse(TestInstance.isIsolated(environment: env), env.description)
             XCTAssertNil(TestInstance.autoApprove(environment: env), env.description)
+            XCTAssertFalse(TestInstance.deferClipboardPrompt(environment: env), env.description)
             XCTAssertTrue(TestInstance.ownedKeychainServices(environment: env).isEmpty, env.description)
         }
     }
@@ -22,6 +23,8 @@ final class TestInstanceTests: XCTestCase {
     func test三件套齐了才有开关且只碰测试条目() {
         XCTAssertTrue(TestInstance.isIsolated(environment: triple))
         XCTAssertNil(TestInstance.autoApprove(environment: triple), "没要求自动批准就不批")
+        XCTAssertFalse(TestInstance.deferClipboardPrompt(environment: triple))
+        XCTAssertTrue(TestInstance.deferClipboardPrompt(environment: triple.merging(["KEYKEEPER_TEST_DEFER_CLIPBOARD_PROMPT": "1"]) { $1 }))
         XCTAssertEqual(TestInstance.autoApprove(environment: triple.merging(["KEYKEEPER_TEST_AUTO_APPROVE": "once"]) { $1 }), .once)
         let owned = TestInstance.ownedKeychainServices(environment: triple)
         XCTAssertEqual(owned.count, 5, owned.description)

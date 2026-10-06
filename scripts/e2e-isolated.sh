@@ -136,6 +136,7 @@ expect_not_contains "proposal status contains no secret" "synthetic-browser-e2e"
 
 echo "==> browser proposal: pasted candidate survives an App restart without another paste"
 export KEYKEEPER_TEST_AUTO_APPROVE=
+export KEYKEEPER_TEST_DEFER_CLIPBOARD_PROMPT=1
 stop_app; start_app
 RECOVERY_LOG="$TMP/browser-recovery.log"
 "$KK" save -c browser-restart-fixture --field key --from-browser --create --purpose "e2e: restart recovery" >"$RECOVERY_LOG" 2>&1 &
@@ -156,6 +157,7 @@ OUT="$(/usr/bin/curl -sS --max-time 5 -X POST "${RECOVERY_BASE}import" \
 expect_contains "restart candidate staged before quit" '"state":"pasteReceived"' "$OUT"
 stop_app
 wait "$RECOVERY_PID" 2>/dev/null || true
+unset KEYKEEPER_TEST_DEFER_CLIPBOARD_PROMPT
 export KEYKEEPER_TEST_AUTO_APPROVE=once
 start_app
 OUT="$("$KK" proposal status "$RECOVERY_ID" --json 2>&1)"
