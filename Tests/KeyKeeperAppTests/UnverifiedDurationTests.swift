@@ -14,7 +14,8 @@ final class UnverifiedDurationTests: XCTestCase {
     func test授权窗的按钮只画提供的那几档() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let view = try String(contentsOf: root.appendingPathComponent("Sources/KeyKeeperApp/AuthorizationView.swift"), encoding: .utf8)
-        XCTAssertTrue(view.contains("ForEach(choices, id: \\.self)"))
+        XCTAssertTrue(view.contains(".filter { $0 != recommended && choices.contains($0) }"))
+        XCTAssertTrue(view.contains("choiceButton(recommended)"))
         XCTAssertTrue(view.contains("DurationChoice.available(canRemember: callerAssurance.canRemember, canBindToRun: canBindToRun)"))
     }
 }

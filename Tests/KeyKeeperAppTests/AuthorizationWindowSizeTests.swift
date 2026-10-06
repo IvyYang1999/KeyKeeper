@@ -5,7 +5,7 @@ import XCTest
 import KeyKeeperCore
 
 /// 【曾经的 bug】yyt 2026-09-14 截图：授权窗内容只占上半截，窗口却一路拉到屏幕底（实测 420×932）。
-/// 走的是 AuthorizationWindowController 真实的开窗路径，不是自己拼的窗。
+/// 走 AuthorizationWindowController 真实的内容安装和尺寸计算路径；测试窗不抢前台。
 @MainActor
 final class AuthorizationWindowSizeTests: XCTestCase {
     private func strictRequest() -> AuthRequest {
@@ -18,15 +18,20 @@ final class AuthorizationWindowSizeTests: XCTestCase {
     }
 
     func test窗口高度贴着内容而不是可用高度() throws {
-        // Note: the test host has no NSApplication, so AppKit's own "resize the window to the
-        // hosting view's ideal size" pass never runs here. That pass is what grew the window in
-        // the app; this test only pins the heights the view reports.
-        let controller = AuthorizationWindowController()
-        controller.show(request: strictRequest(), onAuthorize: { _ in }, onDeny: {})
-        defer { controller.dismiss() }
-        let window = try XCTUnwrap(controller.window)
+        // Exercise the production content-sizing bridge without presenting or activating
+        // the test window. AppKit's foreground window pass is not covered here.
+        let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 420, height: 460),
+                              styleMask: [.titled, .closable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.titlebarAppearsTransparent = true
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        defer { window.close() }
+        let view = AuthorizationView(prompt: .strict(strictRequest()), onAuthorize: { _ in }, onDeny: {})
+        AuthorizationWindowController.installContent(view, in: window)
         let atShow = try XCTUnwrap(window.contentView).bounds.height
-        // Past the settle delay: the first re-render after showing is when the window used to grow.
+        // Past the settle delay: the first re-render is when the window used to grow.
         RunLoop.current.run(until: Date().addingTimeInterval(ApprovalReadiness.settleDelay + 0.6))
         let settled = try XCTUnwrap(window.contentView).bounds.height
         XCTAssertLessThan(atShow, 640, "刚打开就 \(atShow)pt")

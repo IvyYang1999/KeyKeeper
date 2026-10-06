@@ -402,7 +402,24 @@ enum CallerAppIcon {
     static let desktopApps: [String: [String]] = [
         "com.anthropic.claude-code": ["com.anthropic.claudefordesktop"],
         "com.openai.codex": ["com.openai.codex"],
+        "com.openai.codex.cli": ["com.openai.codex"],
     ]
+
+    /// What the person calls the program. yyt 2026-09-27: "com.openai.codex.cli 想使用 …" three
+    /// times in one window is not a sentence anyone reads. The raw identifier stays in Details.
+    static let friendlyNames: [String: String] = [
+        "com.openai.codex": "Codex", "com.openai.codex.cli": "Codex",
+        "com.anthropic.claude-code": "Claude Code", "com.anthropic.claudefordesktop": "Claude",
+        "com.microsoft.VSCode": "VS Code", "com.todesktop.230313mzl4w4u92": "Cursor",
+        "com.apple.Terminal": "Terminal", "com.googlecode.iterm2": "iTerm",
+    ]
+
+    static func friendlyName(for callerId: String) -> String? {
+        if let name = friendlyNames[callerId] { return name }
+        // "relayed:com.openai.codex.cli" and friends: the program the command was started from.
+        if let colon = callerId.firstIndex(of: ":"), let name = friendlyNames[String(callerId[callerId.index(after: colon)...])] { return name }
+        return nil
+    }
 
     static func desktopBundleIds(for callerId: String) -> [String] {
         (desktopApps[callerId] ?? []) + [callerId]
