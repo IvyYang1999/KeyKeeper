@@ -20,6 +20,10 @@ struct UpdateConfiguration {
     var isUsable: Bool {
         feedURL?.scheme == "https" && !(publicEDKey?.isEmpty ?? true)
     }
+
+    func canStartUpdater(isIsolated: Bool) -> Bool {
+        isUsable && !isIsolated
+    }
 }
 
 struct UpdateDriverState: Equatable {
@@ -47,7 +51,7 @@ final class UpdateController: ObservableObject {
 
     convenience init(bundle: Bundle = .main) {
         let configuration = UpdateConfiguration(bundle: bundle)
-        self.init(driver: configuration.isUsable ? SparkleUpdateDriver() : nil)
+        self.init(driver: configuration.canStartUpdater(isIsolated: TestInstance.isIsolated) ? SparkleUpdateDriver() : nil)
     }
 
     init(driver: UpdateDriving?) {

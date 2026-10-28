@@ -57,6 +57,12 @@ final class UpdateControllerTests: XCTestCase {
             publicEDKey: "public-key"
         ).isUsable)
     }
+
+    func test隔离实例即使配置完整也不能启动真实更新器() {
+        let config = UpdateConfiguration(feedURL: URL(string: "https://example.com/appcast.xml"), publicEDKey: "public-key")
+        XCTAssertTrue(config.canStartUpdater(isIsolated: false))
+        XCTAssertFalse(config.canStartUpdater(isIsolated: true))
+    }
 }
 
 @MainActor

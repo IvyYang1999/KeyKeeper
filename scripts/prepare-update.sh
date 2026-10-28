@@ -10,8 +10,8 @@ DMG="$PROJECT_DIR/dist/KeyKeeper-$VERSION.dmg"
 NOTES="$PROJECT_DIR/release-notes/$VERSION.md"
 SPARKLE_TOOLS="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin"
 
-if [ "$(git -C "$PROJECT_DIR" branch --show-current)" != "main" ]; then
-    echo "ERROR: updates must be prepared from main" >&2
+if [ "$(git -C "$PROJECT_DIR" rev-parse HEAD)" != "$(git -C "$PROJECT_DIR" rev-parse refs/heads/main)" ]; then
+    echo "ERROR: updates must be prepared from the exact committed main candidate" >&2
     exit 1
 fi
 if [ -n "$(git -C "$PROJECT_DIR" status --porcelain)" ]; then

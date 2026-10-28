@@ -56,6 +56,10 @@ installed manually. Every later release can update it in place.
    fields, so only the app-specific password asks for an approval.
 3. Run `./scripts/prepare-update.sh`. It builds and notarizes the Developer ID-signed
    DMG, then creates a signed `appcast.xml`, but changes nothing remotely.
+   Preparation can run in a local `.noindex` worktree whose HEAD exactly equals
+   committed `main`. Transfer the verified DMG, appcast and receipt unchanged to
+   main for publishing; verify digests after transfer. This keeps app build copies
+   out of Spotlight without changing the release's source commit.
 4. Inspect the candidate and get explicit approval to publish.
 5. Run `./scripts/publish-update.sh --confirm-version <version>`. It verifies the feed
    and archive signatures against the App's public key, and checks the immutable

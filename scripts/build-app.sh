@@ -101,22 +101,14 @@ if [ "$CREATE_DMG" = true ]; then
     echo "==> Creating DMG"
     ln -sfn /Applications "$PROJECT_DIR/dist/dmg/Applications"
     rm -f "$DMG_PATH"
-    # hdiutil occasionally answers "Operation timed out" and leaves an orphaned
-    # diskimages-helper behind (seen 2026-09-14, three times in a row). Retry a few times.
-    for attempt in 1 2 3 4; do
-        if hdiutil create \
-            -volname "$APP_NAME" \
-            -srcfolder "$PROJECT_DIR/dist/dmg" \
-            -ov \
-            -format UDZO \
-            "$DMG_PATH"; then
-            break
-        fi
-        echo "hdiutil create failed (attempt $attempt); retrying" >&2
-        pkill -f "diskimages-helper" -P 1 -n 2>/dev/null || true
-        sleep 3
-        [ "$attempt" = 4 ] && exit 1
-    done
+    # A timeout does not prove the system helper belongs to this build. Stop rather
+    # than killing a shared process or launching overlapping image requests.
+    hdiutil create \
+        -volname "$APP_NAME" \
+        -srcfolder "$PROJECT_DIR/dist/dmg" \
+        -ov \
+        -format UDZO \
+        "$DMG_PATH"
     if [ "$SIGN_IDENTITY" != "-" ]; then
         codesign --force --sign "$SIGN_IDENTITY" --timestamp "$DMG_PATH"
         codesign --verify --verbose=2 "$DMG_PATH"

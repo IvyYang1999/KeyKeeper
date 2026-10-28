@@ -74,6 +74,7 @@ final class UpdatePackagingContractTests: XCTestCase {
             encoding: .utf8
         )
         XCTAssertTrue(buildScript.contains("Contents/Frameworks/Sparkle.framework"))
+        XCTAssertFalse(buildScript.contains("pkill"), "打包失败不能杀掉可能属于用户的系统 helper")
 
         let postCommit = try String(
             contentsOf: repositoryRoot.appendingPathComponent("scripts/post-commit"),

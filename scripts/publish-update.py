@@ -218,7 +218,7 @@ def main():
         record_file = root / "dist" / f"KeyKeeper-{version}.update.json"
         if args.record_candidate:
             changes = repo.git("status", "--porcelain").stdout.decode().rstrip("\n")
-            if repo.text("branch", "--show-current") != "main" or changes not in (" M appcast.xml", "?? appcast.xml"):
+            if repo.text("rev-parse", "HEAD") != repo.text("rev-parse", "refs/heads/main") or changes not in (" M appcast.xml", "?? appcast.xml"):
                 raise ReleaseError("Record only a clean main candidate plus its newly generated feed")
             verified["sourceCommit"] = repo.text("rev-parse", "HEAD")
             if record_file.exists():

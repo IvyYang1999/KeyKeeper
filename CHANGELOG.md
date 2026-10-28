@@ -2,8 +2,12 @@
 
 ## Unreleased
 
+## 0.3.6 - 2026-10-28
+
 - Update defaults: check every six hours while running, download signed updates in the background, and install on quit. Long-running sessions get a reminder after a day. Explicit saved user preferences are preserved; Settings now distinguishes downloading from installing.
 - Release delivery verifies both Sparkle signatures and exact remote artifact bytes. Interrupted releases can resume without overwriting existing tags or assets; unavailable GitHub responses and stale public feeds no longer count as success.
+- `keykeeper run --env` maps a stored field to the exact environment variable a client expects. `--plan` checks names and local presence without exposing secrets or starting the command; failed child commands get clearer diagnostics. Agent first-use guidance and the approval window are clearer.
+- Isolated test instances never start the production updater. Packaging stops on disk-image failure without killing shared system helpers.
 
 ## 0.3.5 - 2026-09-20
 
