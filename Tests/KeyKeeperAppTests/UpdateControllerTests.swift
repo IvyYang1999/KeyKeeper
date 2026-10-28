@@ -12,7 +12,7 @@ final class UpdateControllerTests: XCTestCase {
         let controller = UpdateController(driver: driver)
 
         XCTAssertTrue(controller.canCheckForUpdates)
-        XCTAssertFalse(controller.automaticallyInstallsUpdates)
+        XCTAssertFalse(controller.automaticallyDownloadsUpdates)
         XCTAssertEqual(driver.automaticPreferenceWrites, [])
     }
 
@@ -23,11 +23,11 @@ final class UpdateControllerTests: XCTestCase {
         )
         let controller = UpdateController(driver: driver)
 
-        controller.setAutomaticallyInstallsUpdates(false)
+        controller.setAutomaticallyDownloadsUpdates(false)
 
         XCTAssertEqual(driver.automaticPreferenceWrites, [false])
         XCTAssertTrue(driver.automaticallyChecksForUpdates)
-        XCTAssertFalse(controller.automaticallyInstallsUpdates)
+        XCTAssertFalse(controller.automaticallyDownloadsUpdates)
     }
 
     func test手动检查只在Sparkle允许时触发() {

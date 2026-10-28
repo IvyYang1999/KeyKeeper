@@ -147,7 +147,7 @@ Every key group has one of two access modes, shown as a badge in the list:
 | **Background OK** (default) | Scripts, cron jobs and agents can use the key after you approve each caller once. | Anything that runs unattended. |
 | **Ask every time** | Every new terminal session must be approved in the KeyKeeper window while you are at the Mac. | Keys you only use by hand. |
 
-In **Settings** you can require approval for new background callers and turn on **Launch at Login**. KeyKeeper checks once a day for signed updates and tells you when one is available; turn on **Install updates automatically** if you prefer.
+In **Settings** you can require approval for new background callers and turn on **Launch at Login**. While running, KeyKeeper checks for signed updates every six hours by default, downloads them in the background and installs them when you quit. If you keep the app open, it reminds you after a day. Turn off **Download updates in the background** to be asked before downloading. Explicit saved update preferences are preserved.
 
 ## AI tools
 

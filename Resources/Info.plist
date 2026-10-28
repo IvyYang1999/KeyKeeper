@@ -39,10 +39,12 @@
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>SUAutomaticallyUpdate</key>
-    <false/>
+    <true/>
     <key>SUAllowsAutomaticUpdates</key>
     <true/>
     <key>SUScheduledCheckInterval</key>
+    <integer>21600</integer>
+    <key>SUScheduledImpatientCheckInterval</key>
     <integer>86400</integer>
     <key>SUVerifyUpdateBeforeExtraction</key>
     <true/>

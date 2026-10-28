@@ -22,6 +22,15 @@ if [ ! -f "$NOTES" ]; then
     echo "ERROR: missing release notes: $NOTES" >&2
     exit 1
 fi
+if [ -f "$PROJECT_DIR/dist/KeyKeeper-$VERSION.update.json" ]; then
+    echo "ERROR: a verified candidate already exists; resume publish-update.sh, do not rebuild it" >&2
+    exit 1
+fi
+if git -C "$PROJECT_DIR" rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
+    echo "ERROR: version $VERSION is already tagged; use a new version, never rebuild the release" >&2
+    exit 1
+fi
+SOURCE_COMMIT="$(git -C "$PROJECT_DIR" rev-parse HEAD)"
 
 "$PROJECT_DIR/scripts/build-app.sh"
 
@@ -77,5 +86,11 @@ if ! grep -Fq 'edSignature:' "$UPDATE_DIRECTORY/appcast.xml"; then
 fi
 
 cp "$UPDATE_DIRECTORY/appcast.xml" "$PROJECT_DIR/appcast.xml"
+if [ "$(git -C "$PROJECT_DIR" rev-parse HEAD)" != "$SOURCE_COMMIT" ]; then
+    echo "ERROR: source changed during preparation; no release receipt recorded" >&2
+    exit 1
+fi
+# Re-check both signatures with the App's public key and bind these exact artifacts to HEAD.
+/usr/bin/python3 -B "$PROJECT_DIR/scripts/publish-update.py" --record-candidate
 echo "Prepared signed appcast for KeyKeeper $VERSION"
 echo "Review appcast.xml, then run: ./scripts/publish-update.sh --confirm-version $VERSION"

@@ -59,7 +59,7 @@ struct SettingsView: View {
                     ApprovalRemindersCard()
                     reviewerCard
                     startupCard
-                    updatesCard
+                    UpdatesSettingsCard(updateController: updateController)
                     cliCard
                     AgentPluginsCard()
                     dataCard
@@ -316,32 +316,6 @@ extension SettingsView {
         .dsCard(padding: DS.Spacing.md)
     }
 
-    private var updatesCard: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            SectionLabel(text: L("Updates"))
-            Toggle(isOn: Binding(
-                get: { updateController.automaticallyInstallsUpdates },
-                set: { updateController.setAutomaticallyInstallsUpdates($0) }
-            )) {
-                Text(L("Install updates automatically"))
-                    .font(.callout)
-            }
-            .disabled(!updateController.isAvailable)
-
-            Text(updateDescription)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Button(L("Check for Updates…")) {
-                updateController.checkForUpdates()
-            }
-            .font(.caption)
-            .disabled(!updateController.canCheckForUpdates)
-        }
-        .dsCard(padding: DS.Spacing.md)
-    }
-
     private var dataCard: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             SectionLabel(text: L("Data"))
@@ -365,15 +339,6 @@ extension SettingsView {
         case .stale: return L("CLI is out of date")
         case .current: return L("CLI up to date")
         }
-    }
-
-    private var updateDescription: String {
-        guard updateController.isAvailable else {
-            return L("Updates are unavailable in this development build.")
-        }
-        return updateController.automaticallyInstallsUpdates
-            ? L("KeyKeeper checks daily and installs signed updates in the background.")
-            : L("KeyKeeper checks daily and tells you when a signed update is available.")
     }
 
     private var cliDetail: String {

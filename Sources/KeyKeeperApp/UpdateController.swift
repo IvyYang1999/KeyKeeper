@@ -40,7 +40,7 @@ protocol UpdateDriving: AnyObject {
 @MainActor
 final class UpdateController: ObservableObject {
     @Published private(set) var canCheckForUpdates: Bool
-    @Published private(set) var automaticallyInstallsUpdates: Bool
+    @Published private(set) var automaticallyDownloadsUpdates: Bool
 
     let isAvailable: Bool
     private let driver: UpdateDriving?
@@ -54,7 +54,7 @@ final class UpdateController: ObservableObject {
         self.driver = driver
         isAvailable = driver != nil
         canCheckForUpdates = driver?.canCheckForUpdates ?? false
-        automaticallyInstallsUpdates = driver?.automaticallyDownloadsUpdates ?? false
+        automaticallyDownloadsUpdates = driver?.automaticallyDownloadsUpdates ?? false
 
         driver?.stateDidChange = { [weak self] state in
             self?.apply(state)
@@ -69,10 +69,10 @@ final class UpdateController: ObservableObject {
         ))
     }
 
-    func setAutomaticallyInstallsUpdates(_ enabled: Bool) {
+    func setAutomaticallyDownloadsUpdates(_ enabled: Bool) {
         guard let driver else { return }
         // Update prompts depend on scheduled checks. This app intentionally keeps checks
-        // enabled even when the user opts out of automatic installation.
+        // enabled even when the user opts out of background downloads.
         if !driver.automaticallyChecksForUpdates {
             driver.automaticallyChecksForUpdates = true
         }
@@ -87,7 +87,7 @@ final class UpdateController: ObservableObject {
 
     private func apply(_ state: UpdateDriverState) {
         canCheckForUpdates = state.canCheckForUpdates
-        automaticallyInstallsUpdates = state.automaticallyDownloadsUpdates
+        automaticallyDownloadsUpdates = state.automaticallyDownloadsUpdates
     }
 }
 

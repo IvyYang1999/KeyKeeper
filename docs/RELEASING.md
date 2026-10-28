@@ -1,7 +1,13 @@
 # Releasing KeyKeeper updates
 
-KeyKeeper uses Sparkle 2. The app checks the signed `appcast.xml` once a day. Automatic
-installation is off by default; users can turn it on in Settings. Signing reads the
+KeyKeeper uses Sparkle 2. While running, it checks the signed `appcast.xml` every six
+hours by default. Signed updates download in the background and install on quit;
+if the app stays open, the default reminder interval after downloading is one day
+(Sparkle's unconfigured default is one week). Sleep, offline periods and a stopped
+app delay checks: this is polling, not push delivery or a timing guarantee. Existing
+explicit Sparkle preferences take precedence over these defaults. Settings offers
+“Download updates in the background”; switching it off keeps checks and download prompts.
+Signing reads the
 `private-key` secret field from `keykeeper-sparkle-signing` (override with
 `KEYKEEPER_SPARKLE_CREDENTIAL_ID`). The original login Keychain entry under account
 `com.keykeeper.app` is retained for recovery. Never export private keys into files or argv.
@@ -51,14 +57,38 @@ installed manually. Every later release can update it in place.
 3. Run `./scripts/prepare-update.sh`. It builds and notarizes the Developer ID-signed
    DMG, then creates a signed `appcast.xml`, but changes nothing remotely.
 4. Inspect the candidate and get explicit approval to publish.
-5. Run `./scripts/publish-update.sh --confirm-version <version>`. It creates and pushes
-   the tag, checks that the DMG on disk is the one the appcast signed, publishes it on
-   GitHub Releases, then commits the appcast and pushes `main`. That last push is what
-   makes the update visible to installed apps — the feed is read from `main`.
+5. Run `./scripts/publish-update.sh --confirm-version <version>`. It verifies the feed
+   and archive signatures against the App's public key, and checks the immutable
+   `dist/KeyKeeper-<version>.update.json` prepared receipt (source commit, archive,
+   feed and release-notes digests). It reconciles the existing remote tag/Release,
+   creates a draft when needed, uploads without clobbering, downloads the remote
+   asset to verify its actual SHA-256, then makes the release public. Finally it
+   commits only the feed, pushes `main` and reads the public feed back byte-for-byte.
+   A push alone is not success. The feed-only commit skips the legacy auto-install
+   hooks, so publishing never silently restarts the maintainer's live App.
 6. Point the website at the new version: in `keykeeper-landing`, update the download URL
    in `app/page.tsx` and the two `facts` strings in `app/i18n.ts`, then deploy with
    `vercel --prod --yes` (a git push does not deploy).
 
 Do not hand-edit `appcast.xml` after generation: signed feeds reject any modification.
-If publishing fails after the tag or GitHub Release is created, leave the appcast
-unpublished and inspect the existing remote state before retrying.
+If publishing fails, keep the exact candidate and receipt; re-run the same publish
+command. It reads existing state before writing, reuses matching tags/assets, and
+stops on mismatches, unknown network outcomes or stale public feed bytes. Never
+rebuild a tagged version or overwrite its asset. `prepare-update.sh` refuses to
+rebuild a version with a local tag or prepared receipt. A historical candidate
+without a receipt requires explicit source reconciliation, not a fabricated receipt.
+
+## Verification boundaries
+
+- `python3 -B scripts/test-verify-update.py`: cryptographic positive/negative cases,
+  including a different archive of the same size. Only the public RFC 8032 fixture
+  key is used; no production secrets.
+- `python3 -B scripts/test-publish-update.py`: interrupted upload/publish/push and
+  stale-feed scenarios, plus real Git commit/tag/push/resume against a local bare
+  fixture. GitHub itself is simulated in these tests.
+- `UpdateDefaultsTests` reads the real Sparkle settings implementation with a fresh
+  synthetic bundle and an explicitly opted-out user. No live updater is started.
+- A public release still needs an isolated installed-old-version → signed-new-version
+  Sparkle upgrade, checking the launched version and CLI symlink. These tests alone
+  do not prove production delivery. Never run that test against the live user vault
+  or force-quit the maintainer's App.

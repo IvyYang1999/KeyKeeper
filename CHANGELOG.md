@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Update defaults: check every six hours while running, download signed updates in the background, and install on quit. Long-running sessions get a reminder after a day. Explicit saved user preferences are preserved; Settings now distinguishes downloading from installing.
+- Release delivery verifies both Sparkle signatures and exact remote artifact bytes. Interrupted releases can resume without overwriting existing tags or assets; unavailable GitHub responses and stale public feeds no longer count as success.
+
 ## 0.3.5 - 2026-09-20
 
 - Import a project's dotenv file with `keykeeper import`: the App previews variable names, asks for approval and stores all imported values in the Keychain. Imported credentials are inject-only; originals remain untouched. Single-line assignments only; malformed/multiline syntax fails closed, and empty/reserved/unsupported names are reported as skipped. No shell interpolation is performed.

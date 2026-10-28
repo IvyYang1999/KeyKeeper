@@ -50,7 +50,7 @@ final class UpdatePackagingContractTests: XCTestCase {
         }
     }
 
-    func test生产InfoPlist固定启用提示并默认关闭自动安装() throws {
+    func test生产默认六小时检查后台下载并在一天后提醒() throws {
         let data = try Data(contentsOf: repositoryRoot.appendingPathComponent("Resources/Info.plist"))
         let plist = try XCTUnwrap(
             PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
@@ -59,7 +59,10 @@ final class UpdatePackagingContractTests: XCTestCase {
         let feedURL = try XCTUnwrap(URL(string: try XCTUnwrap(plist["SUFeedURL"] as? String)))
         XCTAssertEqual(feedURL.scheme, "https")
         XCTAssertEqual(plist["SUEnableAutomaticChecks"] as? Bool, true)
-        XCTAssertEqual(plist["SUAutomaticallyUpdate"] as? Bool, false)
+        XCTAssertEqual(plist["SUAutomaticallyUpdate"] as? Bool, true)
+        XCTAssertEqual(plist["SUScheduledCheckInterval"] as? Int, 21_600)
+        XCTAssertEqual(plist["SUScheduledImpatientCheckInterval"] as? Int, 86_400)
+        XCTAssertEqual(plist["SUAllowsAutomaticUpdates"] as? Bool, true)
 
         let publicKey = try XCTUnwrap(plist["SUPublicEDKey"] as? String)
         XCTAssertEqual(Data(base64Encoded: publicKey)?.count, 32)
@@ -110,21 +113,23 @@ final class UpdatePackagingContractTests: XCTestCase {
             encoding: .utf8
         )
         XCTAssertTrue(publish.contains("--confirm-version"))
-        XCTAssertTrue(publish.contains("gh release create"))
-        XCTAssertTrue(publish.contains("git -C \"$PROJECT_DIR\" commit"))
-        // The feed lives on main (SUFeedURL points at raw.githubusercontent.com/.../main/appcast.xml),
-        // so a publish that commits the appcast without pushing leaves every installed app on the
-        // old version while reporting success.
-        XCTAssertTrue(
-            publish.contains("push origin main"),
-            "the appcast commit must reach the branch the update feed is served from"
-        )
-        // The DMG on disk can be a later local rebuild that no longer matches the signed feed.
-        XCTAssertTrue(publish.contains("stat -f%z"))
-        XCTAssertTrue(
-            publish.contains("length=\\\"$DMG_BYTES\\\""),
-            "the uploaded DMG must be the one the appcast signed"
-        )
+        XCTAssertTrue(publish.contains("publish-update.py"))
+        XCTAssertTrue(prepare.contains("--record-candidate"))
+    }
+
+    func test发布签名及中断恢复反例() throws {
+        for name in ["test-verify-update.py", "test-publish-update.py"] {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            process.arguments = ["-B", repositoryRoot.appendingPathComponent("scripts/\(name)").path]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+            try process.run()
+            let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            process.waitUntilExit()
+            XCTAssertEqual(process.terminationStatus, 0, output)
+        }
     }
 
     /// 签名私钥可以本地自证身份：由私钥推导公钥，和 App 里内置的 SUPublicEDKey 比对。
