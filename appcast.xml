@@ -6,6 +6,40 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>KeyKeeper</title>
         <item>
+            <title>0.3.6</title>
+            <pubDate>Thu, 29 Oct 2026 09:30:24 +0800</pubDate>
+            <link>https://github.com/IvyYang1999/KeyKeeper</link>
+            <sparkle:version>0.3.6</sparkle:version>
+            <sparkle:shortVersionString>0.3.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# KeyKeeper 0.3.6
+
+适用于 Apple Silicon Mac，macOS 14 或更新版本。
+
+- **更新更及时**：运行时默认每 6 小时检查一次，签名更新在后台下载、退出时安装；一直不退出时，一天后会提醒。已保存的更新选择保持不变。
+- **下载与安装说清楚**：设置开关改为“在后台下载更新”。关闭后依旧检查更新，但下载前会询问；不会为了安装更新突然中断当前工作。
+- **Agent 调用更容易排错**：`keykeeper run --env` 支持精确映射变量名，`--plan` 可以预检映射与本地值是否存在，不读取密钥值、不启动目标命令。子命令失败时能分清是否已经完成注入。
+- **首次使用与授权更清楚**：完善 Agent 的首次使用指引，并简化授权窗信息层次。
+- **发布更可靠**：同时验证更新源与安装包的签名，核对线上文件的实际摘要；发布中断可安全续发，不覆盖已有不同版本，也不再把网络故障当作“版本不存在”。
+
+更新依赖 KeyKeeper 正在运行和网络可用，不是实时推送。自动下载不等于立即安装；想马上更新，可以在设置里选择“检查更新…”。
+
+---
+
+For Apple Silicon Macs, macOS 14 or later.
+
+- While running, KeyKeeper checks every six hours by default, downloads signed updates in the background and installs on quit. Long-running sessions get a reminder after a day. Explicit saved preferences are preserved.
+- Settings now says “Download updates in the background,” distinguishing download from installation. Turning it off keeps checks and asks before downloading.
+- `keykeeper run --env` maps fields to exact client variable names; `--plan` previews mappings and local presence without reading secret values or launching the child. Failure diagnostics distinguish successful injection from a failed child command.
+- Clearer first-use guidance for agents and a simpler approval window.
+- Release delivery validates both signatures and actual remote bytes. Interrupted releases resume without overwriting different assets or treating an unavailable service as an absent release.
+
+Checks require the app to be running and a working connection; this is not push delivery. Use “Check for Updates…” to update sooner.
+]]></description>
+            <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.6/KeyKeeper-0.3.6.dmg" length="8905985" type="application/octet-stream" sparkle:edSignature="RvXhPkFWVoD9CauyRu7NlDPJNvOSzvyWVc2FYleOdnVX5SVPXeNdTMgBUfA457p4XVR91Ge1YmJcluwT10CYBQ=="/>
+        </item>
+        <item>
             <title>0.3.5</title>
             <pubDate>Sun, 20 Sep 2026 16:20:13 +0800</pubDate>
             <link>https://github.com/IvyYang1999/KeyKeeper</link>
@@ -103,45 +137,9 @@ For Apple Silicon Macs, macOS 14 or later.
 ]]></description>
             <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.4/KeyKeeper-0.3.4.dmg" length="7597070" type="application/octet-stream" sparkle:edSignature="KBUAoZH65qWNsuq8VW9kzzrCO8PvLKyd8NOl8zJvCgzAo4CUE6qirgqdc7HVAS0jCw9vrsK9eRX+4n6mY80xDA=="/>
         </item>
-        <item>
-            <title>0.3.3</title>
-            <pubDate>Sun, 13 Sep 2026 16:37:10 +0800</pubDate>
-            <link>https://github.com/IvyYang1999/KeyKeeper</link>
-            <sparkle:version>0.3.3</sparkle:version>
-            <sparkle:shortVersionString>0.3.3</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[# KeyKeeper 0.3.3
-
-适用于 Apple Silicon Mac，macOS 14 或更新版本。
-
-**建议升级**：修了两个安全问题。
-
-- 在 App 里复制密钥，不再跟着「通用剪贴板」同步到你的 iPhone 和 iPad。
-- 授权窗点「使用密码」会直接出密码框，不再先弹一次 Touch ID。
-- 从剪贴板存密钥时，只接受你在命令跑起来**之后**复制的那一次；可以先声明它应该长什么样（`--expect base64:32`），对不上就不存；存完会告诉你存了个什么形状。
-- 可以安全地替换已有字段（`--replace`），密钥也能先验明身份再入库。
-- 网站登录态那一页现在会告诉你扩展在哪、怎么装，连接改成一键完成。
-- 两个 SDK 可以写一句话说明为什么要用这把 key，会显示在授权窗里。
-
----
-
-For Apple Silicon Macs, macOS 14 or later.
-
-**Recommended**: two security fixes.
-
-- Copying a secret in the app no longer syncs to your iPhone and iPad over Universal Clipboard.
-- "Use Password" in the approval window now goes straight to the password field instead of showing Touch ID again.
-- Saving from the clipboard accepts only the copy you made *after* the command started. You can declare what the value should look like (`--expect base64:32`); a mismatch saves nothing. Every save reports the shape of what was stored.
-- Existing fields can be replaced safely (`--replace`), and a key can prove its identity before being stored.
-- The website sessions page now explains where the Chrome extension is and how to load it; connecting is one click.
-- Both SDKs can pass a one-line reason, shown in the approval window.
-]]></description>
-            <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.3/KeyKeeper-0.3.3.dmg" length="6972728" type="application/octet-stream" sparkle:edSignature="T7t2C1gOHzAi0W+u651Shk0O99FcjLD3HPL5zIqH1Mb3le01i1Kk9PqOl2g5Wt9YMleCDpaOVGb0Ua8axqJ6DQ=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: wUOmClbkT/Y+ZsjRvXqI61ybSKTlKEujec3gSU6YeWrguTu+3p9F9GF1ONgbwd9WLeK/XR6l8Yx/WS4qjCzKBQ==
-length: 13729
+edSignature: pFLssMlm26CIjUQHfqLpsUepRJQe9QLo2w3ozriQ48Umpqrehfov9jpAHY3vRjNcl+xcV0NG5/NKYpyBkHGHCg==
+length: 14379
 -->
