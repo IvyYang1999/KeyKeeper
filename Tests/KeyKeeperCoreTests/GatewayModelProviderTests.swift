@@ -27,7 +27,7 @@ final class GatewayModelProviderTests: XCTestCase {
 
     func testAuditedGatewaySetIsCompleteAndNeverProbesSavedSecrets() {
         XCTAssertEqual(Set(GatewayModelProviderCatalog.all.map(\.id)), Set([
-            "atlascloud", "atlascloud-coding-plan",
+            "atlascloud", "atlascloud-coding-plan", "popnow",
             "compshare-modelverse-cn", "compshare-modelverse-global", "compshare-agent-plan",
             "ccsub", "micu-claude", "micu-codex", "rightcode-codex", "cubence",
             "crazyrouter", "dmxapi-cn", "dmxapi-global", "dmxapi-ssvip",
@@ -35,6 +35,24 @@ final class GatewayModelProviderTests: XCTestCase {
         ]))
         XCTAssertTrue(GatewayModelProviderCatalog.all.allSatisfy { $0.validation == nil })
         XCTAssertTrue(GatewayModelProviderCatalog.all.allSatisfy { !($0.sources ?? []).isEmpty })
+    }
+
+    func testPopNowKeepsItsOwnKeyAndDoesNotProbeSavedSecrets() throws {
+        // 自有 API 凭据不能因 MCP 或协议兼容而映射成别家的密钥，也不启用自动探测。
+        let template = try provider("popnow")
+        XCTAssertEqual(ProviderCatalog.find("popnow"), template)
+        XCTAssertEqual(template.fieldName, "popnow-api-key")
+        XCTAssertEqual(template.fields.first?.environmentNames, ["POPNOW_API_KEY"])
+        XCTAssertEqual(template.prefixes, ["sk-popnow-"])
+        XCTAssertTrue(template.shownOnce)
+        XCTAssertNil(template.validation)
+        XCTAssertEqual(template.createURL, "https://popnow.ai/api/console/keys")
+        XCTAssertEqual(template.endpoints, [
+            ProviderEndpoint("Media REST API", "https://api.popnow.ai/api/v1"),
+            ProviderEndpoint("Remote MCP (API key)", "https://api.popnow.ai/api/v1/mcp"),
+        ])
+        XCTAssertEqual(template.sources, ["https://popnow.ai/docs/authentication", "https://popnow.ai/docs/mcp"])
+        XCTAssertTrue(template.contractProblems.isEmpty)
     }
 
     func testSeparatePlansAndRealmsCannotBeCollapsedIntoOneTemplate() throws {
