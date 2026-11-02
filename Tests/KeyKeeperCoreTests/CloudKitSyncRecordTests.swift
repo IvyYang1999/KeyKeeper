@@ -16,28 +16,28 @@ final class CloudKitSyncRecordTests: XCTestCase {
             account: binding.accountID, vaultID: vault, keyID: keyID, revisionID: revision)
         let payload = try CloudKitSyncRecord.Payload(vaultID: vault, keyID: keyID, revisionID: revision,
             ciphertext: CloudVaultEnvelope.seal(snapshot, key: key, context: context))
-        let record = CKRecord(recordType: CloudKitSyncRecord.recordType, recordID: CloudKitSyncRecord.recordID(binding))
+        let record = CKRecord(recordType: CloudKitSyncRecord.recordType, recordID: CloudKitSyncRecord.recordID(binding, scope: .production))
         CloudKitSyncRecord.apply(payload, to: record)
-        let decoded = try CloudKitSyncRecord.payload(record, binding: binding)
+        let decoded = try CloudKitSyncRecord.payload(record, binding: binding, scope: .production)
         XCTAssertEqual(try CloudVaultEnvelope.open(decoded.ciphertext, key: key, expectedContext: decoded.context(binding)).encoded(), try snapshot.encoded())
         XCTAssertFalse(String(decoding: decoded.ciphertext, as: UTF8.self).contains("synthetic-secret"))
         XCTAssertFalse(String(decoding: decoded.ciphertext, as: UTF8.self).contains("private synthetic note"))
         record["grants"] = "must-not-transfer" as CKRecordValue
-        XCTAssertThrowsError(try CloudKitSyncRecord.payload(record, binding: binding))
+        XCTAssertThrowsError(try CloudKitSyncRecord.payload(record, binding: binding, scope: .production))
     }
     func testWrongAccountZoneAndUncommittedChangeTokenRefuse() throws {
-        let record = CKRecord(recordType: CloudKitSyncRecord.recordType, recordID: CloudKitSyncRecord.recordID(binding))
+        let record = CKRecord(recordType: CloudKitSyncRecord.recordType, recordID: CloudKitSyncRecord.recordID(binding, scope: .production))
         let payload = CloudKitSyncRecord.Payload(vaultID: UUID(), keyID: UUID(), revisionID: UUID(), ciphertext: Data())
         CloudKitSyncRecord.apply(payload, to: record)
         var other = binding
         other = .init(container: binding.container, environment: binding.environment, accountID: "other-account")
-        XCTAssertThrowsError(try CloudKitSyncRecord.payload(record, binding: other))
-        XCTAssertThrowsError(try CloudKitSyncRecord.changeToken(record, payload: payload, binding: binding))
-        XCTAssertThrowsError(try CloudKitSyncRecord.restore(Data("{}".utf8), binding: binding, revision: UUID()))
+        XCTAssertThrowsError(try CloudKitSyncRecord.payload(record, binding: other, scope: .production))
+        XCTAssertThrowsError(try CloudKitSyncRecord.changeToken(record, payload: payload, binding: binding, scope: .production))
+        XCTAssertThrowsError(try CloudKitSyncRecord.restore(Data("{}".utf8), binding: binding, revision: UUID(), scope: .production))
     }
     func testRootQueryOnlySyncsRootAndSeparatesAccountsAndEnvironments() {
         let vault = UUID(), key = UUID()
-        let query = CloudSyncRootKey.query(binding: binding, vault: vault, key: key)
+        let query = CloudSyncRootKey.query(binding: binding, vault: vault, key: key, scope: .production)
         XCTAssertEqual(query[kSecAttrSynchronizable as String] as? Bool, true)
         XCTAssertEqual(query[kSecUseDataProtectionKeychain as String] as? Bool, true)
         XCTAssertEqual(query[kSecAttrAccessGroup as String] as? String, StorageIdentity.accessGroup)
@@ -45,7 +45,7 @@ final class CloudKitSyncRecordTests: XCTestCase {
         for other in [CloudSyncBinding(container: binding.container, environment: "Development", accountID: binding.accountID),
                       .init(container: binding.container, environment: "Production", accountID: "other")] {
             XCTAssertNotEqual(query[kSecAttrService as String] as? String,
-                CloudSyncRootKey.query(binding: other, vault: vault, key: key)[kSecAttrService as String] as? String)
+                CloudSyncRootKey.query(binding: other, vault: vault, key: key, scope: .production)[kSecAttrService as String] as? String)
         }
     }
 }

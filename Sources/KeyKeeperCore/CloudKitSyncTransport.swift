@@ -7,10 +7,19 @@ import CryptoKit
 public final class CloudKitSyncTransport: CloudSyncTransport, @unchecked Sendable {
     private let container: CKContainer
     private let identity: CloudSyncNativeIdentity
+    private let scope: CloudSyncScope
     private let fence = CloudSyncNativeFence()
     private var observer: NSObjectProtocol?
-    public init(identity: CloudSyncNativeIdentity) {
-        self.identity = identity
+    public convenience init(identity: CloudSyncNativeIdentity) {
+        self.init(identity: identity, scope: .production)
+    }
+    #if KEYKEEPER_SYNC_ACCEPTANCE
+    public convenience init(identity: CloudSyncNativeIdentity, acceptanceRunID: UUID) {
+        self.init(identity: identity, scope: .acceptance(acceptanceRunID))
+    }
+    #endif
+    private init(identity: CloudSyncNativeIdentity, scope: CloudSyncScope) {
+        self.identity = identity; self.scope = scope
         container = CKContainer(identifier: CloudSyncNativeIdentity.container)
         observer = NotificationCenter.default.addObserver(forName: .CKAccountChanged, object: nil, queue: nil) { [weak self] _ in
             self?.fence.invalidate()
@@ -46,7 +55,7 @@ public final class CloudKitSyncTransport: CloudSyncTransport, @unchecked Sendabl
     }
     public func fetch(binding: CloudSyncBinding) async throws -> CloudSyncRemote? {
         try await verify(binding)
-        let op = CKFetchRecordsOperation(recordIDs: [CloudKitSyncRecord.recordID(binding)])
+        let op = CKFetchRecordsOperation(recordIDs: [CloudKitSyncRecord.recordID(binding, scope: scope)])
         let box = CloudNativeResult<CKRecord>()
         op.perRecordResultBlock = { _, result in box.set(result) }
         let record: CKRecord? = try await fence.perform(cancel: { op.cancel() }) { done in
@@ -64,14 +73,14 @@ public final class CloudKitSyncTransport: CloudSyncTransport, @unchecked Sendabl
         try await verify(binding)
         return try withCurrentBinding(binding) {
             guard let record else { return nil }
-            let payload = try CloudKitSyncRecord.payload(record, binding: binding)
-            guard let key = try CloudSyncRootKey.read(binding: binding, vault: payload.vaultID, key: payload.keyID) else {
+            let payload = try CloudKitSyncRecord.payload(record, binding: binding, scope: scope)
+            guard let key = try CloudSyncRootKey.read(binding: binding, vault: payload.vaultID, key: payload.keyID, scope: scope) else {
                 // The other Mac's immutable root may still be arriving via iCloud Keychain.
                 throw CloudSyncError.unavailable
             }
             let snapshot = try CloudVaultEnvelope.open(payload.ciphertext, key: key, expectedContext: payload.context(binding))
             return try CloudSyncRemote(revisionID: payload.revisionID, snapshot: snapshot,
-                changeToken: CloudKitSyncRecord.changeToken(record, payload: payload, binding: binding))
+                changeToken: CloudKitSyncRecord.changeToken(record, payload: payload, binding: binding, scope: scope))
         }
     }
     public func upload(_ pending: CloudSyncPendingUpload, binding: CloudSyncBinding) async throws {
@@ -80,17 +89,17 @@ public final class CloudKitSyncTransport: CloudSyncTransport, @unchecked Sendabl
         let record: CKRecord = try withCurrentBinding(binding) {
             let record: CKRecord, vault: UUID, keyID: UUID, key: SymmetricKey
             if let token = pending.expectedChangeToken, let revision = pending.expectedRevisionID {
-                let restored = try CloudKitSyncRecord.restore(token, binding: binding, revision: revision)
+                let restored = try CloudKitSyncRecord.restore(token, binding: binding, revision: revision, scope: scope)
                 record = restored.0; vault = restored.1.vaultID; keyID = restored.1.keyID
-                guard let existing = try CloudSyncRootKey.read(binding: binding, vault: vault, key: keyID) else {
+                guard let existing = try CloudSyncRootKey.read(binding: binding, vault: vault, key: keyID, scope: scope) else {
                     throw CloudSyncError.unavailable
                 }
                 key = existing
             } else {
                 // Stable publication ID makes an explicitly retried first upload reuse its root.
                 vault = pending.id; keyID = pending.id
-                record = CKRecord(recordType: CloudKitSyncRecord.recordType, recordID: CloudKitSyncRecord.recordID(binding))
-                key = try CloudSyncRootKey.createOrRead(binding: binding, vault: vault, key: keyID)
+                record = CKRecord(recordType: CloudKitSyncRecord.recordType, recordID: CloudKitSyncRecord.recordID(binding, scope: scope))
+                key = try CloudSyncRootKey.createOrRead(binding: binding, vault: vault, key: keyID, scope: scope)
             }
             let context = CloudVaultEnvelopeContext(container: binding.container, environment: binding.environment,
                 account: binding.accountID, vaultID: vault, keyID: keyID, revisionID: pending.id)
@@ -120,7 +129,7 @@ public final class CloudKitSyncTransport: CloudSyncTransport, @unchecked Sendabl
     }
     private func createZone(_ binding: CloudSyncBinding) async throws {
         try await verify(binding)
-        let zone = CKRecordZone(zoneID: CloudKitSyncRecord.recordID(binding).zoneID)
+        let zone = CKRecordZone(zoneID: CloudKitSyncRecord.recordID(binding, scope: scope).zoneID)
         let op = CKModifyRecordZonesOperation(recordZonesToSave: [zone], recordZoneIDsToDelete: [])
         let box = CloudNativeResult<CKRecordZone>()
         op.perRecordZoneSaveBlock = { _, result in box.set(result) }

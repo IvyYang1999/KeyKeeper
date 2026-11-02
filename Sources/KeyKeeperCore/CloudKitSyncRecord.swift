@@ -6,7 +6,6 @@ import CryptoKit
 /// preserve Apple's change tag for ifServerRecordUnchanged; see CKRecord.encodeSystemFields.
 enum CloudKitSyncRecord {
     static let recordType = "KeyKeeperVault"
-    static let zoneName = "KeyKeeperVault-v1"
     struct Payload {
         let vaultID: UUID
         let keyID: UUID
@@ -25,11 +24,11 @@ enum CloudKitSyncRecord {
         let revisionID: UUID
         let systemFields: Data
     }
-    static func recordID(_ binding: CloudSyncBinding) -> CKRecord.ID {
-        .init(recordName: "head", zoneID: .init(zoneName: zoneName, ownerName: binding.accountID))
+    static func recordID(_ binding: CloudSyncBinding, scope: CloudSyncScope) -> CKRecord.ID {
+        .init(recordName: "head", zoneID: .init(zoneName: scope.zoneName, ownerName: binding.accountID))
     }
-    static func payload(_ record: CKRecord, binding: CloudSyncBinding) throws -> Payload {
-        guard record.recordType == recordType, record.recordID == recordID(binding),
+    static func payload(_ record: CKRecord, binding: CloudSyncBinding, scope: CloudSyncScope) throws -> Payload {
+        guard record.recordType == recordType, record.recordID == recordID(binding, scope: scope),
               Set(record.allKeys()) == ["vaultID", "keyID", "revisionID", "ciphertext"],
               let v = record["vaultID"] as? String, let vault = UUID(uuidString: v),
               let k = record["keyID"] as? String, let key = UUID(uuidString: k),
@@ -38,15 +37,16 @@ enum CloudKitSyncRecord {
               ciphertext.count <= CloudVaultEnvelope.maximumBytes else { throw CloudSyncError.stateUnavailable }
         return Payload(vaultID: vault, keyID: key, revisionID: revision, ciphertext: ciphertext)
     }
-    static func changeToken(_ record: CKRecord, payload: Payload, binding: CloudSyncBinding) throws -> Data {
-        guard record.recordChangeTag?.isEmpty == false else { throw CloudSyncError.stateUnavailable }
+    static func changeToken(_ record: CKRecord, payload: Payload, binding: CloudSyncBinding, scope: CloudSyncScope) throws -> Data {
+        guard record.recordType == recordType, record.recordID == recordID(binding, scope: scope),
+              record.recordChangeTag?.isEmpty == false else { throw CloudSyncError.stateUnavailable }
         let coder = NSKeyedArchiver(requiringSecureCoding: true)
         record.encodeSystemFields(with: coder)
         coder.finishEncoding()
         return try CloudVaultSnapshot.encode(ChangeToken(version: 1, binding: binding, vaultID: payload.vaultID,
             keyID: payload.keyID, revisionID: payload.revisionID, systemFields: coder.encodedData))
     }
-    static func restore(_ data: Data, binding: CloudSyncBinding, revision: UUID) throws -> (CKRecord, ChangeToken) {
+    static func restore(_ data: Data, binding: CloudSyncBinding, revision: UUID, scope: CloudSyncScope) throws -> (CKRecord, ChangeToken) {
         guard data.count <= 1024 * 1024 else { throw CloudSyncError.stateUnavailable }
         let token = try JSONDecoder().decode(ChangeToken.self, from: data)
         guard token.version == 1, token.binding == binding, token.revisionID == revision,
@@ -55,7 +55,7 @@ enum CloudKitSyncRecord {
         decoder.requiresSecureCoding = true
         defer { decoder.finishDecoding() }
         guard let record = CKRecord(coder: decoder), record.recordType == recordType,
-              record.recordID == recordID(binding), record.recordChangeTag?.isEmpty == false,
+              record.recordID == recordID(binding, scope: scope), record.recordChangeTag?.isEmpty == false,
               record.allKeys().isEmpty else { throw CloudSyncError.stateUnavailable }
         return (record, token)
     }

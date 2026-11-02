@@ -76,6 +76,11 @@ let package = Package(
         ),
         // Isolated synthetic probes; never bundled into the shipping application.
         .executableTarget(
+            name: "KeyKeeperSyncAcceptance",
+            dependencies: ["KeyKeeperCore"],
+            path: "Tools/KeyKeeperSyncAcceptance"
+        ),
+        .executableTarget(
             name: "KeyKeeperIdentityProbe",
             dependencies: ["KeyKeeperCore"],
             path: "Tools/KeyKeeperIdentityProbe"
