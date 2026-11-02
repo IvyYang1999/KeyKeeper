@@ -25,19 +25,20 @@ extension KeychainBlobIO {
 public final class SecItemBlobIO: KeychainBlobIO, @unchecked Sendable {
     /// Test seam: E2E runs override this so an isolated item is used and cleaned up.
     public static let serviceEnvironmentKey = "KEYKEEPER_KEYCHAIN_SERVICE"
-    public static let defaultService = "com.keykeeper.credentials"
+    public static var defaultService: String { StorageIdentity.runtime.credentialsService }
 
     private let service: String
+    private let identity: StorageIdentity
     private let account = "keykeeper"
     private let updateItem: (CFDictionary, CFDictionary) -> OSStatus
     private let addItem: (CFDictionary) -> OSStatus
 
-    public convenience init(service: String? = nil) {
+    public convenience init(service: String? = nil, identity: StorageIdentity = .runtime) {
         self.init(service: service
             ?? (try? Self.serviceName(environment: ProcessInfo.processInfo.environment))
             ?? Self.defaultService,
                   updateItem: { SecItemUpdate($0, $1) },
-                  addItem: { SecItemAdd($0, nil) })
+                  addItem: { SecItemAdd($0, nil) }, identity: identity)
     }
 
     /// Which Keychain item holds the credentials.
@@ -58,8 +59,9 @@ public final class SecItemBlobIO: KeychainBlobIO, @unchecked Sendable {
 
     /// System-call seam for checking update/create failure paths without accessing Keychain.
     init(service: String, updateItem: @escaping (CFDictionary, CFDictionary) -> OSStatus,
-         addItem: @escaping (CFDictionary) -> OSStatus) {
+         addItem: @escaping (CFDictionary) -> OSStatus, identity: StorageIdentity = .runtime) {
         self.service = service
+        self.identity = identity
         self.updateItem = updateItem
         self.addItem = addItem
     }
@@ -71,11 +73,7 @@ public final class SecItemBlobIO: KeychainBlobIO, @unchecked Sendable {
     /// Remove the item entirely. Used by an isolated test instance to leave nothing behind in the
     /// login Keychain; production never calls it. A missing item is not an error.
     public func deleteItem() throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
+        let query = Self.matchQuery(service: service, identity: identity)
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError.deleteFailed(status) }
     }
@@ -84,19 +82,26 @@ public final class SecItemBlobIO: KeychainBlobIO, @unchecked Sendable {
         try readBlob(allowInteraction: false)
     }
 
-    static func readQuery(service: String, allowInteraction: Bool) -> [String: Any] {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: "keykeeper",
-            kSecReturnData as String: true,
-        ]
+    static func readQuery(service: String, allowInteraction: Bool, identity: StorageIdentity = .runtime) -> [String: Any] {
+        var query = matchQuery(service: service, identity: identity)
+        query[kSecReturnData as String] = true
         if !allowInteraction { query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail }
         return query
     }
 
+    private static func matchQuery(service: String, identity: StorageIdentity) -> [String: Any] {
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: "keykeeper"]
+        if identity == .current {
+            query[kSecUseDataProtectionKeychain as String] = true
+            query[kSecAttrAccessGroup as String] = StorageIdentity.accessGroup
+            query[kSecAttrSynchronizable as String] = false
+        }
+        return query
+    }
+
     private func readBlob(allowInteraction: Bool) throws -> Data? {
-        let query = Self.readQuery(service: service, allowInteraction: allowInteraction)
+        let query = Self.readQuery(service: service, allowInteraction: allowInteraction, identity: identity)
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         switch status {
@@ -111,11 +116,7 @@ public final class SecItemBlobIO: KeychainBlobIO, @unchecked Sendable {
     }
 
     public func writeBlob(_ data: Data, replacingExisting: Bool) throws {
-        let match: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
+        let match = Self.matchQuery(service: service, identity: identity)
         if replacingExisting {
             // Update-only: an item disappearing between read and write is an error.
             let update: [String: Any] = [kSecValueData as String: data]
@@ -126,6 +127,7 @@ public final class SecItemBlobIO: KeychainBlobIO, @unchecked Sendable {
         }
 
         var add = match
+        if identity == .current { add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly }
         add[kSecValueData as String] = data
         let addStatus = addItem(add as CFDictionary)
         guard addStatus == errSecSuccess else {

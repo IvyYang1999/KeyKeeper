@@ -63,6 +63,17 @@ let package = Package(
             name: "VersionGenerator",
             path: "Tools/VersionGenerator"
         ),
+        // Included only by the opt-in identity-migration packaging script.
+        .executableTarget(
+            name: "KeyKeeperMigrationProbe",
+            dependencies: ["KeyKeeperCore"],
+            path: "Tools/KeyKeeperMigrationProbe"
+        ),
+        .executableTarget(
+            name: "KeyKeeperMigrationBridge",
+            dependencies: ["KeyKeeperCore"],
+            path: "Tools/KeyKeeperMigrationBridge"
+        ),
         // Isolated synthetic probes; never bundled into the shipping application.
         .executableTarget(
             name: "KeyKeeperIdentityProbe",

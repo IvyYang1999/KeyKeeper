@@ -61,7 +61,7 @@ public final class BrowserSessionStore {
 
     public static func serviceName(environment: [String: String]) throws -> String {
         let keys = ["KEYKEEPER_DATA_DIR", "KEYKEEPER_KEYCHAIN_SERVICE", "KEYKEEPER_TEST_SOCKET"]
-        guard keys.contains(where: { environment[$0] != nil }) else { return "com.keykeeper.browser-sessions" }
+        guard keys.contains(where: { environment[$0] != nil }) else { return StorageIdentity.runtime.servicePrefix + "browser-sessions" }
         guard let service = environment["KEYKEEPER_KEYCHAIN_SERVICE"], service.hasPrefix("com.keykeeper.test."),
               let socket = environment["KEYKEEPER_TEST_SOCKET"], socket.hasPrefix("/tmp/keykeeper-test-"),
               IPCConstants.resolveSocketPath(environment: environment) == socket else { throw BrowserSessionError.unavailable }

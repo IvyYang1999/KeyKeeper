@@ -10,12 +10,15 @@ public enum KeyKeeperPaths {
     )
 
     static func resolveApplicationSupportDirectory(environment: [String: String]) -> URL {
+        if StorageIdentity.resolve(bundleIdentifier: Bundle.main.bundleIdentifier, environment: environment) == .current {
+            return StorageIdentity.current.directory
+        }
         if let override = environment[dataDirectoryEnvironmentKey], !override.isEmpty {
             return URL(fileURLWithPath: override, isDirectory: true)
         }
         return FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        )[0].appendingPathComponent("KeyKeeper", isDirectory: true)
+        )[0].appendingPathComponent(StorageIdentity.runtime.directoryName, isDirectory: true)
     }
 }

@@ -87,7 +87,7 @@ public enum IntegrityKeyNames {
            environment["KEYKEEPER_DATA_DIR"]?.isEmpty == false {
             return test + "." + name
         }
-        return "com.keykeeper." + name
+        return StorageIdentity.runtime.servicePrefix + name
     }
 }
 

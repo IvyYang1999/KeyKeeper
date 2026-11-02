@@ -8,14 +8,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var ipcServer: IPCServer!
-    private let credentialService = KeychainCredentialService()
+    private lazy var credentialService = KeychainCredentialService()
     private var authWindowController: AuthorizationWindowController!
     private var cancellables = Set<AnyCancellable>()
     private var terminationSignalSources: [DispatchSourceSignal] = []
     private var isTerminating = false
     private let updateController = UpdateController()
-    private let browserSessions = BrowserSessionFeature()
+    private lazy var browserSessions = BrowserSessionFeature()
     private var mainWindow: MainWindowController!
+    private var startupAdmission: IdentityStartupAdmission?
+    private var migrationWindow: NSWindow?
+    private var servicesStarted = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         signal(SIGPIPE, SIG_IGN)
@@ -28,6 +31,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if ProcessInfo.processInfo.environment["KEYKEEPER_UI_TEST_REGULAR"] == nil {
             NSApp.setActivationPolicy(.accessory)
         }
+
+        if StorageIdentity.runtime == .current {
+            let admission = IdentityStartupAdmission.production { [weak self] in
+                self?.migrationWindow?.close()
+                self?.migrationWindow = nil
+                self?.startServices()
+            }
+            startupAdmission = admission
+            admission.start()
+            if !admission.admitted { showMigrationWindow() }
+        } else {
+            startServices()
+        }
+    }
+
+    private func showMigrationWindow() {
+        guard let admission = startupAdmission, !admission.admitted else { return }
+        if migrationWindow == nil {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 300),
+                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = "KeyKeeper"
+            window.isReleasedWhenClosed = false
+            window.contentViewController = NSHostingController(rootView: IdentityStartupView(admission: admission))
+            window.center()
+            migrationWindow = window
+        }
+        NSApp.setActivationPolicy(.regular)
+        migrationWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func startServices() {
+        guard !servicesStarted, StorageIdentity.runtime != .current || startupAdmission?.admitted == true else { return }
+        servicesStarted = true
 
         // Acquire the IPC endpoint before creating UI. A healthy listener means this launch is a duplicate.
         StandingApprovalRequester.shared.handler = { [weak self] request in self?.handleStandingApproval(request) }
@@ -45,7 +82,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             browserSessionController: browserSessions.controller,
             browserImportProposalStore: browserImportProposalStore,
             accessGate: .production,
-            requiresBoundRequests: { try LocalVaultJournal.production().requiresBoundRequests() })
+            requiresBoundRequests: {
+                if StorageIdentity.runtime.requiresBoundRequests { return true }
+                return try LocalVaultJournal.production().requiresBoundRequests()
+            })
         switch ipcServer.start(recoverVault: { _ = try LocalVaultCommitCoordinator.production().recover() }) {
         case .started(let disposition):
             if disposition == .replacedStaleSocket {
@@ -66,6 +106,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             LaunchMaintenance.run(.init(meta: MetaStore.default, inventory: credentialService.inspectValueInventory,
                                         approvals: .shared, directory: KeyKeeperPaths.applicationSupportDirectory,
                                         sessionStore: browserSessions.store))
+            ICloudSyncRuntime.shared.configureProduction()
+            Task { await ICloudSyncRuntime.shared.start() }
         }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -188,6 +230,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// `keykeeper://` links registered in Info.plist (CFBundleURLTypes).
     func application(_ application: NSApplication, open urls: [URL]) {
+        guard servicesStarted else { showMigrationWindow(); return }
         var wantsPopover = false
         for url in urls {
             switch DeepLink.parse(url) {
@@ -201,7 +244,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 wantsPopover = true
             }
         }
-        if wantsPopover, !popover.isShown { showPopover() }
+        if wantsPopover, popover != nil, !popover.isShown { showPopover() }
     }
 
     /// The Dock icon (while the main window is open) or a relaunch from Finder opens the window.
@@ -211,12 +254,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func showMainWindow(section: MainWindowRouter.Section? = nil, credentialId: String? = nil) {
+        guard servicesStarted else { showMigrationWindow(); return }
         if popover?.isShown == true { popover.performClose(nil) }
         mainWindow?.show(section: section, credentialId: credentialId)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
+        ICloudSyncRuntime.shared.stopScheduling()
         ipcServer?.stop()
         if TestInstance.cleansUpOnQuit { TestInstance.cleanUpKeychain() }
         terminationSignalSources.forEach { $0.cancel() }

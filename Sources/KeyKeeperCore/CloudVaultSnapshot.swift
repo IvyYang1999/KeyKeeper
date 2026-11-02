@@ -110,7 +110,7 @@ public struct CloudVaultSnapshot: Sendable, CustomStringConvertible, CustomDebug
 
 public struct CloudVaultMergeResult: Sendable, CustomStringConvertible, CustomDebugStringConvertible {
     public let conflictingIDs: [String]
-    private let merged: [String: CloudCredentialBundle]
+    fileprivate let merged: [String: CloudCredentialBundle]
 
     fileprivate init(merged: [String: CloudCredentialBundle], conflictingIDs: [String]) {
         self.merged = merged
@@ -129,6 +129,25 @@ public struct CloudVaultMergeResult: Sendable, CustomStringConvertible, CustomDe
 }
 
 public enum CloudVaultMerge {
+    /// A review supplies exactly one choice for every divergent credential, including deletions.
+    /// Strict review is used after an uncertain upload: no missing side is treated as a new item.
+    public static func resolve(base: CloudVaultSnapshot?, local: CloudVaultSnapshot,
+                               remote: CloudVaultSnapshot, choices: [String: CloudSyncChoice],
+                               strict: Bool = false) throws -> CloudVaultSnapshot {
+        let normal = strict ? nil : try merge(base: base, local: local, remote: remote)
+        let conflicts = try normal?.conflictingIDs ?? divergentIDs(local: local, remote: remote)
+        guard Set(choices.keys) == Set(conflicts) else { throw CloudVaultError.conflictingChanges }
+        var merged = normal?.merged ?? local.credentials
+        for id in conflicts { merged[id] = choices[id] == .local ? local.credentials[id] : remote.credentials[id] }
+        return try CloudVaultSnapshot(credentials: merged)
+    }
+
+    public static func divergentIDs(local: CloudVaultSnapshot, remote: CloudVaultSnapshot) throws -> [String] {
+        try Set(local.credentials.keys).union(remote.credentials.keys).sorted().filter {
+            try local.credentials[$0].map(CloudVaultSnapshot.encode) != remote.credentials[$0].map(CloudVaultSnapshot.encode)
+        }
+    }
+
     /// No clocks, transport IDs, or arrival order decide which value wins. A missing first-pairing
     /// base means additive union, NOT permission to delete credentials absent on the new Mac.
     public static func merge(base: CloudVaultSnapshot?, local: CloudVaultSnapshot,

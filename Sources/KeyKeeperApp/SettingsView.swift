@@ -5,6 +5,7 @@ import KeyKeeperCore
 struct SettingsView: View {
     @AppStorage(AppL10n.preferenceName) private var interfaceLanguage = "system"
     @ObservedObject var updateController: UpdateController
+    @ObservedObject private var cloudSync = ICloudSyncRuntime.shared
     var onBack: () -> Void
     var onShowServiceGrants: () -> Void
     var onShowSetup: () -> Void
@@ -55,6 +56,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.Spacing.md) {
                     languageCard
+                    ICloudSyncSettingsCard(state: cloudSync.state, action: cloudSync.perform)
                     backgroundAccessCard
                     ApprovalRemindersCard()
                     reviewerCard
