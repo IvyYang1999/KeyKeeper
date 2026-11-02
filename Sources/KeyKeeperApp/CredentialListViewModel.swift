@@ -67,13 +67,15 @@ class CredentialListViewModel: ObservableObject {
         inspectionGeneration += 1
         valueAvailability = [:]
         do {
-            let meta = try store.load()
+            let (meta, verdict) = try store.loadVerified()
             credentials = Self.sorted(meta.credentials.map { (id: $0.key, credential: $0.value) })
             loadFailure = nil
-            metadataTampered = (try? store.loadVerified().verdict) == .tampered
-            checkValues()
+            metadataTampered = verdict == .tampered
+            if !metadataTampered { checkValues() }
         } catch {
-            credentials = []
+            // Keep the last successfully read rows: an unavailable integrity key is not an
+            // empty vault. The error state blocks trust/use rather than hiding the evidence.
+            metadataTampered = false
             loadFailure = LoadFailure(fileURL: store.fileURL, reason: error.localizedDescription)
         }
     }
@@ -84,7 +86,7 @@ class CredentialListViewModel: ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, approved else { return }
                 do {
-                    try self.store.save(try self.store.load())
+                    try self.store.trustCurrentMetadata()
                     self.load()
                 } catch {
                     self.errorMessage = L("Could not confirm the list: \(error.localizedDescription)")
@@ -119,7 +121,7 @@ class CredentialListViewModel: ObservableObject {
     func delete(id: String) -> Bool {
         do {
             try CredentialOperationMessages.requireUnlocked(session)
-            var meta = try store.load()
+            var meta = try store.prepareForMutation()
             guard let credential = meta.credentials[id] else { return false }
 
             let secretFieldNames = credential.fields

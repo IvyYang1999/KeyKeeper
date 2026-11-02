@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import KeyKeeperCore
 
 protocol SessionControlling: AnyObject, Sendable {
@@ -170,6 +171,7 @@ final class IPCServer: ObservableObject {
         let request: AuthRequest
         let clientFd: Int32
         let requestedAt: Date
+        let metadataFingerprint: Data
     }
 
     struct PendingServiceRequest {
@@ -181,6 +183,7 @@ final class IPCServer: ObservableObject {
         let fieldNames: [String]
         let callerIdentity: CallerIdentity
         let requestedAt: Date
+        let metadataFingerprint: Data
         var summary: PendingServiceRequestSummary {
             PendingServiceRequestSummary(
                 id: id,
@@ -271,6 +274,70 @@ final class IPCServer: ObservableObject {
         return pendingServiceRequest?.id == pending.id && Self.isClientConnected(pending.clientFd)
     }
 
+    /// Approval is issued here, beside metadata admission, rather than by an unchecked UI
+    /// callback. A waiting dialog is not evidence that the store is still readable or unchanged.
+    func approveAuthRequest(_ pending: PendingAuthRequest, choice: AuthorizationView.DurationChoice) throws {
+        guard isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
+        _ = try Self.checkedCredential(metaStore, id: pending.request.credentialId,
+                                       fingerprint: pending.metadataFingerprint)
+        let request = pending.request
+        let duration = try DurationResolution.issued(choice, sessionId: request.sessionId, identity: request.callerIdentity)
+        let approval = Approval(
+            subject: .init(fingerprint: request.callerIdentity?.subject.fingerprint ?? "",
+                           displayName: request.callerIdentity?.displayName ?? L("Unknown Caller")),
+            target: .credential(id: request.credentialId, fields: nil), duration: duration,
+            onceFieldsRemaining: duration == .once ? request.fieldNames : nil,
+            reason: request.statedReason?.text, command: request.commandSummary)
+        try approvals.add(approval)
+        respond(to: pending, with: .init(granted: true, grantId: approval.id))
+    }
+
+    func approveServiceRequest(_ pending: PendingServiceRequest, choice: AuthorizationView.DurationChoice) throws {
+        guard isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
+        _ = try Self.checkedCredential(metaStore, id: pending.credentialId, fingerprint: pending.metadataFingerprint)
+        let duration = try DurationResolution.issued(choice, sessionId: pending.request.sessionId, identity: pending.callerIdentity)
+        let approval = Approval(
+            subject: .init(fingerprint: pending.callerIdentity.subjectFingerprint,
+                           displayName: pending.callerIdentity.displayName),
+            target: .credential(id: pending.credentialId, fields: pending.fieldNames), duration: duration,
+            onceFieldsRemaining: duration == .once ? pending.fieldNames : nil,
+            reason: pending.request.statedReason?.text, command: pending.request.commandSummary)
+        do {
+            try approvals.add(approval)
+            fulfillServiceRequest(pending, approval: approval)
+        } catch ApprovalIssuanceError.unidentifiedCaller {
+            fulfillServiceRequest(pending, approval: nil)
+        }
+    }
+
+    func approveStandingRequest(_ request: StandingApprovalRequest, choice: AuthorizationView.DurationChoice) throws {
+        let credential = try Self.checkedCredential(metaStore, id: request.credentialId)
+        let secretFields = Set(credential.fields.filter { $0.value.secret }.keys)
+        guard credential.label == request.credentialLabel, secretFields == Set(request.fieldNames) else {
+            throw AuthorizationMetadataError.changed
+        }
+        let duration = try DurationResolution.issued(choice, sessionId: nil, identity: request.callerIdentity)
+        try approvals.add(.init(subject: .init(fingerprint: request.callerIdentity.subjectFingerprint,
+                                               displayName: request.callerIdentity.displayName),
+            target: .credential(id: request.credentialId, fields: nil), duration: duration,
+            onceFieldsRemaining: duration == .once ? request.fieldNames : nil,
+            reason: request.reason, command: request.command))
+        NotificationCenter.default.post(name: .credentialsChanged, object: nil)
+    }
+
+    nonisolated private static func metadataFingerprint(_ credential: Credential) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return Data(SHA256.hash(data: try encoder.encode(credential)))
+    }
+
+    nonisolated private static func checkedCredential(_ store: MetaStore, id: String,
+                                                      fingerprint: Data? = nil) throws -> Credential {
+        guard let credential = try store.loadForUse().credentials[id] else { throw AuthorizationMetadataError.changed }
+        if let fingerprint, try metadataFingerprint(credential) != fingerprint { throw AuthorizationMetadataError.changed }
+        return credential
+    }
+
     /// `approval` is what the person's answer was stored as — nil when it could not be stored
     /// (an unidentified caller gets this one answer and nothing remembered).
     func fulfillServiceRequest(_ pending: PendingServiceRequest, approval: Approval?) {
@@ -280,7 +347,16 @@ final class IPCServer: ObservableObject {
         defer { promoteNextWaiting() }
         let session = self.session
         let approvals = self.approvals
+        let metaStore = self.metaStore
         queue.async {
+            do {
+                _ = try Self.checkedCredential(metaStore, id: pending.credentialId,
+                                               fingerprint: pending.metadataFingerprint)
+            } catch {
+                Self.writeAndClose(.value(.init(success: false, error: error.localizedDescription,
+                    errorCode: .keychainError, storageErrorCode: .readFailed)), clientFd: pending.clientFd)
+                return
+            }
             Self.readValueAndRespond(request: pending.request, clientFd: pending.clientFd,
                                      session: session, matched: approval, approvals: approvals)
         }
@@ -319,9 +395,12 @@ final class IPCServer: ObservableObject {
 
     /// Called only after this process owns the IPC socket, so a duplicate launch never reads or
     /// mutates the proposal Keychain item. At most one nonterminal record is admitted by the store.
-    private func restoreBrowserImportProposal() {
+    func restoreBrowserImportProposal() {
         guard let store = browserImportProposalStore else { return }
         do {
+            // start() calls this before LaunchMaintenance. Do not resume or rewrite an
+            // import journal while the credential metadata cannot be authenticated.
+            _ = try metaStore.loadForUse()
             let records = try store.records()
             guard let record = records.first(where: { !$0.snapshot.state.isTerminal }) else { return }
             guard let controller = clipboardSaveController, !controller.isPending else {
@@ -700,8 +779,13 @@ final class IPCServer: ObservableObject {
         // 【曾经的 bug】窗口上的凭据名和字段名原样用调用方自报的值，从不和本地核对：一个进程
         // 可以一边申请 aws-prod-root、一边让弹窗写「OpenAI 测试 key」，把用户骗去点允许。
         // 名字一律以 meta 为准；字段显示这条凭据全部机密字段，因为 strict 授权就是按凭据发的。
-        guard let meta = try? metaStore.load(),
-              let credentialId = meta.resolveGroupId(request.credentialId),
+        let meta: MetaFile
+        do { meta = try metaStore.loadForUse() }
+        catch {
+            send(.auth(AuthResponse(granted: false, error: error.localizedDescription)), clientFd: clientFd)
+            return
+        }
+        guard let credentialId = meta.resolveGroupId(request.credentialId),
               let credential = meta.credentials[credentialId] else {
             send(.auth(AuthResponse(granted: false, error: "Credential or field not found")), clientFd: clientFd)
             return
@@ -709,6 +793,12 @@ final class IPCServer: ObservableObject {
         enrichedRequest.credentialId = credentialId
         enrichedRequest.credentialLabel = credential.label
         enrichedRequest.fieldNames = credential.fields.filter { $0.value.secret }.keys.sorted()
+        let fingerprint: Data
+        do { fingerprint = try Self.metadataFingerprint(credential) }
+        catch {
+            send(.auth(.init(granted: false, error: AuthorizationMetadataError.changed.localizedDescription)), clientFd: clientFd)
+            return
+        }
 
         if let refusal = AccessPolicy.strictRefusal(for: callerIdentity.subject.fingerprint) {
             send(.auth(AuthResponse(granted: false, error: refusal)), clientFd: clientFd)
@@ -728,6 +818,7 @@ final class IPCServer: ObservableObject {
                 request: enrichedRequest,
                 clientFd: clientFd,
                 requestedAt: now,
+                metadataFingerprint: fingerprint
             )
 
             // Another prompt is on screen: wait for it instead of failing the caller.
@@ -791,8 +882,15 @@ final class IPCServer: ObservableObject {
                             callerIdentity: CallerIdentity) {
         // Load credential metadata to check security level. Earlier group IDs and field names
         // resolve to the current ones, which is what grants and values are keyed by.
+        let meta: MetaFile
+        do { meta = try metaStore.loadForUse() }
+        catch {
+            Self.writeAndClose(.value(.init(success: false, error: error.localizedDescription,
+                errorCode: .keychainError, storageErrorCode: .readFailed)), clientFd: clientFd)
+            return
+        }
         var request = request
-        if let meta = try? metaStore.load(), let id = meta.resolveGroupId(request.credentialId),
+        if let id = meta.resolveGroupId(request.credentialId),
            let field = meta.credentials[id]?.resolveFieldName(request.fieldName) {
             let requested = request.requestedFieldNames.map { meta.credentials[id]?.resolveFieldName($0) ?? $0 }
             request = ValueRequest(credentialId: id, fieldName: field, sessionId: request.sessionId,
@@ -803,19 +901,8 @@ final class IPCServer: ObservableObject {
                                    purpose: request.purpose)
         }
         request.statedReason = CallerStatedReason.sanitize(request.statedReason?.text)
-        // The file that says which fields are secret and how strictly they are guarded must be
-        // the one KeyKeeper wrote. A tampered one can downgrade `strict` or relabel a field.
-        if let verdict = try? metaStore.loadVerified().verdict, verdict == .tampered {
-            let resp = IPCResponse.value(ValueResponse(
-                success: false,
-                error: "KeyKeeper's metadata was changed outside KeyKeeper. Open KeyKeeper to review it.",
-                errorCode: .notFound
-            ))
-            Self.writeAndClose(resp, clientFd: clientFd)
-            return
-        }
-        guard let meta = try? metaStore.load(),
-              let cred = meta.credentials[request.credentialId],
+        // Use the exact snapshot that was verified above, including alias resolution.
+        guard let cred = meta.credentials[request.credentialId],
               let field = cred.fields[request.fieldName],
               field.secret else {
             let resp = IPCResponse.value(ValueResponse(
@@ -883,6 +970,13 @@ final class IPCServer: ObservableObject {
                                        clientFd: Int32,
                                        callerIdentity: CallerIdentity,
                                        id: String) {
+        let fingerprint: Data
+        do { fingerprint = try Self.metadataFingerprint(credential) }
+        catch {
+            Self.writeAndClose(.value(.init(success: false, error: AuthorizationMetadataError.changed.localizedDescription,
+                errorCode: .keychainError, storageErrorCode: .readFailed)), clientFd: clientFd)
+            return
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard self.clipboardSaveController?.isPending != true, self.browserSessionController?.isPending != true, self.envImportController?.isPending != true, envImportController?.isPending != true else {
@@ -907,6 +1001,7 @@ final class IPCServer: ObservableObject {
                 fieldNames: requestedFields,
                 callerIdentity: callerIdentity,
                 requestedAt: now,
+                metadataFingerprint: fingerprint
             )
 
             if self.pendingRequest != nil || self.pendingServiceRequest != nil {

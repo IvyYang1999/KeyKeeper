@@ -263,20 +263,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // user can pick another option; the CLI keeps waiting on the same request.
         let authorize: (AuthorizationView.DurationChoice) throws -> Void = { [weak self] choice in
                 guard let self else { return }
-                guard self.ipcServer.isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
-                let resolved = try DurationResolution.issued(choice, sessionId: request.sessionId, identity: request.callerIdentity)
-                // Scoped to the program that asked: every key of this credential, for that caller.
-                let approval = Approval(
-                    subject: ApprovalSubject(fingerprint: request.callerIdentity?.subject.fingerprint ?? "",
-                                             displayName: request.callerIdentity?.displayName ?? L("Unknown Caller")),
-                    target: .credential(id: request.credentialId, fields: nil),
-                    duration: resolved,
-                    onceFieldsRemaining: resolved == .once ? request.fieldNames : nil,
-                    reason: request.statedReason?.text,
-                    command: request.commandSummary
-                )
-                try ApprovalStore.shared.add(approval)
-                self.ipcServer.respond(to: pending, with: AuthResponse(granted: true, grantId: approval.id))
+                try self.ipcServer.approveAuthRequest(pending, choice: choice)
         }
         let deny: () -> Void = { [weak self] in
             self?.ipcServer.respond(to: pending, with: AuthResponse(granted: false, error: "User denied"))
@@ -307,24 +294,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let authorize: (AuthorizationView.DurationChoice) throws -> Void = { [weak self] choice in
                 guard let self else { return }
-                guard self.ipcServer.isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
-                let duration = try DurationResolution.issued(choice, sessionId: pending.request.sessionId, identity: pending.callerIdentity)
-                let approval = Approval(
-                    subject: ApprovalSubject(fingerprint: pending.callerIdentity.subjectFingerprint,
-                                             displayName: pending.callerIdentity.displayName),
-                    target: .credential(id: pending.credentialId, fields: pending.fieldNames),
-                    duration: duration,
-                    onceFieldsRemaining: duration == .once ? pending.fieldNames : nil,
-                    reason: pending.request.statedReason?.text,
-                    command: pending.request.commandSummary
-                )
-                // An unidentified caller gets this one answer and nothing remembered.
-                do {
-                    try ApprovalStore.shared.add(approval)
-                    self.ipcServer.fulfillServiceRequest(pending, approval: approval)
-                } catch ApprovalIssuanceError.unidentifiedCaller {
-                    self.ipcServer.fulfillServiceRequest(pending, approval: nil)
-                }
+                try self.ipcServer.approveServiceRequest(pending, choice: choice)
         }
         if let auto = TestInstance.autoApprove {
             do { try authorize(auto.choice) } catch { ipcServer.denyServiceRequest(pending) }
@@ -346,16 +316,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// From the access log: a caller asked, nobody answered in time — approve it now so the next
     /// call goes through. Same window, same answers, no live request waiting behind it.
     private func handleStandingApproval(_ request: StandingApprovalRequest) {
-        let authorize: (AuthorizationView.DurationChoice) throws -> Void = { choice in
-            let duration = try DurationResolution.issued(choice, sessionId: nil, identity: request.callerIdentity)
-            try ApprovalStore.shared.add(Approval(
-                subject: ApprovalSubject(fingerprint: request.callerIdentity.subject.fingerprint,
-                                         displayName: request.callerIdentity.displayName),
-                target: .credential(id: request.credentialId, fields: nil),
-                duration: duration,
-                onceFieldsRemaining: duration == .once ? request.fieldNames : nil,
-                reason: request.reason, command: request.command))
-            NotificationCenter.default.post(name: .credentialsChanged, object: nil)
+        let authorize: (AuthorizationView.DurationChoice) throws -> Void = { [weak self] choice in
+            guard let self else { return }
+            try self.ipcServer.approveStandingRequest(request, choice: choice)
         }
         authWindowController.show(standing: request, review: requestReview(for: .standing(request)), onAuthorize: authorize, onDeny: {})
     }
@@ -363,7 +326,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// The declared use and expiry come from meta.json; a missing or unreadable file just means
     /// the rules have less to go on.
     private func requestReview(for prompt: AuthorizationPrompt) -> RequestReview {
-        let credential = (try? MetaStore.default.load())?.credentials[prompt.credentialId]
+        let credential = (try? MetaStore.default.loadForUse())?.credentials[prompt.credentialId]
         return RequestReview.make(prompt: prompt, credential: credential, approvals: .shared)
     }
 

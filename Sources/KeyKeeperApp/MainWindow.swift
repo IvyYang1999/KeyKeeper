@@ -303,18 +303,19 @@ private struct KeysPage: View {
                 MetadataTamperNotice { listVM.trustCurrentMetadata() }
             }
             if let failure = listVM.loadFailure {
-                Text(L("Couldn't read your credential list")).font(.callout.weight(.semibold)).foregroundColor(.red)
-                Text(failure.reason).font(.caption).foregroundColor(.secondary)
+                CredentialListFailureNotice(reason: failure.reason, hasLastKnownRows: !listVM.credentials.isEmpty,
+                                            retry: listVM.load)
+            }
+            if listVM.credentials.isEmpty {
                 Spacer()
-            } else if listVM.credentials.isEmpty {
-                Spacer()
-                Text(L("No keys yet")).foregroundColor(.secondary)
+                if listVM.loadFailure == nil { Text(L("No keys yet")).foregroundColor(.secondary) }
                 Spacer()
             } else {
                 ScrollView {
                     LazyVStack(spacing: 7) {
                         ForEach(listVM.filtered, id: \.id) { item in
                             row(item.id, item.credential)
+                                .disabled(listVM.loadFailure != nil)
                         }
                     }
                     .padding(.bottom, 12)

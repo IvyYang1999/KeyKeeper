@@ -52,13 +52,14 @@ public enum MetaIntegrityKey {
     public static var service: String { IntegrityKeyNames.service("metadata-mac") }
     static let length = 32
 
-    public static func existing(io: KeychainBlobIO) throws -> Data? {
-        guard let data = try io.readBlob(), data.count == length else { return nil }
+    public static func existing(io: KeychainBlobIO, allowInteraction: Bool = true) throws -> Data? {
+        guard let data = try allowInteraction ? io.readBlob() : io.readBlobWithoutInteraction() else { return nil }
+        guard data.count == length else { throw KeychainError.unexpectedData }
         return data
     }
 
-    public static func loadOrCreate(io: KeychainBlobIO) throws -> Data {
-        if let existing = try existing(io: io) { return existing }
+    public static func loadOrCreate(io: KeychainBlobIO, allowInteraction: Bool = true) throws -> Data {
+        if let existing = try existing(io: io, allowInteraction: allowInteraction) { return existing }
         var bytes = Data(count: length)
         let status = bytes.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, length, $0.baseAddress!) }
         guard status == errSecSuccess else { throw KeychainError.unexpectedData }
@@ -70,7 +71,7 @@ public enum MetaIntegrityKey {
             try io.writeBlob(bytes, replacingExisting: false)
         } catch {
             // Someone else created it between our read and our write: theirs is the key.
-            if let created = try existing(io: io) { return created }
+            if let created = try existing(io: io, allowInteraction: allowInteraction) { return created }
             throw error
         }
         return bytes

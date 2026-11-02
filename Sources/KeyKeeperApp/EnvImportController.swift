@@ -49,7 +49,7 @@ import KeyKeeperCore
         do {
             try request.validate()
             guard isConnected() else { throw ClipboardSaveError.disconnected }
-            let metadata = try metaStore.load()
+            let metadata = try metaStore.loadForUse()
             try validateTarget(request, metadata: metadata)
             let source = try CredentialFileSource(envFilePath: request.filePath)
             // Names are read now so the person can see what they are approving; the values are
@@ -88,9 +88,14 @@ import KeyKeeperCore
         var written: [String] = []
         do {
             let request = pending.presentation.request
-            var metadata = try metaStore.load()
+            var metadata = try metaStore.loadForUse()
             guard try canonical(metadata) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
             try validateTarget(request, metadata: metadata)
+            let prepared = try metaStore.prepareForMutation()
+            var comparable = prepared
+            comparable.integrity = metadata.integrity
+            guard try canonical(comparable) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
+            metadata = prepared
             guard now() < pending.presentation.expiresAt else { throw ClipboardSaveError.expired }
             guard pending.isConnected() else { throw ClipboardSaveError.disconnected }
             // The file must still be the one the person looked at: same identity, same names.

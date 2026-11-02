@@ -18,14 +18,16 @@ enum LaunchMaintenance {
     }
 
     static func run(_ stores: Stores) {
+        // Admission precedes *all* migration/cleanup. An inaccessible integrity key can be
+        // an identity migration in progress; it is never permission to alter the old stores.
+        guard let trusted = try? stores.meta.loadForUse() else { return }
         // Approvals from the files earlier versions wrote move into the Keychain item, once.
         _ = try? ApprovalMigration.runIfNeeded(directory: stores.directory, store: stores.approvals,
                                                sessionGrants: { try stores.sessionStore?.takeLegacyGrants() })
         // Record once that this machine has a Keychain store, so the "never recreate an empty
         // store" guard survives a vault whose fields are all plain at the moment. The inventory
         // is the non-interactive read: launch must never be able to raise a Keychain prompt.
-        if let meta = try? stores.meta.load(),
-           let updated = StoreInitializationMarker.updated(meta, inventory: stores.inventory) {
+        if let updated = StoreInitializationMarker.updated(trusted, inventory: stores.inventory) {
             try? stores.meta.save(updated)
         }
         // Expired and spent approvals grant nothing; they only clutter the list.

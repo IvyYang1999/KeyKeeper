@@ -54,6 +54,7 @@ final class CredentialDetailViewModel: ObservableObject {
 
         do {
             try CredentialOperationMessages.requireUnlocked(session)
+            _ = try store.loadForUse()
             try KeyFieldsEditor.toggleVisibility(of: &fields, at: index) { entry in
                 try self.session.retrieve(credentialId: self.credentialId, fieldName: entry.originalName ?? entry.name)
             }
@@ -72,6 +73,7 @@ final class CredentialDetailViewModel: ObservableObject {
     /// Stored value for an editor row; used by the edit-mode eye.
     func storedValue(for entry: FieldEntry) throws -> String {
         try CredentialOperationMessages.requireUnlocked(session)
+        _ = try store.loadForUse()
         return try self.session.retrieve(credentialId: self.credentialId, fieldName: entry.originalName ?? entry.name)
     }
 
@@ -105,6 +107,7 @@ final class CredentialDetailViewModel: ObservableObject {
     func serviceAccountSummary(fieldName: String) -> ServiceAccountSummary? {
         guard credential.fields[fieldName]?.fileFormat == .serviceAccountJSON,
               (try? CredentialOperationMessages.requireUnlocked(session)) != nil,
+              (try? store.loadForUse()) != nil,
               let document = try? session.retrieve(credentialId: credentialId, fieldName: fieldName) else { return nil }
         return ServiceAccountSummary.parse(document)
     }
@@ -113,6 +116,7 @@ final class CredentialDetailViewModel: ObservableObject {
         guard credential.fields[fieldName]?.fileFormat == nil else { return nil }
         do {
             try CredentialOperationMessages.requireUnlocked(session)
+            _ = try store.loadForUse()
             let value = try session.retrieve(
                 credentialId: credentialId,
                 fieldName: fieldName
@@ -131,7 +135,7 @@ final class CredentialDetailViewModel: ObservableObject {
 
     func reloadCredential() {
         do {
-            let meta = try store.load()
+            let meta = try store.loadForUse()
             guard let storedCredential = meta.credentials[credentialId] else { return }
             credential = storedCredential
             security = storedCredential.security
@@ -148,7 +152,7 @@ final class CredentialDetailViewModel: ObservableObject {
     /// verified, what an agent is told. A hint, like notes: saved at once, no prompt.
     func setProvider(_ providerId: String?) {
         do {
-            var meta = try store.load()
+            var meta = try store.prepareForMutation()
             guard meta.credentials[credentialId] != nil else { return }
             meta.credentials[credentialId]?.provider = providerId
             try store.save(meta)
@@ -162,7 +166,7 @@ final class CredentialDetailViewModel: ObservableObject {
     /// Whether `get` and the SDKs may read values out, or only `run` may inject them. Saved at once.
     func setInjectOnly(_ value: Bool) {
         do {
-            var meta = try store.load()
+            var meta = try store.prepareForMutation()
             guard meta.credentials[credentialId] != nil else { return }
             meta.credentials[credentialId]?.injectOnly = value
             try store.save(meta)
@@ -176,7 +180,7 @@ final class CredentialDetailViewModel: ObservableObject {
     /// The person has looked at a plain value a caller wrote: from now on `run` injects it.
     func confirmPlainField(_ name: String) {
         do {
-            var meta = try store.load()
+            var meta = try store.prepareForMutation()
             guard meta.credentials[credentialId]?.fields[name]?.setByCaller != nil else { return }
             meta.credentials[credentialId]?.fields[name]?.setByCaller = nil
             try store.save(meta)
@@ -191,7 +195,7 @@ final class CredentialDetailViewModel: ObservableObject {
     func saveChanges() -> Bool {
         do {
             try CredentialOperationMessages.requireUnlocked(session)
-            var meta = try store.load()
+            var meta = try store.prepareForMutation()
             let existingFields = meta.credentials[credentialId]?.fields ?? [:]
             for (name, field) in existingFields where field.fileFormat != nil {
                 let matching = fields.filter { $0.name == name }

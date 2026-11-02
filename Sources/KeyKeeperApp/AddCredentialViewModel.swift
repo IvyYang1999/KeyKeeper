@@ -119,7 +119,11 @@ class AddCredentialViewModel: ObservableObject {
     }
 
     func refreshExistingIds() {
-        existingIds = Set((try? store.load())?.credentials.keys ?? [:].keys)
+        do {
+            existingIds = Set(try store.loadForUse().credentials.keys)
+        } catch {
+            errorMessage = L("Reload failed: \(error.localizedDescription)")
+        }
     }
 
     func reset() {
@@ -290,7 +294,7 @@ class AddCredentialViewModel: ObservableObject {
     func save() -> Bool {
         do {
             try CredentialOperationMessages.requireUnlocked(session)
-            var meta = try store.load()
+            var meta = try store.prepareForMutation()
             guard meta.version == 1 else { throw ClipboardSaveError.storageUnavailable }
             guard meta.credentials[credentialId] == nil else { throw ClipboardSaveError.valueExists }
             guard !label.isEmpty, idFormatProblem == nil else { throw ClipboardSaveError.invalidTarget }

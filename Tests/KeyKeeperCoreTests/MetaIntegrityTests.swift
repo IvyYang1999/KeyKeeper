@@ -150,7 +150,7 @@ final class MetaStoreIntegrityTests: XCTestCase {
         let store = MetaStore(directory: dir, integrityIO: io)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         try encoder.encode(meta()).write(to: store.fileURL)
-        XCTAssertEqual(try store.loadVerified().verdict, .unsigned)
+        XCTAssertThrowsError(try store.loadVerified())
     }
 }
 

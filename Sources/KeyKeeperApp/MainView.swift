@@ -237,14 +237,10 @@ struct MainView: View {
                 .font(.caption).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
         }
         if let failure = viewModel.loadFailure {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L("Couldn't read your credential list")).font(.callout.weight(.semibold)).foregroundColor(.red)
-                Text(failure.reason).font(.caption).foregroundColor(.secondary)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .surface(.card, radius: 14)
-        } else if items.isEmpty {
+            CredentialListFailureNotice(reason: failure.reason, hasLastKnownRows: !viewModel.credentials.isEmpty,
+                                        retry: viewModel.load)
+        }
+        if items.isEmpty && viewModel.loadFailure == nil {
             Text(viewModel.credentials.isEmpty
                  ? L("No keys yet. Press + to store your first one.")
                  : L("No key matches \"\(viewModel.searchText)\"."))
@@ -253,7 +249,7 @@ struct MainView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 22)
                 .surface(.card, radius: 14)
-        } else {
+        } else if !items.isEmpty {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
@@ -261,6 +257,7 @@ struct MainView: View {
                                       valueAvailability: viewModel.valueAvailability[item.id] ?? .init(state: .unchecked)) {
                             page = .detail(item.id)
                         }
+                        .disabled(viewModel.loadFailure != nil)
                         if index < items.count - 1 {
                             GlassSeparator().padding(.leading, 58).padding(.trailing, 14)
                         }

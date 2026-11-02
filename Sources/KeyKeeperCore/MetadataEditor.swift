@@ -21,7 +21,7 @@ public struct MetadataEditor {
     }
 
     public func apply(_ edit: MetadataEdit, groupId: String, caller: String? = nil) throws -> MetadataEditResult {
-        let meta = try metaStore.load()
+        let meta = try metaStore.prepareForMutation()
         guard meta.version == 1 else { throw ClipboardSaveError.storageUnavailable }
         let result = try MetadataEditPlan.apply(edit, to: meta, groupId: groupId, caller: caller)
         let oldId = result.previousGroupId

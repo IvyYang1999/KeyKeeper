@@ -128,7 +128,7 @@ extension ClipboardSaveSource {
                 guard source == nil else { throw ClipboardSaveError.invalidReplacement }
             }
             guard isConnected() else { throw ClipboardSaveError.disconnected }
-            let metadata = try metaStore.load()
+            let metadata = try metaStore.loadForUse()
             try validateTarget(request, metadata: metadata, fileFormat: source?.fileFormat)
             let expiresAt = expiresAfter.map { now().addingTimeInterval($0) }
             let source = source ?? clipboard
@@ -238,9 +238,16 @@ extension ClipboardSaveSource {
         do {
             let clipboard = pending.source
             let request = pending.presentation.request
-            var metadata = try metaStore.load()
+            var metadata = try metaStore.loadForUse()
             guard try canonical(metadata) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
             try validateTarget(request, metadata: metadata, fileFormat: clipboard.fileFormat)
+            let prepared = try metaStore.prepareForMutation()
+            // First signing of genuinely old metadata is permitted. Compare every content
+            // field again, while preserving the existing pending-import fingerprint format.
+            var comparable = prepared
+            comparable.integrity = metadata.integrity
+            guard try canonical(comparable) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
+            metadata = prepared
             let changed: ClipboardSaveError = clipboard.displayFilePath == nil ? .clipboardChanged : .fileChanged
             // Only what the person saw gets saved. The prompt follows the system clipboard once a
             // second (see tick); if it moved after the last look — 【独立审计 2026-09-14】a swap in

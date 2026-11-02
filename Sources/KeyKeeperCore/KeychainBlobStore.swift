@@ -154,7 +154,7 @@ public final class KeychainBlobStore: @unchecked Sendable {
 
     /// Production wiring: metadata restored without its Keychain must never create an empty store.
     public convenience init() {
-        self.init(io: SecItemBlobIO(), loadMetadata: { try MetaStore.default.load() })
+        self.init(io: SecItemBlobIO(), loadMetadata: { try MetaStore.default.loadForUse() })
     }
 
     /// Explicit IO injection for tests and the legacy migration that initializes the new store.
