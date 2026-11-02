@@ -12,7 +12,7 @@ import KeyKeeperCore
 enum IPCLaunchPolicy {
     static func shouldLaunchApp(for request: IPCRequest) -> Bool {
         switch request {
-        case .value, .auth, .clipboardSave, .browserImport, .browserImportProposal, .fileImport, .sourceImport, .envImport, .browserSession, .metadataEdit,
+        case .vaultSnapshot, .value, .auth, .clipboardSave, .browserImport, .browserImportProposal, .fileImport, .sourceImport, .envImport, .browserSession, .metadataEdit,
              .metadataIntegrity, .approvalRevoke, .approvalsList:
             return true
         case .sessionControl, .serviceRequests:
@@ -22,6 +22,42 @@ enum IPCLaunchPolicy {
 }
 
 enum IPCClient {
+    struct Snapshot {
+        let metadata: MetaFile
+        let revision: VaultRevision
+        let valueInventory: [String: [String]]?
+    }
+
+    /// Metadata and optional inventory are admitted by the App as one revision.
+    /// There is deliberately no fallback to the public metadata file or legacy messages.
+    static func requestSnapshot(inspectValues: Bool = false, launchIfNeeded: Bool = true) throws -> Snapshot {
+        let fd = try connectWithRetry(launchIfNeeded: launchIfNeeded)
+        defer { close(fd) }
+        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        try IPCMessage.writeMessage(fd: fd, message: IPCRequest.vaultSnapshot(.init(inspectValues: inspectValues)))
+        guard let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self) else {
+            throw IPCError.appNotResponding
+        }
+        return try decodeSnapshotResponse(response)
+    }
+
+    static func decodeSnapshotResponse(_ response: IPCResponse) throws -> Snapshot {
+        switch response {
+        case .vaultSnapshot(let result):
+            guard result.success else { throw CommandFailure(result.error ?? VaultRevisionError.unavailable.localizedDescription) }
+            try result.validated()
+            guard let metadata = result.metadata, let revision = result.revision else {
+                throw VaultRevisionError.unavailable
+            }
+            return Snapshot(metadata: metadata, revision: revision, valueInventory: result.valueInventory)
+        case .value(let result) where result.errorCode == .invalidRequest:
+            throw IPCError.appVersionTooOld
+        default:
+            throw IPCError.appNotResponding
+        }
+    }
+
     static func requestBrowserSession(_ request: BrowserSessionRequest, disconnectOnInputClose: Bool = false) throws -> BrowserSessionResponse {
         try request.validate()
         let fd = try connectWithRetry(launchIfNeeded: true)
@@ -111,6 +147,8 @@ enum IPCClient {
 
     /// Request authorization from the KeyKeeper app via Unix socket.
     static func requestAuthorization(_ request: AuthRequest) throws -> AuthResponse {
+        guard let revision = request.revision else { throw VaultRevisionError.required }
+        try revision.validate()
         let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: .auth(request)))
         defer { close(fd) }
 
@@ -122,12 +160,14 @@ enum IPCClient {
               case .auth(let authResponse) = response else {
             throw IPCError.timeout
         }
+        try checkRevisionError(authResponse.revisionError)
         return authResponse
     }
 
-    /// Request a secret value from the KeyKeeper app's unlocked age session.
+    /// Request a secret using the same revision as the command's metadata snapshot.
     static func requestValue(credentialId: String, fieldName: String,
                              sessionId: String?,
+                             revision: VaultRevision,
                              requestedFieldNames: [String]? = nil,
                              statedReason: CallerStatedReason? = nil,
                              requestedDuration: RequestedDuration? = nil,
@@ -141,7 +181,7 @@ enum IPCClient {
             statedReason: statedReason,
             requestedDuration: requestedDuration,
             commandSummary: commandSummary,
-            purpose: purpose
+            purpose: purpose, revision: revision
         )
         let fd = try connectWithRetry(launchIfNeeded: IPCLaunchPolicy.shouldLaunchApp(for: .value(request)))
         defer { close(fd) }
@@ -157,6 +197,7 @@ enum IPCClient {
     }
 
     static func decodeValueResponse(_ valueResponse: ValueResponse) throws -> String {
+        try checkRevisionError(valueResponse.revisionError)
         guard valueResponse.success, let value = valueResponse.value else {
             switch valueResponse.storageErrorCode {
             case .vaultLocked:
@@ -177,6 +218,15 @@ enum IPCClient {
             }
         }
         return value
+    }
+
+    private static func checkRevisionError(_ code: VaultRevisionErrorCode?) throws {
+        switch code {
+        case .stale: throw VaultRevisionError.stale
+        case .required: throw VaultRevisionError.required
+        case .unavailable: throw VaultRevisionError.unavailable
+        case nil: return
+        }
     }
 
     static func requestPendingServiceRequests() throws -> [PendingServiceRequestSummary] {
@@ -211,20 +261,6 @@ enum IPCClient {
         default:
             throw IPCError.appNotResponding
         }
-    }
-
-    /// Asks the app whether meta.json is still the file it signed. Nil when the app cannot be
-    /// reached or is too old to answer — callers must treat that as "not verified".
-    static func requestMetadataIntegrity() -> MetadataIntegrityResponse.Verdict? {
-        guard let fd = try? connectWithRetry(launchIfNeeded: true) else { return nil }
-        defer { close(fd) }
-        var timeout = timeval(tv_sec: 10, tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-        guard (try? IPCMessage.writeMessage(fd: fd, message: IPCRequest.metadataIntegrity(MetadataIntegrityRequest()))) != nil,
-              let response = IPCMessage.readMessage(fd: fd, as: IPCResponse.self),
-              case .metadataIntegrity(let answer) = response
-        else { return nil }
-        return answer.verdict
     }
 
     /// Approvals live in a Keychain item only the app can open, so the CLI asks.

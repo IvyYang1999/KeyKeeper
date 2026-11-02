@@ -76,6 +76,9 @@ public final class LocalVaultJournal {
         let doc = try load()
         guard doc?.pending == nil else { throw LocalVaultCommitError.pending }
     }
+    /// Once initialized, legacy serving never becomes safe again, including a virgin
+    /// ready record left by an interrupted first commit. Missing/denied state is an error.
+    public func requiresBoundRequests() throws -> Bool { try load() != nil }
     public func generation() throws -> UUID {
         let doc = try load()
         guard doc?.pending == nil else { throw LocalVaultCommitError.pending }

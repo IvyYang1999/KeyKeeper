@@ -2,59 +2,35 @@ import ArgumentParser
 import Foundation
 import KeyKeeperCore
 
-/// One-time migration from the legacy per-field keychain items to the single-blob
-/// store (decision 2026-09-03, 方案-20260903-去passphrase化 option A).
-///
-/// Values are fetched over IPC from the RUNNING production app, whose signature is the
-/// one the legacy items' ACLs already trust — so the export itself triggers no system
-/// keychain prompts. Approvals in KeyKeeper's own window may still appear, exactly as
-/// for any caller. Secret values never touch stdout, files, or the process arguments.
+/// Legacy direct Keychain mutation is retired; only a read-only inventory remains.
 struct MigrateStorageCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "migrate-storage",
-        abstract: "Copy legacy per-field keychain values into the single-item store",
+        abstract: "Inspect the legacy storage migration plan (read-only)",
         discussion: """
-        Run this ONCE, by hand, while the old KeyKeeper app is still running. Then \
-        install the new app. The first time the new app reads the migrated store, \
-        macOS asks once; click "Always Allow" and it never asks again.
-
-        Legacy items are left in place as a safety net. After verifying that \
-        everything works, remove them with --delete-legacy.
+        Direct storage migration and legacy-item deletion are retired because they \
+        cannot safely coordinate with current credential storage. Use --dry-run to inspect field names \
+        from an App-verified snapshot without fetching or changing values.
         """
     )
 
     @Flag(name: .long, help: "Only report what would be migrated; fetch and write nothing.")
     var dryRun = false
 
-    @Flag(name: .long, help: "Delete the legacy per-field keychain items (run only after verifying the migration).")
+    @Flag(name: .long, help: "Retired compatibility option; deletion is refused.")
     var deleteLegacy = false
 
     func run() throws {
-        let session = SessionResolver.resolve()
-        let executor = MigrationExecutor(
-            loadMeta: { try MetaStore.default.load() },
-            fetchValue: { credentialId, fieldName, allFields in
-                try IPCClient.requestValue(
-                    credentialId: credentialId,
-                    fieldName: fieldName,
-                    sessionId: session.id,
-                    requestedFieldNames: allFields
-                )
-            },
-            // Explicit migration initializes a new store from legacy values; normal App
-            // writes use KeychainBlobStore() with the restored-metadata guard.
-            store: KeychainBlobStore(io: SecItemBlobIO()),
-            deleteLegacyItem: { credentialId, fieldName in
-                try KeychainService().delete(credentialId: credentialId, fieldName: fieldName)
-            },
-            log: { print($0) }
-        )
-
-        if deleteLegacy {
-            try executor.deleteLegacyItems()
-        } else {
-            try executor.migrate(dryRun: dryRun)
+        guard dryRun, !deleteLegacy else {
+            throw CommandFailure("Direct storage migration and legacy-item deletion are retired. Use --dry-run for read-only inspection.")
         }
+        let plan = MigrationExecutor.secretFields(in: try IPCClient.requestSnapshot().metadata)
+        let fields = plan.reduce(0) { $0 + $1.fields.count }
+        print("Found \(plan.count) credentials with \(fields) secret fields to migrate.")
+        for entry in plan {
+            print("  \(entry.credentialId): \(entry.fields.joined(separator: ", "))")
+        }
+        print("Dry run: nothing was fetched or written.")
     }
 }
 

@@ -14,8 +14,9 @@ struct StatusCommand: ParsableCommand {
 
     func run() throws {
         if checkValues {
-            let meta = try MetaStore.default.load()
-            let inventory = ValueAvailabilityQuery.inventory()
+            let snapshot = try IPCClient.requestSnapshot(inspectValues: true, launchIfNeeded: false)
+            let meta = snapshot.metadata
+            let inventory = snapshot.valueInventory
             let result = Dictionary(uniqueKeysWithValues: meta.credentials.map { id, record in
                 (id, ValueAvailabilityQuery.result(id: id, record: record, inventory: inventory))
             })

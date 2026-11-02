@@ -2,14 +2,6 @@ import Foundation
 import KeyKeeperCore
 
 enum ValueAvailabilityQuery {
-    static func inventory() -> [String: [String]]? {
-        // Never launch another App or ask for a secret read grant to inspect metadata.
-        guard let reply = try? IPCClient.requestSessionControl(
-            .init(action: .status, inspectValues: true), launchIfNeeded: false
-        ), reply.success else { return nil }
-        return reply.valueInventory
-    }
-
     static func result(id: String, record: Credential, inventory: [String: [String]]?) -> CredentialValueAvailability {
         guard let inventory else { return .init(state: .unavailable) }
         return .check(record, presentFields: Set(inventory[id] ?? []))

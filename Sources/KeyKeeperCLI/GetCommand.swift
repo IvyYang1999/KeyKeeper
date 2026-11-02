@@ -51,8 +51,8 @@ struct GetCommand: ParsableCommand {
     }
 
     func run() throws {
-        let store = MetaStore.default
-        let meta = try store.load()
+        let snapshot = try IPCClient.requestSnapshot()
+        let meta = snapshot.metadata
 
         // Earlier group IDs and field names keep working.
         guard let credentialId = meta.resolveGroupId(self.credentialId), let cred = meta.credentials[credentialId] else {
@@ -77,16 +77,12 @@ struct GetCommand: ParsableCommand {
             // Read via IPC; the app asks for approval when this caller holds none.
             let value = try RunCommand.readSecret(
                 credentialId: credentialId, credential: cred, fieldName: fieldName,
-                requestedFieldNames: [fieldName], session: session, statedReason: statedReason(),
+                requestedFieldNames: [fieldName], session: session, revision: snapshot.revision, statedReason: statedReason(),
                 requestedDuration: duration, commandSummary: "keykeeper get \(credentialId) \(fieldName)",
                 purpose: .read)
             print(value, terminator: "")
         } else {
-            // This value comes straight out of meta.json, so it is only as trustworthy as that file.
-            let verdict = IPCClient.requestMetadataIntegrity()
-            guard PlainValuePolicy.mayServe(verdict) else {
-                throw CommandFailure(PlainValueRefusal.message(for: verdict))
-            }
+            // The App already verified this exact metadata snapshot under its vault gate.
             print(field.value ?? "", terminator: "")
         }
     }

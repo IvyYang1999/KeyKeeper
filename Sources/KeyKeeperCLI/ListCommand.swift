@@ -11,8 +11,7 @@ struct ListCommand: ParsableCommand {
     var detail = false
 
     func run() throws {
-        let store = MetaStore.default
-        let meta = try store.load()
+        let meta = try IPCClient.requestSnapshot().metadata
 
         if meta.credentials.isEmpty {
             print("No credentials stored. Use the KeyKeeper app to add credentials.")

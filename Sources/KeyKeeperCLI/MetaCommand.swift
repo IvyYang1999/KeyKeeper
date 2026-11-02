@@ -13,9 +13,8 @@ struct MetaCommand: ParsableCommand {
     var credentialId: String
 
     func run() throws {
-        let store = MetaStore.default
-        let meta = try store.load()
-        let data = try Self.metadataJSON(credentialId: credentialId, meta: meta, inventory: ValueAvailabilityQuery.inventory())
+        let snapshot = try IPCClient.requestSnapshot(inspectValues: true)
+        let data = try Self.metadataJSON(credentialId: credentialId, meta: snapshot.metadata, inventory: snapshot.valueInventory)
         print(String(decoding: data, as: UTF8.self))
     }
 

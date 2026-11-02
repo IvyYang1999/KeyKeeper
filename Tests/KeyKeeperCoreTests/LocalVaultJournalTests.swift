@@ -9,8 +9,36 @@ final class LocalVaultJournalTests: XCTestCase {
         let journal = LocalVaultJournal(io: io, marker: marker, namespace: "test")
         try journal.requireReady()
         XCTAssertEqual(try journal.generation(), LocalVaultJournal.initialGeneration)
+        XCTAssertFalse(try journal.requiresBoundRequests())
         XCTAssertEqual(io.writes, 0)
         XCTAssertEqual(marker.writes, 0)
+    }
+
+    func testLegacyServingStaysRetiredAfterInitializationAndRestart() throws {
+        let h = CommitHarness()
+        XCTAssertFalse(try h.journal.requiresBoundRequests())
+        try h.journal.prepare(h.plan)
+        XCTAssertTrue(try h.journal.requiresBoundRequests(), "Pending already requires revision-aware requests")
+        _ = try h.restarted().recover()
+        XCTAssertTrue(try h.journal.requiresBoundRequests())
+        let restarted = LocalVaultJournal(io: h.io, marker: h.marker, namespace: h.journal.namespace)
+        XCTAssertTrue(try restarted.requiresBoundRequests())
+        h.io.blob = nil
+        XCTAssertThrowsError(try restarted.requiresBoundRequests(), "Missing initialized state cannot downgrade")
+    }
+
+    func testVirginInitializedRecordAlsoRequiresBoundRequestsWithoutWrites() throws {
+        let io = FakeKeychainIO()
+        let marker = TestJournalMarker()
+        marker.created = true
+        io.blob = try LocalVaultJournal.encode(LocalVaultJournal.Document(namespace: "test",
+            generation: LocalVaultJournal.initialGeneration))
+        let journal = LocalVaultJournal(io: io, marker: marker, namespace: "test")
+        XCTAssertTrue(try journal.requiresBoundRequests())
+        XCTAssertEqual(io.writes, 0)
+        XCTAssertEqual(marker.writes, 0)
+        io.failReads = true
+        XCTAssertThrowsError(try journal.requiresBoundRequests())
     }
 
     func testMissingInitializedOrCorruptJournalBlocks() throws {

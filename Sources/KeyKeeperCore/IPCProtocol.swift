@@ -57,6 +57,7 @@ public enum KeychainReadTimeoutPolicy {
 // MARK: - Request / Response Envelopes
 
 public enum IPCRequest: Codable, Sendable {
+    case vaultSnapshot(VaultSnapshotRequest)
     case browserSession(BrowserSessionRequest)
     case fileImport(FileImportRequest)
     case sourceImport(SourceImportRequest)
@@ -78,6 +79,9 @@ public enum IPCRequest: Codable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .vaultSnapshot(let r):
+            try c.encode("vaultSnapshot", forKey: .type)
+            try c.encode(r, forKey: .data)
         case .metadataEdit(let r):
             try c.encode("metadataEdit", forKey: .type)
             try c.encode(r, forKey: .data)
@@ -117,10 +121,10 @@ public enum IPCRequest: Codable, Sendable {
             try c.encode(type, forKey: .type)
             try c.encode(r, forKey: .data)
         case .auth(let r):
-            try c.encode("auth", forKey: .type)
+            try c.encode(r.revision == nil ? "auth" : "revisionAuth", forKey: .type)
             try c.encode(r, forKey: .data)
         case .value(let r):
-            try c.encode("value", forKey: .type)
+            try c.encode(r.revision == nil ? "value" : "revisionValue", forKey: .type)
             try c.encode(r, forKey: .data)
         case .serviceRequests(let r):
             try c.encode("serviceRequests", forKey: .type)
@@ -158,8 +162,21 @@ public enum IPCRequest: Codable, Sendable {
                 }
             }
             self = .clipboardSave(request)
-        case "auth":  self = .auth(try c.decode(AuthRequest.self, forKey: .data))
-        case "value": self = .value(try c.decode(ValueRequest.self, forKey: .data))
+        case "vaultSnapshot": self = .vaultSnapshot(try c.decode(VaultSnapshotRequest.self, forKey: .data))
+        case "auth", "revisionAuth":
+            let request = try c.decode(AuthRequest.self, forKey: .data)
+            guard (try c.decode(String.self, forKey: .type) == "revisionAuth") == (request.revision != nil) else {
+                throw VaultRevisionError.required
+            }
+            try request.revision?.validate()
+            self = .auth(request)
+        case "value", "revisionValue":
+            let request = try c.decode(ValueRequest.self, forKey: .data)
+            guard (try c.decode(String.self, forKey: .type) == "revisionValue") == (request.revision != nil) else {
+                throw VaultRevisionError.required
+            }
+            try request.revision?.validate()
+            self = .value(request)
         case "serviceRequests": self = .serviceRequests(try c.decode(ServiceRequestsListRequest.self, forKey: .data))
         case "sessionControl": self = .sessionControl(try c.decode(SessionControlRequest.self, forKey: .data))
         case "metadataEdit": self = .metadataEdit(try c.decode(MetadataEditRequest.self, forKey: .data))
@@ -174,6 +191,7 @@ public enum IPCRequest: Codable, Sendable {
 }
 
 public enum IPCResponse: Codable, Sendable {
+    case vaultSnapshot(VaultSnapshotResponse)
     case browserSession(BrowserSessionResponse)
     case browserImportReady(String)
     case browserImportProposal(BrowserImportProposalResponse)
@@ -192,6 +210,9 @@ public enum IPCResponse: Codable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .vaultSnapshot(let r):
+            try c.encode("vaultSnapshot", forKey: .type)
+            try c.encode(r, forKey: .data)
         case .metadataEdit(let r):
             try c.encode("metadataEdit", forKey: .type)
             try c.encode(r, forKey: .data)
@@ -234,6 +255,7 @@ public enum IPCResponse: Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         switch try c.decode(String.self, forKey: .type) {
+        case "vaultSnapshot": self = .vaultSnapshot(try c.decode(VaultSnapshotResponse.self, forKey: .data))
         case "browserSession": self = .browserSession(try c.decode(BrowserSessionResponse.self, forKey: .data))
         case "browserImportReady": self = .browserImportReady(try c.decode(String.self, forKey: .data))
         case "browserImportProposal": self = .browserImportProposal(try c.decode(BrowserImportProposalResponse.self, forKey: .data))
@@ -309,6 +331,7 @@ public struct SessionControlResponse: Codable, Sendable, Equatable {
 }
 
 public struct ValueRequest: Codable, Sendable {
+    public var revision: VaultRevision?
     public var credentialId: String
     public var fieldName: String
     public var sessionId: String?
@@ -322,7 +345,7 @@ public struct ValueRequest: Codable, Sendable {
     public var purpose: ValuePurpose?
 
     private enum CodingKeys: String, CodingKey {
-        case credentialId, fieldName, sessionId, requestedFieldNames, statedReason, requestedDuration, commandSummary, purpose
+        case credentialId, fieldName, sessionId, requestedFieldNames, statedReason, requestedDuration, commandSummary, purpose, revision
     }
 
     public init(credentialId: String,
@@ -332,7 +355,8 @@ public struct ValueRequest: Codable, Sendable {
                 statedReason: CallerStatedReason? = nil,
                 requestedDuration: RequestedDuration? = nil,
                 commandSummary: String? = nil,
-                purpose: ValuePurpose? = nil) {
+                purpose: ValuePurpose? = nil, revision: VaultRevision? = nil) {
+        self.revision = revision
         self.credentialId = credentialId
         self.fieldName = fieldName
         self.sessionId = sessionId
@@ -354,6 +378,7 @@ public struct ValueRequest: Codable, Sendable {
         requestedDuration = try container.decodeIfPresent(RequestedDuration.self, forKey: .requestedDuration)
         commandSummary = try container.decodeIfPresent(String.self, forKey: .commandSummary)
         purpose = try container.decodeIfPresent(ValuePurpose.self, forKey: .purpose)
+        revision = try container.decodeIfPresent(VaultRevision.self, forKey: .revision)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -366,6 +391,7 @@ public struct ValueRequest: Codable, Sendable {
         try container.encodeIfPresent(requestedDuration, forKey: .requestedDuration)
         try container.encodeIfPresent(commandSummary, forKey: .commandSummary)
         try container.encodeIfPresent(purpose, forKey: .purpose)
+        try container.encodeIfPresent(revision, forKey: .revision)
     }
 }
 
@@ -413,6 +439,7 @@ public enum ValueStorageErrorCode: String, Codable, Sendable, Equatable {
 }
 
 public struct ValueResponse: Codable, Sendable {
+    public var revisionError: VaultRevisionErrorCode?
     public var success: Bool
     public var value: String?
     public var error: String?
@@ -423,7 +450,8 @@ public struct ValueResponse: Codable, Sendable {
                 value: String? = nil,
                 error: String? = nil,
                 errorCode: ValueErrorCode? = nil,
-                storageErrorCode: ValueStorageErrorCode? = nil) {
+                storageErrorCode: ValueStorageErrorCode? = nil, revisionError: VaultRevisionErrorCode? = nil) {
+        self.revisionError = revisionError
         self.success = success
         self.value = value
         self.error = error
@@ -433,6 +461,7 @@ public struct ValueResponse: Codable, Sendable {
 }
 
 public struct AuthRequest: Codable, Sendable {
+    public var revision: VaultRevision?
     public var credentialId: String
     public var credentialLabel: String
     public var fieldNames: [String]
@@ -453,7 +482,8 @@ public struct AuthRequest: Codable, Sendable {
                 callerIdentity: CallerIdentity? = nil,
                 statedReason: CallerStatedReason? = nil,
                 requestedDuration: RequestedDuration? = nil,
-                commandSummary: String? = nil) {
+                commandSummary: String? = nil, revision: VaultRevision? = nil) {
+        self.revision = revision
         self.credentialId = credentialId
         self.credentialLabel = credentialLabel
         self.fieldNames = fieldNames
@@ -468,11 +498,13 @@ public struct AuthRequest: Codable, Sendable {
 }
 
 public struct AuthResponse: Codable, Sendable {
+    public var revisionError: VaultRevisionErrorCode?
     public var granted: Bool
     public var grantId: String?
     public var error: String?
 
-    public init(granted: Bool, grantId: String? = nil, error: String? = nil) {
+    public init(granted: Bool, grantId: String? = nil, error: String? = nil, revisionError: VaultRevisionErrorCode? = nil) {
+        self.revisionError = revisionError
         self.granted = granted
         self.grantId = grantId
         self.error = error

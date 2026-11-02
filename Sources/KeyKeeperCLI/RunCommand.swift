@@ -85,8 +85,8 @@ struct RunCommand: ParsableCommand {
         guard file.isEmpty || !tty else { throw ValidationError("Credential files require output redaction; --file cannot be combined with --tty.") }
     }
 
-    /// Plain values that live in meta.json (an account id, a region, an email): they are not
-    /// secrets, so they are injected straight from metadata — no keychain, no approval, no
+    /// Plain values in the App-verified snapshot (an account id, a region, an email) are not
+    /// secrets, so they are injected from that snapshot — no keychain, no approval, no
     /// audit entry. Earlier field names keep their variables, same as secret fields.
     static func nonSecretEnvironment(for credential: Credential, prefix: String) -> [String: String] {
         var result: [String: String] = [:]
@@ -194,8 +194,8 @@ struct RunCommand: ParsableCommand {
     }
 
     func run() throws {
-        let store = MetaStore.default
-        let meta = try store.load()
+        let snapshot = try IPCClient.requestSnapshot(inspectValues: plan, launchIfNeeded: !plan)
+        let meta = snapshot.metadata
         let credentialIds = try Self.resolveCredentialIds(credential, in: meta)
         let injectionPlan = try RunInjectionPlan(
             credentials: credentialIds,
@@ -205,7 +205,7 @@ struct RunCommand: ParsableCommand {
             meta: meta
         )
         if plan {
-            print(injectionPlan.render(meta: meta, inventory: ValueAvailabilityQuery.inventory()))
+            print(injectionPlan.render(meta: meta, inventory: snapshot.valueInventory))
             return
         }
 
@@ -214,19 +214,12 @@ struct RunCommand: ParsableCommand {
         var fileLease: CredentialFileLease?
         defer { fileLease?.close() }
 
-        // Plain values are injected straight from meta.json; refuse if that file is not the one
-        // the app signed. Only asked when something plain would actually be injected.
-        let injectsPlainValues = injectionPlan.bindings.contains { $0.kind == .plainText }
+        // All bindings, including plain values, use the exact App-verified snapshot.
         for id in credentialIds {
             if let cred = meta.credentials[id], let note = Self.unconfirmedPlainNote(credentialId: id, credential: cred) {
                 FileHandle.standardError.write(Data((note + "\n").utf8))
             }
         }
-        if injectsPlainValues {
-            let verdict = IPCClient.requestMetadataIntegrity()
-            guard PlainValuePolicy.mayServe(verdict) else { throw CommandFailure(PlainValueRefusal.message(for: verdict)) }
-        }
-
         // Collect all secret fields from requested credentials
         var injectedEnv: [String: String] = [:]
         var aliasEnv: [String: String] = [:]
@@ -256,7 +249,7 @@ struct RunCommand: ParsableCommand {
                 // Read secret via IPC only after the complete mapping has passed validation.
                 let value = try Self.readSecret(
                     credentialId: credId, credential: cred, fieldName: binding.fieldName,
-                    requestedFieldNames: secretFieldNames, session: session, statedReason: statedReason(),
+                    requestedFieldNames: secretFieldNames, session: session, revision: snapshot.revision, statedReason: statedReason(),
                     requestedDuration: duration, commandSummary: Self.commandSummary(command)
                 )
                 if binding.kind == .secretFile,
@@ -397,12 +390,12 @@ struct RunCommand: ParsableCommand {
     /// exactly once more.
     static func readSecret(credentialId: String, credential: Credential, fieldName: String,
                            requestedFieldNames: [String],
-                           session: SessionInfo, statedReason: CallerStatedReason?,
+                           session: SessionInfo, revision: VaultRevision, statedReason: CallerStatedReason?,
                            requestedDuration: RequestedDuration? = nil, commandSummary: String? = nil,
                            purpose: ValuePurpose = .inject) throws -> String {
         func read() throws -> String {
             try IPCClient.requestValue(credentialId: credentialId, fieldName: fieldName,
-                                       sessionId: session.id, requestedFieldNames: requestedFieldNames,
+                                       sessionId: session.id, revision: revision, requestedFieldNames: requestedFieldNames,
                                        statedReason: statedReason, requestedDuration: requestedDuration,
                                        commandSummary: commandSummary, purpose: purpose)
         }
@@ -412,7 +405,7 @@ struct RunCommand: ParsableCommand {
             guard shouldRequestAuthorizationAfterRefusal(error, security: credential.security, alreadyRetried: false) else {
                 throw error
             }
-            try requestApproval(credentialId: credentialId, credential: credential, session: session, statedReason: statedReason,
+            try requestApproval(credentialId: credentialId, credential: credential, session: session, revision: revision, statedReason: statedReason,
                                 requestedDuration: requestedDuration, commandSummary: commandSummary)
             return try read()
         }
@@ -420,6 +413,7 @@ struct RunCommand: ParsableCommand {
 
     /// Ask the app to put the authorization window up for this credential.
     static func requestApproval(credentialId: String, credential: Credential, session: SessionInfo,
+                                revision: VaultRevision,
                                 statedReason: CallerStatedReason? = nil,
                                 requestedDuration: RequestedDuration? = nil, commandSummary: String? = nil) throws {
         let fieldNames = credential.fields.filter(\.value.secret).map(\.key).sorted()
@@ -432,7 +426,7 @@ struct RunCommand: ParsableCommand {
             pid: ProcessInfo.processInfo.processIdentifier,
             statedReason: statedReason,
             requestedDuration: requestedDuration,
-            commandSummary: commandSummary
+            commandSummary: commandSummary, revision: revision
         )
 
         FileHandle.standardError.write(

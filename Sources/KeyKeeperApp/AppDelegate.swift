@@ -44,7 +44,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             envImportController: EnvImportController(service: credentialService, approvals: .shared),
             browserSessionController: browserSessions.controller,
             browserImportProposalStore: browserImportProposalStore,
-            accessGate: .production)
+            accessGate: .production,
+            requiresBoundRequests: { try LocalVaultJournal.production().requiresBoundRequests() })
         switch ipcServer.start(recoverVault: { _ = try LocalVaultCommitCoordinator.production().recover() }) {
         case .started(let disposition):
             if disposition == .replacedStaleSocket {

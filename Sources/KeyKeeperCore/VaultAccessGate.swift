@@ -22,6 +22,7 @@ public final class VaultAccessGate: @unchecked Sendable {
     private enum State { case unchecked, ready, blocked }
     private let lock = NSRecursiveLock()
     private let admission: () throws -> Void
+    private let instanceID = UUID()
     private var state = State.unchecked
     private var epoch: UInt64 = 0
     private var accessDepth = 0
@@ -41,6 +42,40 @@ public final class VaultAccessGate: @unchecked Sendable {
     }
 
     public func captureEpoch() throws -> UInt64 { try withAccess { epoch } }
+
+    /// The caller must load verified metadata and capture this token in one outer lease.
+    public func revision(for metadata: MetaFile) throws -> VaultRevision {
+        try withAccess {
+            VaultRevision(instanceID: instanceID, epoch: epoch,
+                metadataDigest: try VaultRevision.metadataDigest(for: metadata))
+        }
+    }
+
+    /// `metadata` must be the current verified image loaded inside the caller's outer lease.
+    public func validateRevision(_ revision: VaultRevision?, metadata: MetaFile, required: Bool) throws {
+        try withAccess {
+            guard let revision else {
+                if required { throw VaultRevisionError.required }
+                return
+            }
+            try revision.validate()
+            guard revision == (try self.revision(for: metadata)) else { throw VaultRevisionError.stale }
+        }
+    }
+
+    /// Called immediately before protected-value IO, while its outer access lease is held.
+    /// Even an uncertain failed write makes earlier readers stale. Ordinary CRUD errors do
+    /// not acquire transaction recovery semantics or perform another native admission read.
+    func noteValueMutation() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard state == .ready, accessDepth > 0 else { throw VaultAccessError.recoveryRequired }
+        guard epoch < UInt64.max else {
+            state = .blocked
+            throw VaultAccessError.recoveryRequired
+        }
+        epoch += 1
+    }
 
     /// May be entered recursively from a normal access lease without releasing the outer lock.
     func withCommit<T>(_ body: () throws -> T) throws -> T {

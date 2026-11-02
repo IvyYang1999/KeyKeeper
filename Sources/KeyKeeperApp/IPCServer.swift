@@ -63,6 +63,8 @@ final class IPCServer: ObservableObject {
     private let session: SessionControlling
     private let metaStore: MetaStore
     private let accessGate: VaultAccessGate?
+    private let revisionGate: VaultAccessGate
+    private let requiresBoundRequests: @Sendable () throws -> Bool
     private let approvals: ApprovalStore
     private let clipboardSaveController: ClipboardSaveController?
     private let envImportController: EnvImportController?
@@ -139,11 +141,14 @@ final class IPCServer: ObservableObject {
         browserSessionController: BrowserSessionController? = nil,
         browserImportProposalStore: BrowserImportProposalStore? = nil,
         accessGate: VaultAccessGate? = nil,
-        workerQueue: DispatchQueue? = nil
+        workerQueue: DispatchQueue? = nil,
+        requiresBoundRequests: @escaping @Sendable () throws -> Bool = { false }
     ) {
         self.session = session
         self.metaStore = metaStore
         self.accessGate = accessGate
+        self.revisionGate = accessGate ?? VaultAccessGate()
+        self.requiresBoundRequests = requiresBoundRequests
         self.queue = workerQueue ?? DispatchQueue(label: "keykeeper.ipc", qos: .userInitiated)
         self.approvals = approvals
         self.clipboardSaveController = clipboardSaveController
@@ -291,40 +296,63 @@ final class IPCServer: ObservableObject {
     /// Approval is issued here, beside metadata admission, rather than by an unchecked UI
     /// callback. A waiting dialog is not evidence that the store is still readable or unchanged.
     func approveAuthRequest(_ pending: PendingAuthRequest, choice: AuthorizationView.DurationChoice) throws {
-        try withVaultAccess(expectedEpoch: pending.vaultEpoch, requireEpoch: true) {
-            guard isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
-            _ = try Self.checkedCredential(metaStore, id: pending.request.credentialId,
-                                           fingerprint: pending.metadataFingerprint)
-            let request = pending.request
-            let duration = try DurationResolution.issued(choice, sessionId: request.sessionId, identity: request.callerIdentity)
-            let approval = Approval(
-                subject: .init(fingerprint: request.callerIdentity?.subject.fingerprint ?? "",
-                               displayName: request.callerIdentity?.displayName ?? L("Unknown Caller")),
-                target: .credential(id: request.credentialId, fields: nil), duration: duration,
-                onceFieldsRemaining: duration == .once ? request.fieldNames : nil,
-                reason: request.statedReason?.text, command: request.commandSummary)
-            try approvals.add(approval)
-            respond(to: pending, with: .init(granted: true, grantId: approval.id))
+        do {
+            try withVaultAccess(expectedEpoch: pending.vaultEpoch, requireEpoch: true) {
+                guard isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
+                try revisionGate.validateRevision(pending.request.revision, metadata: metaStore.loadForUse(),
+                                                  required: requiresBoundRequests())
+                _ = try Self.checkedCredential(metaStore, id: pending.request.credentialId,
+                                               fingerprint: pending.metadataFingerprint)
+                let request = pending.request
+                let duration = try DurationResolution.issued(choice, sessionId: request.sessionId, identity: request.callerIdentity)
+                let approval = Approval(
+                    subject: .init(fingerprint: request.callerIdentity?.subject.fingerprint ?? "",
+                                   displayName: request.callerIdentity?.displayName ?? L("Unknown Caller")),
+                    target: .credential(id: request.credentialId, fields: nil), duration: duration,
+                    onceFieldsRemaining: duration == .once ? request.fieldNames : nil,
+                    reason: request.statedReason?.text, command: request.commandSummary)
+                try approvals.add(approval)
+                respond(to: pending, with: .init(granted: true, grantId: approval.id))
+            }
+        } catch {
+            if let code = Self.revisionFailure(error), pending.request.revision != nil || code == .required {
+                respond(to: pending, with: .init(granted: false, error: error.localizedDescription, revisionError: code))
+            }
+            throw error
         }
     }
 
     func approveServiceRequest(_ pending: PendingServiceRequest, choice: AuthorizationView.DurationChoice) throws {
-        try withVaultAccess(expectedEpoch: pending.vaultEpoch, requireEpoch: true) {
-            guard isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
-            _ = try Self.checkedCredential(metaStore, id: pending.credentialId, fingerprint: pending.metadataFingerprint)
-            let duration = try DurationResolution.issued(choice, sessionId: pending.request.sessionId, identity: pending.callerIdentity)
-            let approval = Approval(
-                subject: .init(fingerprint: pending.callerIdentity.subjectFingerprint,
-                               displayName: pending.callerIdentity.displayName),
-                target: .credential(id: pending.credentialId, fields: pending.fieldNames), duration: duration,
-                onceFieldsRemaining: duration == .once ? pending.fieldNames : nil,
-                reason: pending.request.statedReason?.text, command: pending.request.commandSummary)
-            do {
-                try approvals.add(approval)
-                fulfillServiceRequest(pending, approval: approval)
-            } catch ApprovalIssuanceError.unidentifiedCaller {
-                fulfillServiceRequest(pending, approval: nil)
+        do {
+            try withVaultAccess(expectedEpoch: pending.vaultEpoch, requireEpoch: true) {
+                guard isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
+                try revisionGate.validateRevision(pending.request.revision, metadata: metaStore.loadForUse(),
+                                                  required: requiresBoundRequests())
+                _ = try Self.checkedCredential(metaStore, id: pending.credentialId, fingerprint: pending.metadataFingerprint)
+                let duration = try DurationResolution.issued(choice, sessionId: pending.request.sessionId, identity: pending.callerIdentity)
+                let approval = Approval(
+                    subject: .init(fingerprint: pending.callerIdentity.subjectFingerprint,
+                                   displayName: pending.callerIdentity.displayName),
+                    target: .credential(id: pending.credentialId, fields: pending.fieldNames), duration: duration,
+                    onceFieldsRemaining: duration == .once ? pending.fieldNames : nil,
+                    reason: pending.request.statedReason?.text, command: pending.request.commandSummary)
+                do {
+                    try approvals.add(approval)
+                    fulfillServiceRequest(pending, approval: approval)
+                } catch ApprovalIssuanceError.unidentifiedCaller {
+                    fulfillServiceRequest(pending, approval: nil)
+                }
             }
+        } catch {
+            if let code = Self.revisionFailure(error), pending.request.revision != nil || code == .required {
+                if pendingServiceRequest?.id == pending.id {
+                    pendingServiceRequest = nil
+                    send(.value(.init(success: false, error: error.localizedDescription, errorCode: .keychainError,
+                        revisionError: code)), clientFd: pending.clientFd)
+                    promoteNextWaiting()
+                }
+            }
+            throw error
         }
     }
 
@@ -370,9 +398,13 @@ final class IPCServer: ObservableObject {
         let approvals = self.approvals
         let metaStore = self.metaStore
         let accessGate = self.accessGate
+        let revisionGate = self.revisionGate
+        let requiresBoundRequests = self.requiresBoundRequests
         queue.async {
             do {
                 let fulfill = {
+                    try revisionGate.validateRevision(pending.request.revision, metadata: metaStore.loadForUse(),
+                                                      required: requiresBoundRequests())
                     _ = try Self.checkedCredential(metaStore, id: pending.credentialId,
                                                    fingerprint: pending.metadataFingerprint)
                     // The grant may have been revoked or spent after the prompt closed but
@@ -394,7 +426,8 @@ final class IPCServer: ObservableObject {
                 }
             } catch {
                 Self.writeAndClose(.value(.init(success: false, error: error.localizedDescription,
-                    errorCode: .keychainError, storageErrorCode: .readFailed)), clientFd: pending.clientFd)
+                    errorCode: .keychainError, storageErrorCode: .readFailed,
+                    revisionError: Self.revisionFailure(error))), clientFd: pending.clientFd)
             }
         }
     }
@@ -514,6 +547,8 @@ final class IPCServer: ObservableObject {
         }
 
         switch envelope {
+        case .vaultSnapshot(let request):
+            Self.writeAndClose(.vaultSnapshot(handleVaultSnapshot(request)), clientFd: clientFd)
         case .browserSession(let request):
             var sendTimeout = timeval(tv_sec: 5, tv_usec: 0)
             setsockopt(clientFd, SOL_SOCKET, SO_SNDTIMEO, &sendTimeout, socklen_t(MemoryLayout<timeval>.size))
@@ -685,8 +720,7 @@ final class IPCServer: ObservableObject {
             }
             send(.approvalsList(response), clientFd: clientFd)
         case .metadataIntegrity:
-            let verdict = (try? metaStore.loadVerified().verdict) ?? .tampered
-            send(.metadataIntegrity(MetadataIntegrityResponse(verdict)), clientFd: clientFd)
+            send(.metadataIntegrity(handleLegacyMetadataIntegrity()), clientFd: clientFd)
         case .sessionControl(let request):
             let response = handleSessionControl(request)
             Self.writeAndClose(.sessionControl(response), clientFd: clientFd)
@@ -805,6 +839,41 @@ final class IPCServer: ObservableObject {
     }
 
     /// A waiting approval is bound to the complete vault revision, including secret-only changes.
+    func handleVaultSnapshot(_ request: VaultSnapshotRequest) -> VaultSnapshotResponse {
+        do {
+            return try withVaultAccess {
+                let metadata = try metaStore.loadForUse()
+                let revision = try revisionGate.revision(for: metadata)
+                let inventory = request.inspectValues
+                    ? try? (session as? any CredentialSessionManaging)?.inspectValueInventory() : nil
+                return try VaultSnapshotResponse(success: true, metadata: metadata, revision: revision,
+                    valueInventory: inventory?.mapValues { $0.sorted() }).validated()
+            }
+        } catch {
+            return .init(success: false, error: error.localizedDescription)
+        }
+    }
+
+    /// Old clients must not verify a raw-file snapshot once recoverable sync commits exist.
+    func handleLegacyMetadataIntegrity() -> MetadataIntegrityResponse {
+        do {
+            return try withVaultAccess {
+                guard try !requiresBoundRequests() else { throw VaultRevisionError.required }
+                return MetadataIntegrityResponse(try metaStore.loadVerified().verdict)
+            }
+        } catch {
+            return MetadataIntegrityResponse(.tampered)
+        }
+    }
+
+    nonisolated private static func revisionFailure(_ error: Error) -> VaultRevisionErrorCode? {
+        if let error = error as? VaultRevisionError { return error.code }
+        if let error = error as? VaultAccessError {
+            return error == .staleEpoch ? .stale : .unavailable
+        }
+        return nil
+    }
+
     func captureVaultEpoch() throws -> UInt64? { try accessGate?.captureEpoch() }
 
     private func withVaultAccess<T>(expectedEpoch: UInt64? = nil, requireEpoch: Bool = false,
@@ -823,7 +892,8 @@ final class IPCServer: ObservableObject {
                                               vaultEpoch: captureVaultEpoch())
             }
         } catch {
-            send(.auth(.init(granted: false, error: error.localizedDescription)), clientFd: clientFd)
+            send(.auth(.init(granted: false, error: error.localizedDescription,
+                revisionError: Self.revisionFailure(error))), clientFd: clientFd)
         }
     }
 
@@ -839,9 +909,13 @@ final class IPCServer: ObservableObject {
         // 可以一边申请 aws-prod-root、一边让弹窗写「OpenAI 测试 key」，把用户骗去点允许。
         // 名字一律以 meta 为准；字段显示这条凭据全部机密字段，因为 strict 授权就是按凭据发的。
         let meta: MetaFile
-        do { meta = try metaStore.loadForUse() }
+        do {
+            meta = try metaStore.loadForUse()
+            try revisionGate.validateRevision(request.revision, metadata: meta, required: requiresBoundRequests())
+        }
         catch {
-            send(.auth(AuthResponse(granted: false, error: error.localizedDescription)), clientFd: clientFd)
+            send(.auth(AuthResponse(granted: false, error: error.localizedDescription,
+                revisionError: Self.revisionFailure(error))), clientFd: clientFd)
             return
         }
         guard let credentialId = meta.resolveGroupId(request.credentialId),
@@ -947,7 +1021,8 @@ final class IPCServer: ObservableObject {
             }
         } catch {
             Self.writeAndClose(.value(.init(success: false, error: error.localizedDescription,
-                errorCode: .keychainError, storageErrorCode: .readFailed)), clientFd: clientFd)
+                errorCode: .keychainError, storageErrorCode: .readFailed,
+                revisionError: Self.revisionFailure(error))), clientFd: clientFd)
         }
     }
 
@@ -956,10 +1031,14 @@ final class IPCServer: ObservableObject {
         // Load credential metadata to check security level. Earlier group IDs and field names
         // resolve to the current ones, which is what grants and values are keyed by.
         let meta: MetaFile
-        do { meta = try metaStore.loadForUse() }
+        do {
+            meta = try metaStore.loadForUse()
+            try revisionGate.validateRevision(request.revision, metadata: meta, required: requiresBoundRequests())
+        }
         catch {
             Self.writeAndClose(.value(.init(success: false, error: error.localizedDescription,
-                errorCode: .keychainError, storageErrorCode: .readFailed)), clientFd: clientFd)
+                errorCode: .keychainError, storageErrorCode: .readFailed,
+                revisionError: Self.revisionFailure(error))), clientFd: clientFd)
             return
         }
         var request = request
@@ -971,7 +1050,7 @@ final class IPCServer: ObservableObject {
                                    statedReason: request.statedReason,
                                    requestedDuration: request.requestedDuration,
                                    commandSummary: request.commandSummary,
-                                   purpose: request.purpose)
+                                   purpose: request.purpose, revision: request.revision)
         }
         request.statedReason = CallerStatedReason.sanitize(request.statedReason?.text)
         // Use the exact snapshot that was verified above, including alias resolution.
@@ -1047,7 +1126,8 @@ final class IPCServer: ObservableObject {
         do { fingerprint = try Self.metadataFingerprint(credential) }
         catch {
             Self.writeAndClose(.value(.init(success: false, error: AuthorizationMetadataError.changed.localizedDescription,
-                errorCode: .keychainError, storageErrorCode: .readFailed)), clientFd: clientFd)
+                errorCode: .keychainError, storageErrorCode: .readFailed,
+                revisionError: Self.revisionFailure(error))), clientFd: clientFd)
             return
         }
         DispatchQueue.main.async { [weak self] in

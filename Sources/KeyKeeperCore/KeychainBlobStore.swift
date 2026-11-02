@@ -344,6 +344,7 @@ public final class KeychainBlobStore: @unchecked Sendable {
         } catch {
             throw KeychainError.unexpectedData
         }
+        try accessGate?.noteValueMutation()
         try io.writeBlob(data, replacingExisting: hasObservedStore)
         hasObservedStore = true
     }

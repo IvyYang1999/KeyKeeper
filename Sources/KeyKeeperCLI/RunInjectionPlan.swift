@@ -115,7 +115,7 @@ struct RunInjectionPlan {
             } else if let inventory {
                 stored = inventory[binding.credentialId]?.contains(binding.fieldName) == true ? "yes" : "no"
             } else {
-                stored = "unknown (KeyKeeper app is not running)"
+                stored = "unknown (local value check unavailable)"
             }
             let access: String
             if binding.kind == .plainText {

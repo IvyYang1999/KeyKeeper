@@ -23,4 +23,11 @@ final class AuthorizationRetryTests: XCTestCase {
             IPCError.noAuthorization(nil), security: .standard, alreadyRetried: false),
             "standard 凭据的授权窗由 App 自己排队弹出，不需要命令行再申请")
     }
+
+    func testRevisionFailureNeverRequestsApprovalOrRetries() {
+        for error in [VaultRevisionError.stale, .required, .unavailable] {
+            XCTAssertFalse(RunCommand.shouldRequestAuthorizationAfterRefusal(
+                error, security: .strict, alreadyRetried: false))
+        }
+    }
 }
