@@ -72,6 +72,11 @@ class IdentityCandidateTests(unittest.TestCase):
                 self.assertEqual(len(helper_sign), 1)
                 self.assertEqual(helper_sign[0][helper_sign[0].index("--identifier") + 1], "com.keykeeper.app")
                 self.assertFalse(any(c[-1] == str(old) and "--entitlements" in c for c in calls))
+                # codesign treats a bare requirement argument as a filename. Inline
+                # expressions require '=', unlike SecRequirementCreateWithString.
+                checks = [c for c in calls if "-R" in c]
+                self.assertEqual(len(checks), 1)
+                self.assertTrue(checks[0][checks[0].index("-R") + 1].startswith("=anchor apple generic"))
         finally:
             build.run = original
 

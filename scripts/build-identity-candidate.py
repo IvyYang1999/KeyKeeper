@@ -97,7 +97,7 @@ def assemble_app(app, build, profile_bytes, entitlements, identity, probe=False,
         if actual.get("keychain-access-groups") != [f"{TEAM}.{APP_ID}"]:
             raise ValueError("App access-group differs from candidate")
         run(["codesign", "--verify", "--strict", "-R",
-             f'anchor apple generic and identifier "com.keykeeper.app" and certificate leaf[subject.OU] = "{TEAM}"',
+             f'=anchor apple generic and identifier "com.keykeeper.app" and certificate leaf[subject.OU] = "{TEAM}"',
              str(contents / "Helpers/KeyKeeperMigrationBridge")])
     return {"name": app.name, "identifier": info["CFBundleIdentifier"],
             "executableSHA256": hashlib.sha256((contents / "MacOS" / executable).read_bytes()).hexdigest()}
