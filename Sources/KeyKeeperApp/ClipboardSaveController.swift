@@ -61,6 +61,7 @@ extension ClipboardSaveSource {
         let id: UUID
         var presentation: Presentation
         let metadata: Data
+        let epoch: UInt64
         var changeCount: Int
         let valueFingerprint: Data?
         let source: ClipboardSaveSource
@@ -128,23 +129,25 @@ extension ClipboardSaveSource {
                 guard source == nil else { throw ClipboardSaveError.invalidReplacement }
             }
             guard isConnected() else { throw ClipboardSaveError.disconnected }
-            let metadata = try metaStore.loadForUse()
-            try validateTarget(request, metadata: metadata, fileFormat: source?.fileFormat)
-            let expiresAt = expiresAfter.map { now().addingTimeInterval($0) }
-            let source = source ?? clipboard
-            let info = Presentation(request: request, callerName: callerName,
-                fromBrowser: source.displayFilePath == nil && !source.isSystemClipboard,
-                filePath: source.displayFilePath, pythonSymbol: source.pythonSymbol,
-                expiresAt: expiresAt,
-                storedValidation: metadata.credentials[request.credentialId]?.fields[request.fieldName]?.validation,
-                preview: source.isSystemClipboard ? source.preview() : nil)
-            let id = UUID()
-            pending = Pending(id: id, presentation: info, metadata: try canonical(metadata),
-                changeCount: source.changeCount,
-                valueFingerprint: request.isReplacement ? try service.valueFingerprint(
-                    credentialId: request.credentialId, fieldName: request.fieldName) : nil,
-                source: source, expiresAt: expiresAt, survivesDisconnect: survivesDisconnect,
-                isConnected: isConnected, willCommit: willCommit, completion: completion)
+            try metaStore.withAccess {
+                let metadata = try metaStore.loadForUse()
+                try validateTarget(request, metadata: metadata, fileFormat: source?.fileFormat)
+                let expiresAt = expiresAfter.map { now().addingTimeInterval($0) }
+                let source = source ?? clipboard
+                let info = Presentation(request: request, callerName: callerName,
+                    fromBrowser: source.displayFilePath == nil && !source.isSystemClipboard,
+                    filePath: source.displayFilePath, pythonSymbol: source.pythonSymbol,
+                    expiresAt: expiresAt,
+                    storedValidation: metadata.credentials[request.credentialId]?.fields[request.fieldName]?.validation,
+                    preview: source.isSystemClipboard ? source.preview() : nil)
+                let id = UUID()
+                pending = Pending(id: id, presentation: info, metadata: try canonical(metadata), epoch: try metaStore.captureEpoch(),
+                    changeCount: source.changeCount,
+                    valueFingerprint: request.isReplacement ? try service.valueFingerprint(
+                        credentialId: request.credentialId, fieldName: request.fieldName) : nil,
+                    source: source, expiresAt: expiresAt, survivesDisconnect: survivesDisconnect,
+                    isConnected: isConnected, willCommit: willCommit, completion: completion)
+            }
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.tick() }
             }
@@ -236,214 +239,216 @@ extension ClipboardSaveSource {
         var shapeOnFailure: ValueShape?
         var refusalDetail: String?
         do {
-            let clipboard = pending.source
-            let request = pending.presentation.request
-            var metadata = try metaStore.loadForUse()
-            guard try canonical(metadata) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
-            try validateTarget(request, metadata: metadata, fileFormat: clipboard.fileFormat)
-            let prepared = try metaStore.prepareForMutation()
-            // First signing of genuinely old metadata is permitted. Compare every content
-            // field again, while preserving the existing pending-import fingerprint format.
-            var comparable = prepared
-            comparable.integrity = metadata.integrity
-            guard try canonical(comparable) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
-            metadata = prepared
-            let changed: ClipboardSaveError = clipboard.displayFilePath == nil ? .clipboardChanged : .fileChanged
-            // Only what the person saw gets saved. The prompt follows the system clipboard once a
-            // second (see tick); if it moved after the last look — 【独立审计 2026-09-14】a swap in
-            // the sub-second gap before the click — refresh the preview, re-arm the settle delay,
-            // and let the person look again. The request stays pending; nothing is written.
-            // A file or browser source must not have changed at all.
-            if clipboard.isSystemClipboard {
-                if clipboard.changeCount != pending.changeCount { tick(); return }
-            } else {
-                guard clipboard.changeCount == pending.changeCount else { throw changed }
-            }
-            let countAtRead = clipboard.changeCount
-            // No pasteboard string is fetched until the target and one-time approval are validated.
-            guard let value = try clipboard.readText(), value.utf8.count <= 65_536,
-                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw ClipboardSaveError.emptyClipboard
-            }
-            guard clipboard.changeCount == countAtRead else { throw changed }
-            // What the caller said to expect, checked before a single byte is written. The
-            // clipboard is a shared, racy channel: what the user copied is not always what is
-            // there when the save runs, and "saved" must not mean "stored whatever was there".
-            let shape = ValueShape.of(value)
-            let storedValidation = metadata.credentials[request.credentialId]?.fields[request.fieldName]?.validation
-            let checkedStoredValidation: CredentialFieldValidation?
-            let checkedRequestedValidation: CredentialFieldValidation?
-            do {
-                checkedStoredValidation = try storedValidation?.validated()
-                checkedRequestedValidation = try request.validation?.validated()
-            } catch {
-                throw ClipboardSaveError.invalidFieldValidation
-            }
-            let effectiveValidation: CredentialFieldValidation?
-            do {
-                switch (checkedStoredValidation, checkedRequestedValidation) {
-                case let (stored?, requested?): effectiveValidation = try stored.tightening(with: requested)
-                case let (stored?, nil): effectiveValidation = stored
-                case let (nil, requested?): effectiveValidation = requested
-                case (nil, nil): effectiveValidation = nil
+            try metaStore.withAccess(expectedEpoch: pending.epoch) {
+                let clipboard = pending.source
+                let request = pending.presentation.request
+                var metadata = try metaStore.loadForUse()
+                guard try canonical(metadata) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
+                try validateTarget(request, metadata: metadata, fileFormat: clipboard.fileFormat)
+                let prepared = try metaStore.prepareForMutation()
+                // First signing of genuinely old metadata is permitted. Compare every content
+                // field again, while preserving the existing pending-import fingerprint format.
+                var comparable = prepared
+                comparable.integrity = metadata.integrity
+                guard try canonical(comparable) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
+                metadata = prepared
+                let changed: ClipboardSaveError = clipboard.displayFilePath == nil ? .clipboardChanged : .fileChanged
+                // Only what the person saw gets saved. The prompt follows the system clipboard once a
+                // second (see tick); if it moved after the last look — 【独立审计 2026-09-14】a swap in
+                // the sub-second gap before the click — refresh the preview, re-arm the settle delay,
+                // and let the person look again. The request stays pending; nothing is written.
+                // A file or browser source must not have changed at all.
+                if clipboard.isSystemClipboard {
+                    if clipboard.changeCount != pending.changeCount { tick(); return }
+                } else {
+                    guard clipboard.changeCount == pending.changeCount else { throw changed }
                 }
-            } catch {
-                throw ClipboardSaveError.invalidFieldValidation
-            }
-            if let problem = effectiveValidation?.problem(for: value) {
-                shapeOnFailure = shape
-                refusalDetail = problem
-                throw ClipboardSaveError.fieldValidationFailed
-            }
-            // The provider's key shape, when the caller named one: refused before a byte is written.
-            let boundProvider = metadata.credentials[request.credentialId]?.provider
-            let template = (request.provider ?? (request.addField ? boundProvider : nil)).flatMap(ProviderCatalog.find)
-            if let template, let problem = template.shapeProblem(for: value, fieldName: request.fieldName) {
-                shapeOnFailure = shape
-                refusalDetail = problem
-                throw ClipboardSaveError.shapeMismatch
-            }
-            if let expect = request.expect {
-                guard let expectation = ValueExpectation.parse(expect) else {
-                    throw ClipboardSaveError.invalidExpectation
+                let countAtRead = clipboard.changeCount
+                // No pasteboard string is fetched until the target and one-time approval are validated.
+                guard let value = try clipboard.readText(), value.utf8.count <= 65_536,
+                      !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw ClipboardSaveError.emptyClipboard
                 }
-                guard expectation.matches(shape) else {
+                guard clipboard.changeCount == countAtRead else { throw changed }
+                // What the caller said to expect, checked before a single byte is written. The
+                // clipboard is a shared, racy channel: what the user copied is not always what is
+                // there when the save runs, and "saved" must not mean "stored whatever was there".
+                let shape = ValueShape.of(value)
+                let storedValidation = metadata.credentials[request.credentialId]?.fields[request.fieldName]?.validation
+                let checkedStoredValidation: CredentialFieldValidation?
+                let checkedRequestedValidation: CredentialFieldValidation?
+                do {
+                    checkedStoredValidation = try storedValidation?.validated()
+                    checkedRequestedValidation = try request.validation?.validated()
+                } catch {
+                    throw ClipboardSaveError.invalidFieldValidation
+                }
+                let effectiveValidation: CredentialFieldValidation?
+                do {
+                    switch (checkedStoredValidation, checkedRequestedValidation) {
+                    case let (stored?, requested?): effectiveValidation = try stored.tightening(with: requested)
+                    case let (stored?, nil): effectiveValidation = stored
+                    case let (nil, requested?): effectiveValidation = requested
+                    case (nil, nil): effectiveValidation = nil
+                    }
+                } catch {
+                    throw ClipboardSaveError.invalidFieldValidation
+                }
+                if let problem = effectiveValidation?.problem(for: value) {
                     shapeOnFailure = shape
+                    refusalDetail = problem
+                    throw ClipboardSaveError.fieldValidationFailed
+                }
+                // The provider's key shape, when the caller named one: refused before a byte is written.
+                let boundProvider = metadata.credentials[request.credentialId]?.provider
+                let template = (request.provider ?? (request.addField ? boundProvider : nil)).flatMap(ProviderCatalog.find)
+                if let template, let problem = template.shapeProblem(for: value, fieldName: request.fieldName) {
+                    shapeOnFailure = shape
+                    refusalDetail = problem
                     throw ClipboardSaveError.shapeMismatch
                 }
-            }
-            if let deadline = pending.expiresAt, now() >= deadline { throw ClipboardSaveError.expired }
-            if !pending.survivesDisconnect, !pending.isConnected() { throw ClipboardSaveError.disconnected }
-            if let expected = request.expectedEd25519PublicKey {
-                guard let seed = Data(base64Encoded: value), seed.count == 32,
-                      let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: seed),
-                      key.publicKey.rawRepresentation == Data(base64Encoded: expected) else {
-                    throw ClipboardSaveError.identityMismatch
+                if let expect = request.expect {
+                    guard let expectation = ValueExpectation.parse(expect) else {
+                        throw ClipboardSaveError.invalidExpectation
+                    }
+                    guard expectation.matches(shape) else {
+                        shapeOnFailure = shape
+                        throw ClipboardSaveError.shapeMismatch
+                    }
                 }
-            }
-            try pending.willCommit?()
-            let shouldCommitValidation = checkedRequestedValidation != nil
-                && checkedStoredValidation != effectiveValidation
-            var previousReplacementValue: String?
-            if request.isReplacement {
-                guard let fingerprint = pending.valueFingerprint else { throw ClipboardSaveError.invalidReplacement }
                 if let deadline = pending.expiresAt, now() >= deadline { throw ClipboardSaveError.expired }
                 if !pending.survivesDisconnect, !pending.isConnected() { throw ClipboardSaveError.disconnected }
-                if shouldCommitValidation {
-                    previousReplacementValue = try service.retrieve(
-                        credentialId: request.credentialId, fieldName: request.fieldName)
+                if let expected = request.expectedEd25519PublicKey {
+                    guard let seed = Data(base64Encoded: value), seed.count == 32,
+                          let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: seed),
+                          key.publicKey.rawRepresentation == Data(base64Encoded: expected) else {
+                        throw ClipboardSaveError.identityMismatch
+                    }
                 }
-                try service.replaceExisting(credentialId: request.credentialId, fieldName: request.fieldName,
-                    value: value, expectedFingerprint: fingerprint)
-            } else {
-                try service.saveMissing(credentialId: request.credentialId, fieldName: request.fieldName, value: value)
-            }
-            if request.create {
-                let date = ISO8601DateFormatter().string(from: now())
-                metadata.credentials[request.credentialId] = Credential(label: request.credentialId,
-                    notes: "", links: [], fields: [request.fieldName: .init(secret: true, fileFormat: clipboard.fileFormat,
-                        aliases: template?.field(named: request.fieldName).flatMap { field in
+                try pending.willCommit?()
+                let shouldCommitValidation = checkedRequestedValidation != nil
+                    && checkedStoredValidation != effectiveValidation
+                var previousReplacementValue: String?
+                if request.isReplacement {
+                    guard let fingerprint = pending.valueFingerprint else { throw ClipboardSaveError.invalidReplacement }
+                    if let deadline = pending.expiresAt, now() >= deadline { throw ClipboardSaveError.expired }
+                    if !pending.survivesDisconnect, !pending.isConnected() { throw ClipboardSaveError.disconnected }
+                    if shouldCommitValidation {
+                        previousReplacementValue = try service.retrieve(
+                            credentialId: request.credentialId, fieldName: request.fieldName)
+                    }
+                    try service.replaceExisting(credentialId: request.credentialId, fieldName: request.fieldName,
+                        value: value, expectedFingerprint: fingerprint)
+                } else {
+                    try service.saveMissing(credentialId: request.credentialId, fieldName: request.fieldName, value: value)
+                }
+                if request.create {
+                    let date = ISO8601DateFormatter().string(from: now())
+                    metadata.credentials[request.credentialId] = Credential(label: request.credentialId,
+                        notes: "", links: [], fields: [request.fieldName: .init(secret: true, fileFormat: clipboard.fileFormat,
+                            aliases: template?.field(named: request.fieldName).flatMap { field in
+                                let aliases = ([field.name] + (field.aliases ?? [])).filter { $0 != request.fieldName }
+                                return aliases.isEmpty ? nil : aliases
+                            }, validation: effectiveValidation)],
+                        security: request.security ?? .strict, created: date, updated: date,
+                        expires: request.expires,
+                        intent: request.intent?.sanitized().map { intent in
+                            var declared = intent
+                            declared.declaredBy = pending.presentation.callerName
+                            declared.declaredAt = now()
+                            return declared
+                        },
+                        // Created over the socket, i.e. by an agent: never handed back to one.
+                        injectOnly: true,
+                        provider: template?.id)
+                    do { try metaStore.save(metadata) }
+                    catch { throw ClipboardSaveError.metadataCommitFailed }
+                } else if request.addField {
+                    guard var credential = metadata.credentials[request.credentialId] else {
+                        throw ClipboardSaveError.targetNotFound
+                    }
+                    let existingSecretFields = credential.fields.compactMap { $0.value.secret ? $0.key : nil }
+                    let fieldTemplate = template?.field(named: request.fieldName)
+                    credential.fields[request.fieldName] = .init(
+                        secret: true,
+                        fileFormat: clipboard.fileFormat,
+                        displayName: fieldTemplate?.label,
+                        aliases: fieldTemplate.flatMap { field in
                             let aliases = ([field.name] + (field.aliases ?? [])).filter { $0 != request.fieldName }
                             return aliases.isEmpty ? nil : aliases
-                        }, validation: effectiveValidation)],
-                    security: request.security ?? .strict, created: date, updated: date,
-                    expires: request.expires,
-                    intent: request.intent?.sanitized().map { intent in
-                        var declared = intent
-                        declared.declaredBy = pending.presentation.callerName
-                        declared.declaredAt = now()
-                        return declared
-                    },
-                    // Created over the socket, i.e. by an agent: never handed back to one.
-                    injectOnly: true,
-                    provider: template?.id)
-                do { try metaStore.save(metadata) }
-                catch { throw ClipboardSaveError.metadataCommitFailed }
-            } else if request.addField {
-                guard var credential = metadata.credentials[request.credentialId] else {
-                    throw ClipboardSaveError.targetNotFound
-                }
-                let existingSecretFields = credential.fields.compactMap { $0.value.secret ? $0.key : nil }
-                let fieldTemplate = template?.field(named: request.fieldName)
-                credential.fields[request.fieldName] = .init(
-                    secret: true,
-                    fileFormat: clipboard.fileFormat,
-                    displayName: fieldTemplate?.label,
-                    aliases: fieldTemplate.flatMap { field in
-                        let aliases = ([field.name] + (field.aliases ?? [])).filter { $0 != request.fieldName }
-                        return aliases.isEmpty ? nil : aliases
-                    },
-                    validation: effectiveValidation)
-                credential.updated = ISO8601DateFormatter().string(from: now())
-                metadata.credentials[request.credentialId] = credential
-                do {
-                    try approvals.freezeWildcardCredentialApprovals(
-                        credentialId: request.credentialId, existingFields: existingSecretFields)
-                    try metaStore.save(metadata)
-                } catch {
-                    // The value was new in this request, so a failed schema commit can safely
-                    // remove it instead of stranding an invisible value that blocks a retry.
-                    try? service.delete(credentialId: request.credentialId, fieldName: request.fieldName)
-                    throw ClipboardSaveError.metadataCommitFailed
-                }
-            } else if shouldCommitValidation {
-                guard var credential = metadata.credentials[request.credentialId],
-                      credential.fields[request.fieldName]?.secret == true else {
-                    throw ClipboardSaveError.targetNotFound
-                }
-                credential.fields[request.fieldName]?.validation = effectiveValidation
-                credential.updated = ISO8601DateFormatter().string(from: now())
-                metadata.credentials[request.credentialId] = credential
-                do {
-                    try metaStore.save(metadata)
-                } catch {
-                    var restoredPriorState = false
-                    if request.isReplacement, let previousReplacementValue,
-                       let replacementFingerprint = try? service.valueFingerprint(
-                           credentialId: request.credentialId, fieldName: request.fieldName) {
-                        do {
-                            try service.replaceExisting(
-                                credentialId: request.credentialId, fieldName: request.fieldName,
-                                value: previousReplacementValue, expectedFingerprint: replacementFingerprint)
-                            restoredPriorState = try service.retrieve(
-                                credentialId: request.credentialId, fieldName: request.fieldName
-                            ) == previousReplacementValue
-                        } catch {}
-                    } else if !request.isReplacement {
-                        // A restore created this value during this request. If its new schema rule
-                        // cannot be committed, remove the value so retry remains deterministic.
-                        do {
-                            try service.delete(credentialId: request.credentialId, fieldName: request.fieldName)
-                            restoredPriorState = try !service.storedFieldNames(
-                                credentialId: request.credentialId).contains(request.fieldName)
-                        } catch {}
+                        },
+                        validation: effectiveValidation)
+                    credential.updated = ISO8601DateFormatter().string(from: now())
+                    metadata.credentials[request.credentialId] = credential
+                    do {
+                        try approvals.freezeWildcardCredentialApprovals(
+                            credentialId: request.credentialId, existingFields: existingSecretFields)
+                        try metaStore.save(metadata)
+                    } catch {
+                        // The value was new in this request, so a failed schema commit can safely
+                        // remove it instead of stranding an invisible value that blocks a retry.
+                        try? service.delete(credentialId: request.credentialId, fieldName: request.fieldName)
+                        throw ClipboardSaveError.metadataCommitFailed
                     }
-                    throw restoredPriorState
-                        ? ClipboardSaveError.metadataCommitRolledBack
-                        : ClipboardSaveError.metadataCommitFailed
+                } else if shouldCommitValidation {
+                    guard var credential = metadata.credentials[request.credentialId],
+                          credential.fields[request.fieldName]?.secret == true else {
+                        throw ClipboardSaveError.targetNotFound
+                    }
+                    credential.fields[request.fieldName]?.validation = effectiveValidation
+                    credential.updated = ISO8601DateFormatter().string(from: now())
+                    metadata.credentials[request.credentialId] = credential
+                    do {
+                        try metaStore.save(metadata)
+                    } catch {
+                        var restoredPriorState = false
+                        if request.isReplacement, let previousReplacementValue,
+                           let replacementFingerprint = try? service.valueFingerprint(
+                               credentialId: request.credentialId, fieldName: request.fieldName) {
+                            do {
+                                try service.replaceExisting(
+                                    credentialId: request.credentialId, fieldName: request.fieldName,
+                                    value: previousReplacementValue, expectedFingerprint: replacementFingerprint)
+                                restoredPriorState = try service.retrieve(
+                                    credentialId: request.credentialId, fieldName: request.fieldName
+                                ) == previousReplacementValue
+                            } catch {}
+                        } else if !request.isReplacement {
+                            // A restore created this value during this request. If its new schema rule
+                            // cannot be committed, remove the value so retry remains deterministic.
+                            do {
+                                try service.delete(credentialId: request.credentialId, fieldName: request.fieldName)
+                                restoredPriorState = try !service.storedFieldNames(
+                                    credentialId: request.credentialId).contains(request.fieldName)
+                            } catch {}
+                        }
+                        throw restoredPriorState
+                            ? ClipboardSaveError.metadataCommitRolledBack
+                            : ClipboardSaveError.metadataCommitFailed
+                    }
                 }
-            }
-            // Restore keeps original metadata/grants byte-for-byte. Verify in-process, never return the value.
-            guard try service.retrieve(credentialId: request.credentialId, fieldName: request.fieldName) == value else {
-                throw ClipboardSaveError.storageUnavailable
-            }
-            clipboard.clearIfUnchanged(since: countAtRead)
-            NotificationCenter.default.post(name: .clipboardCredentialSaved, object: nil)
-            // Saved. If the provider can be asked, ask it before answering the caller: the window
-            // goes away now, the answer carries the verdict, and the value never leaves this process.
-            if let validation = template?.validation {
-                validating = true
-                isPresented = false
-                dismiss()
-                let probe = self.probe
-                Task { @MainActor [weak self] in
-                    let outcome = await probe(validation, value)
-                    guard let self else { return }
-                    self.validating = false
-                    self.finish(.init(success: true, shape: shape, validation: outcome))
+                // Restore keeps original metadata/grants byte-for-byte. Verify in-process, never return the value.
+                guard try service.retrieve(credentialId: request.credentialId, fieldName: request.fieldName) == value else {
+                    throw ClipboardSaveError.storageUnavailable
                 }
-            } else {
-                finish(.init(success: true, shape: shape, validation: .skipped))
+                clipboard.clearIfUnchanged(since: countAtRead)
+                NotificationCenter.default.post(name: .clipboardCredentialSaved, object: nil)
+                // Saved. If the provider can be asked, ask it before answering the caller: the window
+                // goes away now, the answer carries the verdict, and the value never leaves this process.
+                if let validation = template?.validation {
+                    validating = true
+                    isPresented = false
+                    dismiss()
+                    let probe = self.probe
+                    Task { @MainActor [weak self] in
+                        let outcome = await probe(validation, value)
+                        guard let self else { return }
+                        self.validating = false
+                        self.finish(.init(success: true, shape: shape, validation: outcome))
+                    }
+                } else {
+                    finish(.init(success: true, shape: shape, validation: .skipped))
+                }
             }
         } catch {
             finish(.init(success: false, errorCode: error as? ClipboardSaveError ?? .storageUnavailable,

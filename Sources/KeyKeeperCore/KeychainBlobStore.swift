@@ -148,18 +148,20 @@ public final class KeychainBlobStore: @unchecked Sendable {
     }
 
     private let io: KeychainBlobIO
+    private let accessGate: VaultAccessGate?
     private let mutex = NSLock()
     private let loadMetadata: () throws -> MetaFile
     private var hasObservedStore = false
 
     /// Production wiring: metadata restored without its Keychain must never create an empty store.
     public convenience init() {
-        self.init(io: SecItemBlobIO(), loadMetadata: { try MetaStore.default.loadForUse() })
+        self.init(io: SecItemBlobIO(), loadMetadata: { try MetaStore.default.loadForUse() }, accessGate: .production)
     }
 
     /// Explicit IO injection for tests and the legacy migration that initializes the new store.
-    public init(io: KeychainBlobIO, loadMetadata: @escaping () throws -> MetaFile = { MetaFile() }) {
+    public init(io: KeychainBlobIO, loadMetadata: @escaping () throws -> MetaFile = { MetaFile() }, accessGate: VaultAccessGate? = nil) {
         self.io = io
+        self.accessGate = accessGate
         self.loadMetadata = loadMetadata
     }
 
@@ -346,10 +348,14 @@ public final class KeychainBlobStore: @unchecked Sendable {
         hasObservedStore = true
     }
 
-    private func withLock<T>(_ operation: () throws -> T) rethrows -> T {
-        mutex.lock()
-        defer { mutex.unlock() }
-        return try operation()
+    private func withLock<T>(_ operation: () throws -> T) throws -> T {
+        func locked() throws -> T {
+            self.mutex.lock()
+            defer { self.mutex.unlock() }
+            return try operation()
+        }
+        if let accessGate { return try accessGate.withAccess(locked) }
+        return try locked()
     }
 }
 

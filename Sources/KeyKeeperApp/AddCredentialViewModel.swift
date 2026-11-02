@@ -293,79 +293,81 @@ class AddCredentialViewModel: ObservableObject {
     @discardableResult
     func save() -> Bool {
         do {
-            try CredentialOperationMessages.requireUnlocked(session)
-            var meta = try store.prepareForMutation()
-            guard meta.version == 1 else { throw ClipboardSaveError.storageUnavailable }
-            guard meta.credentials[credentialId] == nil else { throw ClipboardSaveError.valueExists }
-            guard !label.isEmpty, idFormatProblem == nil else { throw ClipboardSaveError.invalidTarget }
-            // A new credential under a reused ID must not inherit what was given to the old one.
-            guard try !approvals.hasApprovals(forCredential: credentialId) else { throw ClipboardSaveError.staleGrants }
-            if let providerProblem { errorMessage = providerProblem; return false }
-            // The Save button is the user's approval to read the files shown in this form.
-            // Validate every file before any Keychain write; no file contents enter UI state.
-            var inputs = fields
-            for i in inputs.indices {
-                if let source = providerFileSources[inputs[i].name] {
-                    guard let value = try source.readText() else { throw ClipboardSaveError.invalidFile }
-                    inputs[i].value = value
+            return try store.withAccess {
+                try CredentialOperationMessages.requireUnlocked(session)
+                var meta = try store.prepareForMutation()
+                guard meta.version == 1 else { throw ClipboardSaveError.storageUnavailable }
+                guard meta.credentials[credentialId] == nil else { throw ClipboardSaveError.valueExists }
+                guard !label.isEmpty, idFormatProblem == nil else { throw ClipboardSaveError.invalidTarget }
+                // A new credential under a reused ID must not inherit what was given to the old one.
+                guard try !approvals.hasApprovals(forCredential: credentialId) else { throw ClipboardSaveError.staleGrants }
+                if let providerProblem { errorMessage = providerProblem; return false }
+                // The Save button is the user's approval to read the files shown in this form.
+                // Validate every file before any Keychain write; no file contents enter UI state.
+                var inputs = fields
+                for i in inputs.indices {
+                    if let source = providerFileSources[inputs[i].name] {
+                        guard let value = try source.readText() else { throw ClipboardSaveError.invalidFile }
+                        inputs[i].value = value
+                    }
                 }
-            }
-            let named = inputs.filter {
-                !$0.name.trimmingCharacters(in: .whitespaces).isEmpty && (providerID == nil || !$0.value.isEmpty)
-            }
-            let machineNames = named.map { Self.machineFieldName($0.name) }
-            guard Set(machineNames).count == machineNames.count else { throw ClipboardSaveError.invalidTarget }
-            if let reserved = machineNames.first(where: { EnvironmentVariableName.isReserved(fieldName: $0) }) {
-                throw MetadataEditError.reservedFieldName(reserved)
-            }
-            var plan = CredentialEditPlan(
-                inputFields: zip(named, machineNames).map { .init(name: $1, value: $0.value, isSecret: $0.isSecret) },
-                existingFields: [:],
-                security: security
-            )
-            if let failure = plan.validationFailures.first {
-                errorMessage = L("\(failure.fieldName): \(failure.reason)")
-                return false
-            }
-            for (entry, machine) in zip(named, machineNames) {
-                let typed = entry.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                if typed != machine { plan.metadata.fields[machine]?.displayName = typed }
-                if let field = provider?.field(named: machine) {
-                    plan.metadata.fields[machine]?.aliases = field.aliases
-                    plan.metadata.fields[machine]?.displayName = field.label
-                    plan.metadata.fields[machine]?.fileFormat = field.fileFormat
+                let named = inputs.filter {
+                    !$0.name.trimmingCharacters(in: .whitespaces).isEmpty && (providerID == nil || !$0.value.isEmpty)
                 }
-            }
-            var values: [String: String] = [:]
-            for write in plan.valueWrites {
-                guard values[write.fieldName] == nil else { throw ClipboardSaveError.invalidTarget }
-                values[write.fieldName] = write.value
-            }
-            // A credential may hold nothing but plain fields (an account id and a team id, say);
-            // then there is nothing to put in the Keychain and nothing to create there.
-            guard !values.isEmpty || plan.metadata.fields.values.contains(where: { $0.value?.isEmpty == false }) else {
-                throw ClipboardSaveError.invalidTarget
-            }
-            if !values.isEmpty {
-                try session.createCredential(credentialId: credentialId, values: values, security: security)
-            }
+                let machineNames = named.map { Self.machineFieldName($0.name) }
+                guard Set(machineNames).count == machineNames.count else { throw ClipboardSaveError.invalidTarget }
+                if let reserved = machineNames.first(where: { EnvironmentVariableName.isReserved(fieldName: $0) }) {
+                    throw MetadataEditError.reservedFieldName(reserved)
+                }
+                var plan = CredentialEditPlan(
+                    inputFields: zip(named, machineNames).map { .init(name: $1, value: $0.value, isSecret: $0.isSecret) },
+                    existingFields: [:],
+                    security: security
+                )
+                if let failure = plan.validationFailures.first {
+                    errorMessage = L("\(failure.fieldName): \(failure.reason)")
+                    return false
+                }
+                for (entry, machine) in zip(named, machineNames) {
+                    let typed = entry.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if typed != machine { plan.metadata.fields[machine]?.displayName = typed }
+                    if let field = provider?.field(named: machine) {
+                        plan.metadata.fields[machine]?.aliases = field.aliases
+                        plan.metadata.fields[machine]?.displayName = field.label
+                        plan.metadata.fields[machine]?.fileFormat = field.fileFormat
+                    }
+                }
+                var values: [String: String] = [:]
+                for write in plan.valueWrites {
+                    guard values[write.fieldName] == nil else { throw ClipboardSaveError.invalidTarget }
+                    values[write.fieldName] = write.value
+                }
+                // A credential may hold nothing but plain fields (an account id and a team id, say);
+                // then there is nothing to put in the Keychain and nothing to create there.
+                guard !values.isEmpty || plan.metadata.fields.values.contains(where: { $0.value?.isEmpty == false }) else {
+                    throw ClipboardSaveError.invalidTarget
+                }
+                if !values.isEmpty {
+                    try session.createCredential(credentialId: credentialId, values: values, security: security)
+                }
 
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            let now = formatter.string(from: Date())
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd"
+                let now = formatter.string(from: Date())
 
-            if !values.isEmpty { meta.storeInitialized = true }
-            meta.credentials[credentialId] = Credential(
-                label: label, notes: notes,
-                links: [],
-                fields: plan.metadata.fields, security: plan.metadata.security,
-                created: now, updated: now, expires: expires, injectOnly: injectOnly, provider: providerID
-            )
-            do { try store.save(meta) }
-            catch { throw ClipboardSaveError.metadataCommitFailed }
-            errorMessage = nil
-            refreshExistingIds()
-            return true
+                if !values.isEmpty { meta.storeInitialized = true }
+                meta.credentials[credentialId] = Credential(
+                    label: label, notes: notes,
+                    links: [],
+                    fields: plan.metadata.fields, security: plan.metadata.security,
+                    created: now, updated: now, expires: expires, injectOnly: injectOnly, provider: providerID
+                )
+                do { try store.save(meta) }
+                catch { throw ClipboardSaveError.metadataCommitFailed }
+                errorMessage = nil
+                refreshExistingIds()
+                return true
+            }
         } catch {
             errorMessage = CredentialOperationMessages.failure(
                 action: L("save this credential"),

@@ -322,13 +322,17 @@ public final class ApprovalStore: @unchecked Sendable {
     public static let maxAuditEvents = 500
 
     private let io: KeychainBlobIO
+    private let accessGate: VaultAccessGate?
     /// How `.process` approvals learn whether their process still runs. Tests inject one.
     public var processAlive: ProcessAliveCheck = ProcessLiveness.isAlive
     private let lock = NSLock()
     /// Whether the item was ever seen: decides create versus replace on the next write.
     private var observed = false
 
-    public init(io: KeychainBlobIO) { self.io = io }
+    public init(io: KeychainBlobIO, accessGate: VaultAccessGate? = nil) {
+        self.io = io
+        self.accessGate = accessGate
+    }
 
     /// The item name follows the credential store's, so an isolated instance gets its own.
     public static func serviceName(environment: [String: String] = ProcessInfo.processInfo.environment) throws -> String {
@@ -338,19 +342,19 @@ public final class ApprovalStore: @unchecked Sendable {
     /// The app's one instance. Resolved lazily so the environment (an isolated instance) is honoured.
     public static let shared: ApprovalStore = {
         let name = (try? serviceName()) ?? SecItemBlobIO.defaultService + ".approvals"
-        return ApprovalStore(io: SecItemBlobIO(service: name))
+        return ApprovalStore(io: SecItemBlobIO(service: name), accessGate: .production)
     }()
 
     // MARK: Reading
 
     /// Whether anything has ever been written. Migration keys off this.
     public func exists() throws -> Bool {
-        try lock.withLock { try io.readBlob() != nil }
+        try withLockedAccess { try io.readBlob() != nil }
     }
 
-    public func mode() throws -> ServiceAuthorizationMode { try lock.withLock { try load().mode } }
+    public func mode() throws -> ServiceAuthorizationMode { try withLockedAccess { try load().mode } }
 
-    public func all() throws -> [Approval] { try lock.withLock { try load().approvals } }
+    public func all() throws -> [Approval] { try withLockedAccess { try load().approvals } }
 
     public func approvals(forCredential credentialId: String) throws -> [Approval] {
         try all().filter { $0.target.credentialId == credentialId }
@@ -368,10 +372,11 @@ public final class ApprovalStore: @unchecked Sendable {
 
     /// The approval that lets this caller read this field right now, if any.
     public func valid(credentialId: String, field: String, fingerprint: String,
-                      terminalSession: String?, now: Date = Date()) throws -> Approval? {
+                      terminalSession: String?, now: Date = Date(), approvalID: String? = nil) throws -> Approval? {
         guard GrantIssuancePolicy.mayRemember(subjectFingerprint: fingerprint) else { return nil }
         return try all().first {
-            $0.subject.fingerprint == fingerprint
+            (approvalID == nil || $0.id == approvalID)
+                && $0.subject.fingerprint == fingerprint
                 && $0.target.covers(credentialId: credentialId, field: field)
                 && $0.stillCovers(field: field)
                 && $0.isValid(now: now, terminalSession: terminalSession, processAlive: processAlive)
@@ -386,7 +391,7 @@ public final class ApprovalStore: @unchecked Sendable {
         }
     }
 
-    public func auditEvents() throws -> [ServiceAuditEvent] { try lock.withLock { try load().auditEvents } }
+    public func auditEvents() throws -> [ServiceAuditEvent] { try withLockedAccess { try load().auditEvents } }
 
     // MARK: Writing
 
@@ -394,7 +399,7 @@ public final class ApprovalStore: @unchecked Sendable {
         try update { $0.mode = mode }
     }
 
-    public func reviewerSettings() throws -> ReviewerSettings? { try lock.withLock { try load().reviewerSettings } }
+    public func reviewerSettings() throws -> ReviewerSettings? { try withLockedAccess { try load().reviewerSettings } }
 
     public func setReviewerSettings(_ settings: ReviewerSettings) throws {
         try update { $0.reviewerSettings = settings }
@@ -515,9 +520,14 @@ public final class ApprovalStore: @unchecked Sendable {
         } catch { throw ApprovalStoreError.unavailable }
     }
 
+    private func withLockedAccess<T>(_ body: () throws -> T) throws -> T {
+        if let accessGate { return try accessGate.withAccess { try lock.withLock(body) } }
+        return try lock.withLock(body)
+    }
+
     @discardableResult
     private func update<T>(_ body: (inout ApprovalDocument) throws -> T) throws -> T {
-        try lock.withLock {
+        try withLockedAccess {
             var document = try load()
             let result = try body(&document)
             let encoder = JSONEncoder()

@@ -15,6 +15,7 @@ import KeyKeeperCore
         let id: UUID
         let presentation: Presentation
         let metadata: Data
+        let epoch: UInt64
         let source: CredentialFileSource
         let isConnected: () -> Bool
         let completion: (ClipboardSaveResponse) -> Void
@@ -49,18 +50,21 @@ import KeyKeeperCore
         do {
             try request.validate()
             guard isConnected() else { throw ClipboardSaveError.disconnected }
-            let metadata = try metaStore.loadForUse()
-            try validateTarget(request, metadata: metadata)
-            let source = try CredentialFileSource(envFilePath: request.filePath)
-            // Names are read now so the person can see what they are approving; the values are
-            // parsed along with them but stay in this process and are read again on approval.
-            let plan = try Self.plan(from: source)
-            guard !plan.isEmpty else { throw ClipboardSaveError.emptyEnvFile }
-            let expiresAt = now().addingTimeInterval(90)
-            let info = Presentation(request: request, callerName: callerName, plan: plan, expiresAt: expiresAt)
             let id = UUID()
-            pending = Pending(id: id, presentation: info, metadata: try canonical(metadata), source: source,
-                              isConnected: isConnected, completion: completion)
+            let info: Presentation = try metaStore.withAccess {
+                let metadata = try metaStore.loadForUse()
+                try validateTarget(request, metadata: metadata)
+                let source = try CredentialFileSource(envFilePath: request.filePath)
+                // Names are read now so the person can see what they are approving; the values are
+                // parsed along with them but stay in this process and are read again on approval.
+                let plan = try Self.plan(from: source)
+                guard !plan.isEmpty else { throw ClipboardSaveError.emptyEnvFile }
+                let expiresAt = now().addingTimeInterval(90)
+                let info = Presentation(request: request, callerName: callerName, plan: plan, expiresAt: expiresAt)
+                pending = Pending(id: id, presentation: info, metadata: try canonical(metadata), epoch: try metaStore.captureEpoch(), source: source,
+                                  isConnected: isConnected, completion: completion)
+                return info
+            }
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.expireIfNeeded() }
             }
@@ -85,64 +89,70 @@ import KeyKeeperCore
         expireIfNeeded()
         guard let pending else { return }
         guard approved else { cancel(); return }
-        var written: [String] = []
         do {
-            let request = pending.presentation.request
-            var metadata = try metaStore.loadForUse()
-            guard try canonical(metadata) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
-            try validateTarget(request, metadata: metadata)
-            let prepared = try metaStore.prepareForMutation()
-            var comparable = prepared
-            comparable.integrity = metadata.integrity
-            guard try canonical(comparable) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
-            metadata = prepared
-            guard now() < pending.presentation.expiresAt else { throw ClipboardSaveError.expired }
-            guard pending.isConnected() else { throw ClipboardSaveError.disconnected }
-            // The file must still be the one the person looked at: same identity, same names.
-            let entries = try Self.entries(from: pending.source)
-            let plan = EnvImportPlan.make(entries)
-            guard plan == pending.presentation.plan else { throw ClipboardSaveError.fileChanged }
-            let values = Dictionary(entries.map { ($0.name, $0.value) }, uniquingKeysWith: { _, last in last })
-            var fields: [String: CredentialField] = [:]
-            for field in plan.fields {
-                guard let value = values[field.name] else { throw ClipboardSaveError.fileChanged }
-                if field.secret {
-                    try service.saveMissing(credentialId: request.credentialId, fieldName: field.fieldName, value: value)
-                    written.append(field.fieldName)
-                    fields[field.fieldName] = CredentialField(secret: true, displayName: field.name)
-                } else {
-                    fields[field.fieldName] = CredentialField(value: value, secret: false, displayName: field.name)
+            try metaStore.withAccess(expectedEpoch: pending.epoch) {
+                var written: [String] = []
+                do {
+                    let request = pending.presentation.request
+                    var metadata = try metaStore.loadForUse()
+                    guard try canonical(metadata) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
+                    try validateTarget(request, metadata: metadata)
+                    let prepared = try metaStore.prepareForMutation()
+                    var comparable = prepared
+                    comparable.integrity = metadata.integrity
+                    guard try canonical(comparable) == pending.metadata else { throw ClipboardSaveError.metadataChanged }
+                    metadata = prepared
+                    guard now() < pending.presentation.expiresAt else { throw ClipboardSaveError.expired }
+                    guard pending.isConnected() else { throw ClipboardSaveError.disconnected }
+                    // The file must still be the one the person looked at: same identity, same names.
+                    let entries = try Self.entries(from: pending.source)
+                    let plan = EnvImportPlan.make(entries)
+                    guard plan == pending.presentation.plan else { throw ClipboardSaveError.fileChanged }
+                    let values = Dictionary(entries.map { ($0.name, $0.value) }, uniquingKeysWith: { _, last in last })
+                    var fields: [String: CredentialField] = [:]
+                    for field in plan.fields {
+                        guard let value = values[field.name] else { throw ClipboardSaveError.fileChanged }
+                        if field.secret {
+                            try service.saveMissing(credentialId: request.credentialId, fieldName: field.fieldName, value: value)
+                            written.append(field.fieldName)
+                            fields[field.fieldName] = CredentialField(secret: true, displayName: field.name)
+                        } else {
+                            fields[field.fieldName] = CredentialField(value: value, secret: false, displayName: field.name)
+                        }
+                    }
+                    let date = ISO8601DateFormatter().string(from: now())
+                    metadata.credentials[request.credentialId] = Credential(
+                        label: request.label ?? request.credentialId, notes: "", links: [], fields: fields,
+                        security: request.security ?? .strict, created: date, updated: date,
+                        intent: request.intent?.sanitized().map { intent in
+                            var declared = intent
+                            declared.declaredBy = pending.presentation.callerName
+                            declared.declaredAt = now()
+                            return declared
+                        },
+                        // Imported over the socket, i.e. by an agent: never handed back to one.
+                        injectOnly: true)
+                    // Verify before committing metadata; cleanup must never delete values from a
+                    // credential whose metadata was already successfully published.
+                    for field in plan.fields where field.secret {
+                        guard try service.retrieve(credentialId: request.credentialId, fieldName: field.fieldName) == values[field.name] else {
+                            throw ClipboardSaveError.storageUnavailable
+                        }
+                    }
+                    do { try metaStore.save(metadata) } catch { throw ClipboardSaveError.metadataCommitFailed }
+                    NotificationCenter.default.post(name: .clipboardCredentialSaved, object: nil)
+                    let secrets = plan.secretNames.count, plain = plan.plainNames.count
+                    finish(.init(success: true, detail: "\(secrets) secret, \(plain) plain, \(plan.skipped.count) skipped"))
+                } catch {
+                    // A half-written credential must not survive as orphan values under this id.
+                    if (error as? ClipboardSaveError) != .metadataCommitFailed {
+                        for field in written { try? service.delete(credentialId: pending.presentation.request.credentialId, fieldName: field) }
+                    }
+                    finish(.init(success: false, errorCode: error as? ClipboardSaveError ?? .storageUnavailable))
                 }
             }
-            let date = ISO8601DateFormatter().string(from: now())
-            metadata.credentials[request.credentialId] = Credential(
-                label: request.label ?? request.credentialId, notes: "", links: [], fields: fields,
-                security: request.security ?? .strict, created: date, updated: date,
-                intent: request.intent?.sanitized().map { intent in
-                    var declared = intent
-                    declared.declaredBy = pending.presentation.callerName
-                    declared.declaredAt = now()
-                    return declared
-                },
-                // Imported over the socket, i.e. by an agent: never handed back to one.
-                injectOnly: true)
-            // Verify before committing metadata; cleanup must never delete values from a
-            // credential whose metadata was already successfully published.
-            for field in plan.fields where field.secret {
-                guard try service.retrieve(credentialId: request.credentialId, fieldName: field.fieldName) == values[field.name] else {
-                    throw ClipboardSaveError.storageUnavailable
-                }
-            }
-            do { try metaStore.save(metadata) } catch { throw ClipboardSaveError.metadataCommitFailed }
-            NotificationCenter.default.post(name: .clipboardCredentialSaved, object: nil)
-            let secrets = plan.secretNames.count, plain = plan.plainNames.count
-            finish(.init(success: true, detail: "\(secrets) secret, \(plain) plain, \(plan.skipped.count) skipped"))
         } catch {
-            // A half-written credential must not survive as orphan values under this id.
-            if (error as? ClipboardSaveError) != .metadataCommitFailed {
-                for field in written { try? service.delete(credentialId: pending.presentation.request.credentialId, fieldName: field) }
-            }
-            finish(.init(success: false, errorCode: error as? ClipboardSaveError ?? .storageUnavailable))
+            finish(.init(success: false, errorCode: .storageUnavailable))
         }
     }
 

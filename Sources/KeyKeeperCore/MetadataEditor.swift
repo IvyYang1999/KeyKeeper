@@ -21,29 +21,31 @@ public struct MetadataEditor {
     }
 
     public func apply(_ edit: MetadataEdit, groupId: String, caller: String? = nil) throws -> MetadataEditResult {
-        let meta = try metaStore.prepareForMutation()
-        guard meta.version == 1 else { throw ClipboardSaveError.storageUnavailable }
-        let result = try MetadataEditPlan.apply(edit, to: meta, groupId: groupId, caller: caller)
-        let oldId = result.previousGroupId
-        let newId = result.groupId
-        let before = meta.credentials[oldId]!
-        let secretFields = before.fields.filter { $0.value.secret }.map(\.key)
-        let movesValues = !secretFields.isEmpty && (oldId != newId || secretFields.contains { result.fieldMap[$0] != nil })
+        return try metaStore.withAccess {
+            let meta = try metaStore.prepareForMutation()
+            guard meta.version == 1 else { throw ClipboardSaveError.storageUnavailable }
+            let result = try MetadataEditPlan.apply(edit, to: meta, groupId: groupId, caller: caller)
+            let oldId = result.previousGroupId
+            let newId = result.groupId
+            let before = meta.credentials[oldId]!
+            let secretFields = before.fields.filter { $0.value.secret }.map(\.key)
+            let movesValues = !secretFields.isEmpty && (oldId != newId || secretFields.contains { result.fieldMap[$0] != nil })
 
-        if movesValues {
-            // Only this credential has to be complete; the rest of the store is not our business.
-            let stored = try session.storedFieldNames(credentialId: oldId)
-            guard Set(secretFields).isSubset(of: stored) else { throw CredentialStorageError.incompleteStore }
-            try session.copyValues(fromCredentialId: oldId, toCredentialId: newId, fieldMap: result.fieldMap)
-        }
-        try metaStore.save(result.meta)
+            if movesValues {
+                // Only this credential has to be complete; the rest of the store is not our business.
+                let stored = try session.storedFieldNames(credentialId: oldId)
+                guard Set(secretFields).isSubset(of: stored) else { throw CredentialStorageError.incompleteStore }
+                try session.copyValues(fromCredentialId: oldId, toCredentialId: newId, fieldMap: result.fieldMap)
+            }
+            try metaStore.save(result.meta)
 
-        // Metadata is committed; what follows only tidies up and must not undo it.
-        try? approvals.moveCredential(from: oldId, to: newId, fieldMap: result.fieldMap)
-        if movesValues {
-            let stale = oldId != newId ? secretFields : secretFields.filter { result.fieldMap[$0] != nil }
-            try? session.dropValues(credentialId: oldId, fieldNames: stale)
+            // Metadata is committed; what follows only tidies up and must not undo it.
+            try? approvals.moveCredential(from: oldId, to: newId, fieldMap: result.fieldMap)
+            if movesValues {
+                let stale = oldId != newId ? secretFields : secretFields.filter { result.fieldMap[$0] != nil }
+                try? session.dropValues(credentialId: oldId, fieldNames: stale)
+            }
+            return result
         }
-        return result
     }
 }

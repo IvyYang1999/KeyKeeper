@@ -59,9 +59,10 @@ final class IPCServer: ObservableObject {
     private var listener: IPCSocketListener?
     private var listenSource: DispatchSourceRead?
     private var listenCancellationSemaphore: DispatchSemaphore?
-    private let queue = DispatchQueue(label: "keykeeper.ipc", qos: .userInitiated)
+    private let queue: DispatchQueue
     private let session: SessionControlling
     private let metaStore: MetaStore
+    private let accessGate: VaultAccessGate?
     private let approvals: ApprovalStore
     private let clipboardSaveController: ClipboardSaveController?
     private let envImportController: EnvImportController?
@@ -136,10 +137,14 @@ final class IPCServer: ObservableObject {
         clipboardSaveController: ClipboardSaveController? = nil,
         envImportController: EnvImportController? = nil,
         browserSessionController: BrowserSessionController? = nil,
-        browserImportProposalStore: BrowserImportProposalStore? = nil
+        browserImportProposalStore: BrowserImportProposalStore? = nil,
+        accessGate: VaultAccessGate? = nil,
+        workerQueue: DispatchQueue? = nil
     ) {
         self.session = session
         self.metaStore = metaStore
+        self.accessGate = accessGate
+        self.queue = workerQueue ?? DispatchQueue(label: "keykeeper.ipc", qos: .userInitiated)
         self.approvals = approvals
         self.clipboardSaveController = clipboardSaveController
         self.envImportController = envImportController
@@ -172,6 +177,7 @@ final class IPCServer: ObservableObject {
         let clientFd: Int32
         let requestedAt: Date
         let metadataFingerprint: Data
+        let vaultEpoch: UInt64?
     }
 
     struct PendingServiceRequest {
@@ -184,6 +190,7 @@ final class IPCServer: ObservableObject {
         let callerIdentity: CallerIdentity
         let requestedAt: Date
         let metadataFingerprint: Data
+        let vaultEpoch: UInt64?
         var summary: PendingServiceRequestSummary {
             PendingServiceRequestSummary(
                 id: id,
@@ -200,9 +207,12 @@ final class IPCServer: ObservableObject {
         }
     }
 
+    private(set) var vaultRecoveryFailed = false
+
     @discardableResult
-    func start() -> StartResult {
-        let path = IPCConstants.socketPath
+    func start(socketPath: String = IPCConstants.socketPath,
+               recoverVault: () throws -> Void = {}) -> StartResult {
+        let path = socketPath
 
         let acquisition: IPCSocketAcquisition
         do {
@@ -215,6 +225,10 @@ final class IPCServer: ObservableObject {
             return .anotherInstanceRunning
         }
 
+        // Only the owner of the endpoint may recover. No accepted request or import
+        // restoration runs while the local transaction is being checked.
+        do { try recoverVault(); vaultRecoveryFailed = false }
+        catch { vaultRecoveryFailed = true }
         self.listener = listener
         let fileDescriptor = listener.fileDescriptor
         let cancellationSemaphore = DispatchSemaphore(value: 0)
@@ -229,7 +243,7 @@ final class IPCServer: ObservableObject {
         source.resume()
         listenSource = source
         listenCancellationSemaphore = cancellationSemaphore
-        restoreBrowserImportProposal()
+        if !vaultRecoveryFailed { restoreBrowserImportProposal() }
         return .started(disposition)
     }
 
@@ -277,52 +291,59 @@ final class IPCServer: ObservableObject {
     /// Approval is issued here, beside metadata admission, rather than by an unchecked UI
     /// callback. A waiting dialog is not evidence that the store is still readable or unchanged.
     func approveAuthRequest(_ pending: PendingAuthRequest, choice: AuthorizationView.DurationChoice) throws {
-        guard isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
-        _ = try Self.checkedCredential(metaStore, id: pending.request.credentialId,
-                                       fingerprint: pending.metadataFingerprint)
-        let request = pending.request
-        let duration = try DurationResolution.issued(choice, sessionId: request.sessionId, identity: request.callerIdentity)
-        let approval = Approval(
-            subject: .init(fingerprint: request.callerIdentity?.subject.fingerprint ?? "",
-                           displayName: request.callerIdentity?.displayName ?? L("Unknown Caller")),
-            target: .credential(id: request.credentialId, fields: nil), duration: duration,
-            onceFieldsRemaining: duration == .once ? request.fieldNames : nil,
-            reason: request.statedReason?.text, command: request.commandSummary)
-        try approvals.add(approval)
-        respond(to: pending, with: .init(granted: true, grantId: approval.id))
+        try withVaultAccess(expectedEpoch: pending.vaultEpoch, requireEpoch: true) {
+            guard isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
+            _ = try Self.checkedCredential(metaStore, id: pending.request.credentialId,
+                                           fingerprint: pending.metadataFingerprint)
+            let request = pending.request
+            let duration = try DurationResolution.issued(choice, sessionId: request.sessionId, identity: request.callerIdentity)
+            let approval = Approval(
+                subject: .init(fingerprint: request.callerIdentity?.subject.fingerprint ?? "",
+                               displayName: request.callerIdentity?.displayName ?? L("Unknown Caller")),
+                target: .credential(id: request.credentialId, fields: nil), duration: duration,
+                onceFieldsRemaining: duration == .once ? request.fieldNames : nil,
+                reason: request.statedReason?.text, command: request.commandSummary)
+            try approvals.add(approval)
+            respond(to: pending, with: .init(granted: true, grantId: approval.id))
+        }
     }
 
     func approveServiceRequest(_ pending: PendingServiceRequest, choice: AuthorizationView.DurationChoice) throws {
-        guard isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
-        _ = try Self.checkedCredential(metaStore, id: pending.credentialId, fingerprint: pending.metadataFingerprint)
-        let duration = try DurationResolution.issued(choice, sessionId: pending.request.sessionId, identity: pending.callerIdentity)
-        let approval = Approval(
-            subject: .init(fingerprint: pending.callerIdentity.subjectFingerprint,
-                           displayName: pending.callerIdentity.displayName),
-            target: .credential(id: pending.credentialId, fields: pending.fieldNames), duration: duration,
-            onceFieldsRemaining: duration == .once ? pending.fieldNames : nil,
-            reason: pending.request.statedReason?.text, command: pending.request.commandSummary)
-        do {
-            try approvals.add(approval)
-            fulfillServiceRequest(pending, approval: approval)
-        } catch ApprovalIssuanceError.unidentifiedCaller {
-            fulfillServiceRequest(pending, approval: nil)
+        try withVaultAccess(expectedEpoch: pending.vaultEpoch, requireEpoch: true) {
+            guard isLive(pending) else { throw ApprovalIssuanceError.requestEnded }
+            _ = try Self.checkedCredential(metaStore, id: pending.credentialId, fingerprint: pending.metadataFingerprint)
+            let duration = try DurationResolution.issued(choice, sessionId: pending.request.sessionId, identity: pending.callerIdentity)
+            let approval = Approval(
+                subject: .init(fingerprint: pending.callerIdentity.subjectFingerprint,
+                               displayName: pending.callerIdentity.displayName),
+                target: .credential(id: pending.credentialId, fields: pending.fieldNames), duration: duration,
+                onceFieldsRemaining: duration == .once ? pending.fieldNames : nil,
+                reason: pending.request.statedReason?.text, command: pending.request.commandSummary)
+            do {
+                try approvals.add(approval)
+                fulfillServiceRequest(pending, approval: approval)
+            } catch ApprovalIssuanceError.unidentifiedCaller {
+                fulfillServiceRequest(pending, approval: nil)
+            }
         }
     }
 
-    func approveStandingRequest(_ request: StandingApprovalRequest, choice: AuthorizationView.DurationChoice) throws {
-        let credential = try Self.checkedCredential(metaStore, id: request.credentialId)
-        let secretFields = Set(credential.fields.filter { $0.value.secret }.keys)
-        guard credential.label == request.credentialLabel, secretFields == Set(request.fieldNames) else {
-            throw AuthorizationMetadataError.changed
+    func approveStandingRequest(_ request: StandingApprovalRequest, choice: AuthorizationView.DurationChoice,
+                                expectedEpoch: UInt64? = nil) throws {
+        try withVaultAccess(expectedEpoch: expectedEpoch, requireEpoch: true) {
+            let credential = try Self.checkedCredential(metaStore, id: request.credentialId)
+            let secretFields = Set(credential.fields.filter { $0.value.secret }.keys)
+            guard credential.label == request.credentialLabel, secretFields == Set(request.fieldNames) else {
+                throw AuthorizationMetadataError.changed
+            }
+            let duration = try DurationResolution.issued(choice, sessionId: nil, identity: request.callerIdentity)
+            try approvals.add(.init(subject: .init(fingerprint: request.callerIdentity.subjectFingerprint,
+                                                   displayName: request.callerIdentity.displayName),
+                target: .credential(id: request.credentialId, fields: nil), duration: duration,
+                onceFieldsRemaining: duration == .once ? request.fieldNames : nil,
+                reason: request.reason, command: request.command))
+            NotificationCenter.default.post(name: .credentialsChanged, object: nil)
         }
-        let duration = try DurationResolution.issued(choice, sessionId: nil, identity: request.callerIdentity)
-        try approvals.add(.init(subject: .init(fingerprint: request.callerIdentity.subjectFingerprint,
-                                               displayName: request.callerIdentity.displayName),
-            target: .credential(id: request.credentialId, fields: nil), duration: duration,
-            onceFieldsRemaining: duration == .once ? request.fieldNames : nil,
-            reason: request.reason, command: request.command))
-        NotificationCenter.default.post(name: .credentialsChanged, object: nil)
     }
 
     nonisolated private static func metadataFingerprint(_ credential: Credential) throws -> Data {
@@ -348,17 +369,33 @@ final class IPCServer: ObservableObject {
         let session = self.session
         let approvals = self.approvals
         let metaStore = self.metaStore
+        let accessGate = self.accessGate
         queue.async {
             do {
-                _ = try Self.checkedCredential(metaStore, id: pending.credentialId,
-                                               fingerprint: pending.metadataFingerprint)
+                let fulfill = {
+                    _ = try Self.checkedCredential(metaStore, id: pending.credentialId,
+                                                   fingerprint: pending.metadataFingerprint)
+                    // The grant may have been revoked or spent after the prompt closed but
+                    // before this worker ran. Only the captured, still-valid grant can pay.
+                    if let approval {
+                        let current = try approvals.valid(credentialId: pending.credentialId,
+                            field: pending.request.fieldName, fingerprint: pending.callerIdentity.subjectFingerprint,
+                            terminalSession: pending.request.sessionId, approvalID: approval.id)
+                        guard current?.id == approval.id else { throw ApprovalIssuanceError.requestEnded }
+                    }
+                    Self.readValueAndRespond(request: pending.request, clientFd: pending.clientFd,
+                                             session: session, matched: approval, approvals: approvals)
+                }
+                if let accessGate {
+                    guard let epoch = pending.vaultEpoch else { throw VaultAccessError.staleEpoch }
+                    try accessGate.withAccess(expectedEpoch: epoch, fulfill)
+                } else {
+                    try fulfill()
+                }
             } catch {
                 Self.writeAndClose(.value(.init(success: false, error: error.localizedDescription,
                     errorCode: .keychainError, storageErrorCode: .readFailed)), clientFd: pending.clientFd)
-                return
             }
-            Self.readValueAndRespond(request: pending.request, clientFd: pending.clientFd,
-                                     session: session, matched: approval, approvals: approvals)
         }
     }
 
@@ -767,9 +804,31 @@ final class IPCServer: ObservableObject {
         return result > 0 || (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
     }
 
+    /// A waiting approval is bound to the complete vault revision, including secret-only changes.
+    func captureVaultEpoch() throws -> UInt64? { try accessGate?.captureEpoch() }
+
+    private func withVaultAccess<T>(expectedEpoch: UInt64? = nil, requireEpoch: Bool = false,
+                                    _ body: () throws -> T) throws -> T {
+        guard let accessGate else { return try body() }
+        guard !requireEpoch || expectedEpoch != nil else { throw VaultAccessError.staleEpoch }
+        return try accessGate.withAccess(expectedEpoch: expectedEpoch, body)
+    }
+
     func handleAuthRequest(_ request: AuthRequest,
-                                   clientFd: Int32,
-                                   callerIdentity: CallerIdentity) {
+                           clientFd: Int32,
+                           callerIdentity: CallerIdentity) {
+        do {
+            try withVaultAccess {
+                try handleAuthRequestAdmitted(request, clientFd: clientFd, callerIdentity: callerIdentity,
+                                              vaultEpoch: captureVaultEpoch())
+            }
+        } catch {
+            send(.auth(.init(granted: false, error: error.localizedDescription)), clientFd: clientFd)
+        }
+    }
+
+    private func handleAuthRequestAdmitted(_ request: AuthRequest, clientFd: Int32,
+                                           callerIdentity: CallerIdentity, vaultEpoch: UInt64?) {
         var enrichedRequest = request
         enrichedRequest.pid = callerIdentity.peerPID
         enrichedRequest.callerIdentity = callerIdentity
@@ -818,7 +877,8 @@ final class IPCServer: ObservableObject {
                 request: enrichedRequest,
                 clientFd: clientFd,
                 requestedAt: now,
-                metadataFingerprint: fingerprint
+                metadataFingerprint: fingerprint,
+                vaultEpoch: vaultEpoch
             )
 
             // Another prompt is on screen: wait for it instead of failing the caller.
@@ -880,6 +940,19 @@ final class IPCServer: ObservableObject {
     func handleValueRequest(_ request: ValueRequest,
                             clientFd: Int32,
                             callerIdentity: CallerIdentity) {
+        do {
+            try withVaultAccess {
+                try handleValueRequestAdmitted(request, clientFd: clientFd, callerIdentity: callerIdentity,
+                                               vaultEpoch: captureVaultEpoch())
+            }
+        } catch {
+            Self.writeAndClose(.value(.init(success: false, error: error.localizedDescription,
+                errorCode: .keychainError, storageErrorCode: .readFailed)), clientFd: clientFd)
+        }
+    }
+
+    private func handleValueRequestAdmitted(_ request: ValueRequest, clientFd: Int32,
+                                            callerIdentity: CallerIdentity, vaultEpoch: UInt64?) {
         // Load credential metadata to check security level. Earlier group IDs and field names
         // resolve to the current ones, which is what grants and values are keyed by.
         let meta: MetaFile
@@ -953,7 +1026,7 @@ final class IPCServer: ObservableObject {
             case .needsApproval:
                 // A request with no stated reason still gets its window; the window says so.
                 enqueueServiceRequest(request, credential: cred, clientFd: clientFd,
-                                      callerIdentity: callerIdentity, id: requestID)
+                                      callerIdentity: callerIdentity, id: requestID, vaultEpoch: vaultEpoch)
             }
         } catch {
             let resp = IPCResponse.value(ValueResponse(
@@ -969,7 +1042,7 @@ final class IPCServer: ObservableObject {
                                        credential: Credential,
                                        clientFd: Int32,
                                        callerIdentity: CallerIdentity,
-                                       id: String) {
+                                       id: String, vaultEpoch: UInt64?) {
         let fingerprint: Data
         do { fingerprint = try Self.metadataFingerprint(credential) }
         catch {
@@ -1001,7 +1074,8 @@ final class IPCServer: ObservableObject {
                 fieldNames: requestedFields,
                 callerIdentity: callerIdentity,
                 requestedAt: now,
-                metadataFingerprint: fingerprint
+                metadataFingerprint: fingerprint,
+                vaultEpoch: vaultEpoch
             )
 
             if self.pendingRequest != nil || self.pendingServiceRequest != nil {

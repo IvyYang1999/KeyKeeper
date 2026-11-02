@@ -18,6 +18,11 @@ enum LaunchMaintenance {
     }
 
     static func run(_ stores: Stores) {
+        // The whole maintenance operation shares the sync gate, including grant migration.
+        try? stores.meta.withAccess { runAdmitted(stores) }
+    }
+
+    private static func runAdmitted(_ stores: Stores) {
         // Admission precedes *all* migration/cleanup. An inaccessible integrity key can be
         // an identity migration in progress; it is never permission to alter the old stores.
         guard let trusted = try? stores.meta.loadForUse() else { return }

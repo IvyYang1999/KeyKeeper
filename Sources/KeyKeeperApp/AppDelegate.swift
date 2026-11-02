@@ -43,8 +43,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             clipboardSaveController: ClipboardSaveController(service: credentialService, approvals: .shared),
             envImportController: EnvImportController(service: credentialService, approvals: .shared),
             browserSessionController: browserSessions.controller,
-            browserImportProposalStore: browserImportProposalStore)
-        switch ipcServer.start() {
+            browserImportProposalStore: browserImportProposalStore,
+            accessGate: .production)
+        switch ipcServer.start(recoverVault: { _ = try LocalVaultCommitCoordinator.production().recover() }) {
         case .started(let disposition):
             if disposition == .replacedStaleSocket {
                 writeToStandardError("KeyKeeper replaced a stale IPC socket")
@@ -60,9 +61,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // After the duplicate check: a second instance is about to quit and must not touch the files.
-        LaunchMaintenance.run(.init(meta: MetaStore.default, inventory: credentialService.inspectValueInventory,
-                                    approvals: .shared, directory: KeyKeeperPaths.applicationSupportDirectory,
-                                    sessionStore: browserSessions.store))
+        if !ipcServer.vaultRecoveryFailed {
+            LaunchMaintenance.run(.init(meta: MetaStore.default, inventory: credentialService.inspectValueInventory,
+                                        approvals: .shared, directory: KeyKeeperPaths.applicationSupportDirectory,
+                                        sessionStore: browserSessions.store))
+        }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
@@ -316,9 +319,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// From the access log: a caller asked, nobody answered in time — approve it now so the next
     /// call goes through. Same window, same answers, no live request waiting behind it.
     private func handleStandingApproval(_ request: StandingApprovalRequest) {
+        let epoch = Result { try ipcServer.captureVaultEpoch() }
         let authorize: (AuthorizationView.DurationChoice) throws -> Void = { [weak self] choice in
             guard let self else { return }
-            try self.ipcServer.approveStandingRequest(request, choice: choice)
+            try self.ipcServer.approveStandingRequest(request, choice: choice, expectedEpoch: epoch.get())
         }
         authWindowController.show(standing: request, review: requestReview(for: .standing(request)), onAuthorize: authorize, onDeny: {})
     }
