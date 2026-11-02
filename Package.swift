@@ -63,6 +63,18 @@ let package = Package(
             name: "VersionGenerator",
             path: "Tools/VersionGenerator"
         ),
+        // Isolated synthetic probes; never bundled into the shipping application.
+        .executableTarget(
+            name: "KeyKeeperIdentityProbe",
+            dependencies: ["KeyKeeperCore"],
+            path: "Tools/KeyKeeperIdentityProbe"
+        ),
+        .executableTarget(
+            name: "KeyKeeperCloudProbe",
+            dependencies: ["KeyKeeperCore"],
+            path: "Tools/KeyKeeperCloudProbe",
+            exclude: ["README.md"]
+        ),
         .plugin(
             name: "GenerateVersionPlugin",
             capability: .buildTool(),
