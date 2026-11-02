@@ -1,6 +1,6 @@
 # dev.keykeeper.app — synthetic migration and sync acceptance
 
-Status: active; production identity and storage are unchanged.
+Status: ACCEPTED for this synthetic-only batch; production identity and storage are unchanged.
 
 ## Frozen scope
 
@@ -85,6 +85,22 @@ production migration/installation claim is allowed from these probe results.
   cancellation is independent of a blocked native effect. Independent review accepted.
 - Complete `swift test --disable-keychain` passed: 932 tests, 18 skipped, zero failures.
   The existing opt-in GUI/WebKit gates were left disabled; this batch changes no UI.
-- Second-Mac propagation remains `waiting_sample`. User confirmed that an Apple Silicon
-  Mac is available and will run the prepared test package. No source state or root key
-  is included in that package. Source/signed probes and synthetic source items remain.
+- Real two-Mac propagation passed. User ran the notarized Apple Silicon test package on
+  the second Mac: signed account status passed; it read the first Mac's exact snapshot
+  digest; it advanced both the fake secret and note. Root then ran a fresh read on the
+  first Mac with the second Mac's expected digest and received the exact revision and
+  digest. No source state or root key was copied into the package. This establishes
+  iCloud Keychain key arrival plus authenticated CloudKit A→B→A transport for the fixture.
+  Local grants are absent from the snapshot/probe schema; production approval UI is
+  explicitly not wired or claimed by this result.
+- The transferred test app was Developer ID signed, Apple-notarized, stapled and
+  Gatekeeper-accepted; packaged files and links matched the accepted source bundle.
+  Source/signed probes and synthetic source items remain available for inspection.
+
+## Closeout limits
+
+The code candidate is `58252a5` on `codex/optional-icloud-sync`; no main merge, public
+release, installed-app replacement or real-vault migration occurred. All code and test
+evidence remains valid; this closeout changes documentation only. The current product
+does not yet expose optional iCloud sync. Apply the production follow-ups above before
+installing a new-identity KeyKeeper or requesting real-data opt-in.
