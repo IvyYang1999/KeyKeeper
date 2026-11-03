@@ -363,13 +363,13 @@ import json,sys
 p=sys.argv[1]; d=json.load(open(p)); d['credentials']['svc']['fields']['region']['value']='attacker'
 json.dump(d,open(p,'w'),indent=2,sort_keys=True)
 PY
-OUT="$("$KK" get svc region 2>&1 || true)"; expect_contains "tampered meta.json refused" "changed outside KeyKeeper" "$OUT"
+OUT="$("$KK" get svc region 2>&1 || true)"; expect_contains "tampered meta.json refused" "The credential metadata could not be verified. Review it in KeyKeeper before making changes." "$OUT"
 expect_not_contains "tampered value not served" "attacker" "$OUT"
 
 echo "==> relaunch: tampered metadata stays refused"
 stop_app; start_app
 OUT="$("$KK" run -c svc -- sh -c 'test "$TOKEN" = synthetic-token-e2e && echo MATCH' 2>&1 || true)"
-expect_contains "relaunch does not bless tampered metadata" "changed outside KeyKeeper" "$OUT"
+expect_contains "relaunch does not bless tampered metadata" "The credential metadata could not be verified. Review it in KeyKeeper before making changes." "$OUT"
 expect_not_contains "tampered relaunch injects no value" "MATCH" "$OUT"
 
 echo "==> quit with cleanup: no Keychain item left behind"

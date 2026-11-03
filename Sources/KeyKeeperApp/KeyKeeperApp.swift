@@ -6,7 +6,9 @@ struct KeyKeeperApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            NativeSettingsRoot(phase: appDelegate.nativeSettingsPhase) {
+                appDelegate.makeNativeSettingsContent()
+            }
         }
         // Only reachable while the main window makes KeyKeeper a regular app.
         .commands {

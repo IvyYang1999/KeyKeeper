@@ -4,7 +4,8 @@ import Combine
 import KeyKeeperCore
 
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    @Published private(set) var nativeSettingsPhase: NativeSettingsPhase = .starting
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var ipcServer: IPCServer!
@@ -39,6 +40,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.startServices()
             }
             startupAdmission = admission
+            // start() can synchronously admit an existing migrated vault. Publish
+            // migration first so it cannot overwrite the resulting ready state.
+            nativeSettingsPhase = .migration(admission)
             admission.start()
             if !admission.admitted { showMigrationWindow() }
         } else {
@@ -226,6 +230,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.showPopover()
             }
         }
+        nativeSettingsPhase = .ready
+    }
+
+    /// The system may open its Settings scene without using our custom menu item.
+    /// Called lazily by NativeSettingsRoot only after service startup succeeds.
+    func makeNativeSettingsContent() -> some View {
+        SettingsView(
+            updateController: updateController,
+            onBack: {},
+            onShowServiceGrants: { [weak self] in self?.showMainWindow(section: .access) },
+            onShowSetup: { [weak self] in
+                UserDefaults.standard.set(false, forKey: "setupComplete")
+                self?.showPopover()
+            }
+        )
+        .environment(\.panelLayout, .embedded)
+        .padding(.top, DS.Spacing.md)
+        .frame(width: 560, height: 640)
     }
 
     /// `keykeeper://` links registered in Info.plist (CFBundleURLTypes).
