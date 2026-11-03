@@ -6,15 +6,22 @@ enum NativeSettingsPhase {
     case ready
 }
 
+@MainActor
+final class NativeSettingsState: ObservableObject {
+    @Published var phase: NativeSettingsPhase
+
+    init(phase: NativeSettingsPhase = .starting) { self.phase = phase }
+}
+
 /// Native Settings is a real entry point, independent of the custom Settings menu.
 struct NativeSettingsRoot<Content: View>: View {
     @AppStorage(AppL10n.preferenceName) private var interfaceLanguage = "system"
-    let phase: NativeSettingsPhase
+    @ObservedObject var state: NativeSettingsState
     @ViewBuilder var makeSettings: () -> Content
 
     var body: some View {
         Group {
-            switch phase {
+            switch state.phase {
             case .starting:
                 VStack(spacing: DS.Spacing.lg) {
                     Text("KeyKeeper").font(.title2.bold())

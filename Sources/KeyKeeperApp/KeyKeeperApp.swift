@@ -6,7 +6,7 @@ struct KeyKeeperApp: App {
 
     var body: some Scene {
         Settings {
-            NativeSettingsRoot(phase: appDelegate.nativeSettingsPhase) {
+            NativeSettingsRoot(state: appDelegate.nativeSettingsState) {
                 appDelegate.makeNativeSettingsContent()
             }
         }

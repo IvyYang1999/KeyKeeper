@@ -4,8 +4,8 @@ import Combine
 import KeyKeeperCore
 
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
-    @Published private(set) var nativeSettingsPhase: NativeSettingsPhase = .starting
+class AppDelegate: NSObject, NSApplicationDelegate {
+    let nativeSettingsState = NativeSettingsState()
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var ipcServer: IPCServer!
@@ -42,7 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             startupAdmission = admission
             // start() can synchronously admit an existing migrated vault. Publish
             // migration first so it cannot overwrite the resulting ready state.
-            nativeSettingsPhase = .migration(admission)
+            nativeSettingsState.phase = .migration(admission)
             admission.start()
             if !admission.admitted { showMigrationWindow() }
         } else {
@@ -116,9 +116,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "key.fill", accessibilityDescription: "KeyKeeper")
-            button.action = #selector(togglePopover)
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            configureStatusButton(button)
         }
 
         mainWindow = MainWindowController { [weak self] in
@@ -230,7 +228,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 self?.showPopover()
             }
         }
-        nativeSettingsPhase = .ready
+        nativeSettingsState.phase = .ready
     }
 
     /// The system may open its Settings scene without using our custom menu item.
@@ -404,6 +402,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     static func shouldShowPopoverOnLaunch(setupComplete: Bool) -> Bool {
         !setupComplete
+    }
+
+    func configureStatusButton(_ button: NSButton) {
+        button.image = NSImage(systemSymbolName: "key.fill", accessibilityDescription: "KeyKeeper")
+        button.target = self
+        button.action = #selector(togglePopover)
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
 
     func showPopover() {
