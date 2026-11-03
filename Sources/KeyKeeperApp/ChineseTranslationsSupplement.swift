@@ -3,6 +3,24 @@
 // collide; `AppL10n.render` consults the main catalog first, then this one.
 extension AppL10n {
     static let chineseSupplement: [String: String] = [
+        "About KeyKeeper": "关于 KeyKeeper",
+        "Services": "服务",
+        "Hide KeyKeeper": "隐藏 KeyKeeper",
+        "Hide Others": "隐藏其他应用",
+        "Show All": "显示全部",
+        "File": "文件",
+        "Close": "关闭",
+        "Undo": "撤销",
+        "Redo": "重做",
+        "Cut": "剪切",
+        "Copy": "拷贝",
+        "Paste": "粘贴",
+        "Select All": "全选",
+        "Window": "窗口",
+        "Minimize": "最小化",
+        "Zoom": "缩放",
+        "Bring All to Front": "前置全部窗口",
+
         "Required": "必填",
         "optional": "可选",
         "Pick one and the fields fill in; you can also type them below.": "选好后自动带出字段；不选也能手动填。",

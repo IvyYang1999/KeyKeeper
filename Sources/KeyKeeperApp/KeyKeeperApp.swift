@@ -1,28 +1,15 @@
-import SwiftUI
+import AppKit
 
+/// AppDelegate already owns every window. A SwiftUI Settings Scene would create
+/// a second, independent settings window beside the console.
 @main
-struct KeyKeeperApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-
-    var body: some Scene {
-        Settings {
-            NativeSettingsRoot(state: appDelegate.nativeSettingsState) {
-                appDelegate.makeNativeSettingsContent()
-            }
-        }
-        // Only reachable while the main window makes KeyKeeper a regular app.
-        .commands {
-            CommandGroup(replacing: .appSettings) {
-                Button(L("Settings…")) { appDelegate.showMainWindow(section: .settings) }
-                    .keyboardShortcut(",", modifiers: .command)
-            }
-            CommandGroup(replacing: .newItem) {
-                Button(L("New key group")) {
-                    MainWindowRouter.shared.isAdding = true
-                    appDelegate.showMainWindow(section: .keys)
-                }
-                .keyboardShortcut("n", modifiers: .command)
-            }
-        }
+struct KeyKeeperApp {
+    @MainActor
+    static func main() {
+        let application = NSApplication.shared
+        let delegate = AppDelegate()
+        application.delegate = delegate
+        // NSApplication.delegate is weak; keep this owner for the entire run loop.
+        withExtendedLifetime(delegate) { application.run() }
     }
 }

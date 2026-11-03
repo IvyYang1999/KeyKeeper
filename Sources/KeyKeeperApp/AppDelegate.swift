@@ -5,7 +5,6 @@ import KeyKeeperCore
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
-    let nativeSettingsState = NativeSettingsState()
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var ipcServer: IPCServer!
@@ -20,10 +19,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var startupAdmission: IdentityStartupAdmission?
     private var migrationWindow: NSWindow?
     private var servicesStarted = false
+    private var applicationMenuLanguage: String?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         signal(SIGPIPE, SIG_IGN)
         installTerminationSignalHandlers()
+        refreshApplicationMenu()
+        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshApplicationMenu() }
+            .store(in: &cancellables)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -40,9 +45,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.startServices()
             }
             startupAdmission = admission
-            // start() can synchronously admit an existing migrated vault. Publish
-            // migration first so it cannot overwrite the resulting ready state.
-            nativeSettingsState.phase = .migration(admission)
             admission.start()
             if !admission.admitted { showMigrationWindow() }
         } else {
@@ -228,24 +230,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.showPopover()
             }
         }
-        nativeSettingsState.phase = .ready
-    }
-
-    /// The system may open its Settings scene without using our custom menu item.
-    /// Called lazily by NativeSettingsRoot only after service startup succeeds.
-    func makeNativeSettingsContent() -> some View {
-        SettingsView(
-            updateController: updateController,
-            onBack: {},
-            onShowServiceGrants: { [weak self] in self?.showMainWindow(section: .access) },
-            onShowSetup: { [weak self] in
-                UserDefaults.standard.set(false, forKey: "setupComplete")
-                self?.showPopover()
-            }
-        )
-        .environment(\.panelLayout, .embedded)
-        .padding(.top, DS.Spacing.md)
-        .frame(width: 560, height: 640)
     }
 
     /// `keykeeper://` links registered in Info.plist (CFBundleURLTypes).
@@ -429,6 +413,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             activatePopover()
         }
+    }
+
+    func makeApplicationMenu() -> NSMenu {
+        AppMenuBuilder.build(target: self, settings: #selector(menuSettings), newKey: #selector(menuNewKey))
+    }
+
+    private func refreshApplicationMenu() {
+        let language = AppL10n.language
+        guard applicationMenuLanguage != language else { return }
+        applicationMenuLanguage = language
+        AppMenuBuilder.install(makeApplicationMenu(), on: NSApp)
+    }
+
+    @objc private func menuNewKey() {
+        MainWindowRouter.shared.isAdding = true
+        showMainWindow(section: .keys)
     }
 
     // MARK: - Status bar menu (right-click)

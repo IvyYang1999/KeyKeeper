@@ -59,9 +59,15 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let makeContent: () -> AnyView
     private let router: MainWindowRouter
+    private let frameAutosaveName: String?
+    private let presentWindow: (NSWindow) -> Void
 
-    init(router: MainWindowRouter = .shared, makeContent: @escaping () -> AnyView) {
+    init(router: MainWindowRouter = .shared, frameAutosaveName: String? = "KeyKeeperMainWindow",
+         presentWindow: @escaping (NSWindow) -> Void = MainWindowController.present,
+         makeContent: @escaping () -> AnyView) {
         self.router = router
+        self.frameAutosaveName = frameAutosaveName
+        self.presentWindow = presentWindow
         self.makeContent = makeContent
     }
 
@@ -69,11 +75,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func show(section: MainWindowRouter.Section? = nil, credentialId: String? = nil) {
         if let section { router.show(section: section, credentialId: credentialId) }
-        if NSApp.activationPolicy() != .regular {
-            NSApp.setActivationPolicy(.regular)
-        }
         let window = self.window ?? makeWindow()
         self.window = window
+        presentWindow(window)
+    }
+
+    private static func present(_ window: NSWindow) {
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -91,12 +99,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.backgroundColor = .clear
         window.minSize = NSSize(width: 820, height: 520)
         window.isReleasedWhenClosed = false
-        window.setFrameAutosaveName("KeyKeeperMainWindow")
+        if let frameAutosaveName { window.setFrameAutosaveName(frameAutosaveName) }
         window.delegate = self
         let hosting = NSHostingView(rootView: makeContent())
         hosting.sizingOptions = []
         window.contentView = hosting
-        if !window.setFrameUsingName("KeyKeeperMainWindow") { window.center() }
+        if let frameAutosaveName, !window.setFrameUsingName(frameAutosaveName) { window.center() }
         return window
     }
 
