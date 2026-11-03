@@ -400,16 +400,11 @@ struct AuthorizationView: View {
 
     /// "Codex", not "com.openai.codex.cli". The identifier is in Details.
     private var callerName: String {
-        let raw = prompt.callerIdentity?.displayName ?? L("Unknown Caller")
-        if let id = prompt.callerIdentity?.bundleIdentifier, let name = CallerAppIcon.friendlyName(for: id) { return name }
-        if let name = CallerAppIcon.friendlyName(for: raw) { return name }
-        // An app KeyKeeper has no name for: what the Finder calls it ("Dark Console"), not its bundle id.
-        if let path = prompt.callerIdentity?.executablePath, let app = appBundlePath(from: path) {
-            let shown = FileManager.default.displayName(atPath: app).replacingOccurrences(of: ".app", with: "")
-            let line = CallerStatedReason.printableLine(shown, limit: 60)
-            if !line.isEmpty { return line }
-        }
-        return TrustPromptModel.sanitizedCaller(raw)
+        callerPresentation?.name() ?? L("Unknown Caller")
+    }
+
+    private var callerPresentation: AuthorizationCallerPresentation? {
+        prompt.callerIdentity.map(AuthorizationCallerPresentation.init)
     }
 
     // MARK: - Bands
@@ -456,19 +451,12 @@ struct AuthorizationView: View {
 
     @ViewBuilder
     private var callerKindIcon: some View {
-        if let caller = prompt.callerIdentity {
-            // The real icon when the Mac has it: a command-line agent (Claude Code, Codex CLI)
-            // shows the desktop app it belongs to. yyt 2026-09-15: "一目了然".
-            if let image = CallerAppIcon.image(for: caller.bundleIdentifier ?? caller.subject.displayName) {
+        if let caller = callerPresentation {
+            if let image = caller.image() {
                 Image(nsImage: image).resizable().cornerRadius(11)
             } else {
-                switch caller.subject.kind {
-                case .app:
-                    if let path = caller.executablePath, let appPath = appBundlePath(from: path) {
-                        Image(nsImage: NSWorkspace.shared.icon(forFile: appPath)).resizable().cornerRadius(11)
-                    } else {
-                        genericIcon("app.fill", .blue)
-                    }
+                switch caller.kind {
+                case .app: genericIcon("app.fill", .blue)
                 case .script: genericIcon("doc.text.fill", .orange)
                 case .executable: genericIcon("terminal.fill", .purple)
                 }
@@ -780,12 +768,6 @@ struct AuthorizationView: View {
         } else {
             handle(false, nil)
         }
-    }
-
-    private func appBundlePath(from executablePath: String) -> String? {
-        let components = URL(fileURLWithPath: executablePath).pathComponents
-        guard let appIndex = components.lastIndex(where: { $0.hasSuffix(".app") }) else { return nil }
-        return NSString.path(withComponents: Array(components[0...appIndex]))
     }
 
     private func processChainText(_ chain: [CallerProcess]) -> String {

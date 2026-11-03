@@ -11,9 +11,13 @@ import KeyKeeperCore
             throw XCTSkip("Opt-in synthetic UI snapshots")
         }
         _ = NSApplication.shared
-        let codex = CallerIdentity(peerPID: 4242, executablePath: "/opt/homebrew/bin/codex", bundleIdentifier: "com.openai.codex.cli",
-            teamIdentifier: "2DC432GLL2", signingIdentifier: "com.openai.codex.cli",
-            subject: .init(kind: .app, fingerprint: "app:2DC432GLL2:com.openai.codex.cli", displayName: "com.openai.codex.cli", detail: "signed"))
+        // The production socket peer is our courier; Codex is the upstream subject.
+        let codex = AuthorizationCallerPresentationTests.courier()
+        let previousIcon = NSApp.applicationIconImage
+        defer { NSApp.applicationIconImage = previousIcon }
+        let iconURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Assets/KeyKeeper.icns")
+        NSApp.applicationIconImage = try XCTUnwrap(NSImage(contentsOf: iconURL))
         let talkative = AuthorizationPrompt.strict(AuthRequest(credentialId: "vercel-deployments", credentialLabel: "vercel-deployments",
             fieldNames: ["token"], sessionId: "s1", sessionLabel: "Terminal", pid: 4242, callerIdentity: codex,
             statedReason: CallerStatedReason.sanitize("发布用户要求的个人主页产品卡片点击埋点；先创建一次 Vercel 预览部署用于验收"),
