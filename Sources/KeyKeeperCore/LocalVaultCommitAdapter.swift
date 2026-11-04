@@ -59,6 +59,15 @@ final class LocalVaultCommitAdapter: LocalVaultCommitStorage {
     /// Remove only the fields owned by the previous metadata. Unreferenced values are
     /// historical recovery material; a new field must not overwrite an orphan by accident.
     private func valuesReplacing(_ before: Decoded, with desired: CloudVaultSnapshot) throws -> KeychainBlobStore.Blob {
+        // A missing marker describes an absence, never permission to erase a known value.
+        // Keep this check here so preparation AND independent journal validation enforce it.
+        // Removing a field or credential explicitly remains a separate operation.
+        for (id, bundle) in desired.credentials {
+            let previous = before.snapshot.credentials[id]?.secrets ?? [:]
+            guard bundle.missingSecretFields.allSatisfy({ previous[$0] == nil }) else {
+                throw LocalVaultCommitError.invalidPlan
+            }
+        }
         var preserved = before.blob.credentials
         for (id, bundle) in before.snapshot.credentials {
             for field in bundle.secrets.keys { preserved[id]?.removeValue(forKey: field) }
@@ -136,18 +145,23 @@ final class LocalVaultCommitAdapter: LocalVaultCommitStorage {
         let blob: KeychainBlobStore.Blob
         if let bytes = image.values { blob = try strictDecode(bytes) }
         else {
-            guard meta.storeInitialized != true else { throw CredentialStorageError.missingStore }
+            // Missing an entire store is not the same as a field missing from a readable
+            // store, even in legacy metadata without an initialization marker.
+            guard meta.storeInitialized != true,
+                  !meta.credentials.values.contains(where: { $0.fields.values.contains(where: \.secret) })
+            else { throw CredentialStorageError.missingStore }
             blob = .init(version: 1, credentials: [:])
         }
         guard blob.version == 1 else { throw LocalVaultCommitError.invalidPlan }
         var bundles: [String: CloudCredentialBundle] = [:]
         for (id, credential) in meta.credentials {
             var secrets: [String: String] = [:]
+            var missing: [String] = []
             for (field, definition) in credential.fields where definition.secret {
-                guard let value = blob.credentials[id]?[field] else { throw LocalVaultCommitError.invalidPlan }
-                secrets[field] = value
+                if let value = blob.credentials[id]?[field] { secrets[field] = value }
+                else { missing.append(field) }
             }
-            bundles[id] = .init(metadata: credential, secrets: secrets)
+            bundles[id] = .init(metadata: credential, secrets: secrets, missingSecretFields: missing.sorted())
         }
         return try Decoded(meta: meta, blob: blob, snapshot: CloudVaultSnapshot(credentials: bundles))
     }

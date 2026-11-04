@@ -3,6 +3,73 @@ import XCTest
 import KeyKeeperTestSupport
 
 final class CloudSyncCoordinatorTests: XCTestCase {
+    func testMissingCountsComeFromExistingCapturesAndRepairWithoutExtraReads() async throws {
+        let h = try SyncHarness()
+        var incomplete = try XCTUnwrap(h.local.value.credentials["fixture"])
+        incomplete.secrets = [:]; incomplete.missingSecretFields = ["token"]
+        try h.local.change(CloudVaultSnapshot(credentials: ["fixture": incomplete]))
+        await h.engine.load()
+        let off = await h.engine.status
+        XCTAssertNil(off.missingCredentialCount)
+        XCTAssertEqual(h.local.reads, 0)
+        await h.engine.enable()
+        let synced = await h.engine.status
+        XCTAssertEqual(synced.phase, .synced)
+        XCTAssertEqual(synced.missingCredentialCount, 1)
+        XCTAssertEqual(synced.missingFieldCount, 1)
+        h.cloud.setRemote(try syncSnapshot("repaired"))
+        await h.engine.syncNow()
+        let repaired = await h.engine.status
+        XCTAssertEqual(repaired.missingFieldCount, 0)
+        XCTAssertEqual(h.local.value.credentials.count, 1)
+        XCTAssertEqual(h.local.value.credentials["fixture"]?.secrets["token"], "synthetic-repaired")
+    }
+
+    func testStorageFailureIsNotNetworkAndDoesNotCreateTransport() async throws {
+        let h = try SyncHarness()
+        h.local.captureFailure = LocalVaultCommitError.invalidPlan
+        await h.engine.enable()
+        let result = await h.engine.status
+        XCTAssertEqual(result.error, .localDataUnavailable)
+        XCTAssertEqual(h.factory.calls, 0)
+        XCTAssertEqual(h.cloud.uploads, 0)
+    }
+
+    func testUnsupportedRemoteVersionHasSpecificErrorAndNoEffects() async throws {
+        let h = try SyncHarness()
+        h.cloud.fetchFailure = CloudVaultError.unsupportedVersion
+        await h.engine.enable()
+        let result = await h.engine.status
+        XCTAssertEqual(result.error, .unsupportedSnapshotVersion)
+        XCTAssertEqual(h.local.applies, 0)
+        XCTAssertEqual(h.cloud.uploads, 0)
+    }
+
+    func testUnsafeMissingChoiceIsDisabledAndCoreRejectsItBeforeEffects() async throws {
+        let h = try SyncHarness()
+        let complete = h.local.value
+        var absent = try XCTUnwrap(complete.credentials["fixture"])
+        absent.secrets = [:]; absent.missingSecretFields = ["token"]
+        absent.metadata.notes = "Different credential context"
+        try h.local.change(CloudVaultSnapshot(credentials: ["fixture": absent]))
+        h.cloud.setRemote(complete)
+        await h.engine.enable()
+        let review = await h.engine.status
+        XCTAssertEqual(review.phase, .conflicts)
+        XCTAssertFalse(try XCTUnwrap(review.conflicts.first).canChooseLocal)
+        XCTAssertTrue(try XCTUnwrap(review.conflicts.first).canChooseRemote)
+        await h.engine.resolve(reviewID: try XCTUnwrap(review.reviewID), choices: ["fixture": .local])
+        XCTAssertEqual(h.local.applies, 0)
+        XCTAssertEqual(h.cloud.uploads, 0)
+        XCTAssertEqual(try h.cloud.remote?.snapshot.encoded(), try complete.encoded())
+        await h.engine.syncNow()
+        let fresh = await h.engine.status
+        await h.engine.resolve(reviewID: try XCTUnwrap(fresh.reviewID), choices: ["fixture": .remote])
+        let synced = await h.engine.status
+        XCTAssertEqual(synced.phase, .synced)
+        XCTAssertEqual(synced.missingFieldCount, 0)
+    }
+
     func testDefaultOffNeverCreatesTransportOrReadsValues() async throws {
         let h = try SyncHarness()
         await h.engine.load(); await h.engine.syncNow()
@@ -665,11 +732,13 @@ private final class SyncLocal: CloudSyncLocalStore, @unchecked Sendable {
     var value: CloudVaultSnapshot
     var reads = 0, applies = 0
     var failApply = false
+    var captureFailure: Error?
     var beforeApply: (() throws -> Void)?
     init(_ value: CloudVaultSnapshot) { self.value = value }
     func capture() throws -> CloudSyncLocalCapture {
         try gate.withAccess {
             reads += 1
+            if let captureFailure { throw captureFailure }
             return try .init(snapshot: value, revision: gate.revision(for: MetaFile(credentials: value.credentials.mapValues(\.metadata))))
         }
     }
@@ -690,6 +759,7 @@ private final class SyncCloud: CloudSyncTransport, @unchecked Sendable {
     var remote: CloudSyncRemote?
     var uploads = 0, fetches = 0, cancels = 0
     var failUpload: CloudSyncError?
+    var fetchFailure: Error?
     var commitThenFail = false
     var invalidated = false
     var beforeUpload: (() -> Void)?
@@ -703,6 +773,7 @@ private final class SyncCloud: CloudSyncTransport, @unchecked Sendable {
     }
     func binding() async throws -> CloudSyncBinding { account }
     func fetch(binding: CloudSyncBinding) async throws -> CloudSyncRemote? {
+        if let fetchFailure { throw fetchFailure }
         fetches += 1; let result = remote
         if let fetchGate, pauseOnFetch == nil || pauseOnFetch == fetches { await fetchGate.pause() }
         afterFetch?(); return result

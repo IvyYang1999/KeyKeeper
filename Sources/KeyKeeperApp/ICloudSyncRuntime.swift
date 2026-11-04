@@ -197,6 +197,8 @@ final class ICloudSyncRuntime: ObservableObject {
         case .accountChanged: issue = .accountChanged
         case .pendingUpload: issue = .pendingUpload
         case .stateUnavailable: issue = .storageUnavailable
+        case .localDataUnavailable: issue = .incompleteVault
+        case .unsupportedSnapshotVersion: issue = .unsupportedSnapshotVersion
         case .localChanged: issue = .stale
         case .setupRequired: issue = .incompleteVault
         case .unavailable, .busy: issue = .networkUnavailable
@@ -205,10 +207,12 @@ final class ICloudSyncRuntime: ObservableObject {
         let review = status.reviewID.map { id in
             ICloudSyncPresentation.ConflictReview(id: id, rows: status.conflicts.map {
                 .init(id: $0.credentialID, label: $0.title,
-                      localExists: !$0.localDeleted, remoteExists: !$0.remoteDeleted)
+                      localExists: !$0.localDeleted, remoteExists: !$0.remoteDeleted,
+                      canChooseLocal: $0.canChooseLocal, canChooseRemote: $0.canChooseRemote)
             })
         }
-        return .init(phase: phase, enabled: status.enabled, lastSuccess: status.lastSuccess, issue: issue, review: review)
+        return .init(phase: phase, enabled: status.enabled, lastSuccess: status.lastSuccess, issue: issue, review: review,
+                     missingCredentialCount: status.missingCredentialCount, missingFieldCount: status.missingFieldCount)
     }
 }
 

@@ -30,10 +30,13 @@ final class LocalVaultAdapterTests: XCTestCase {
         XCTAssertEqual(approvals.writes, 0)
     }
 
-    func testIncompleteAndUnknownLocalDataRefuseInsteadOfBecomingEmpty() throws {
+    func testExplicitMissingFieldsPreserveRecordWhileUnknownLocalDataRefuses() throws {
         let (_, _, values, _, adapter) = try fixture()
         values.blob = Data(#"{"version":1,"credentials":{"fixture":{}}}"#.utf8)
-        XCTAssertThrowsError(try adapter.snapshot())
+        let missing = try adapter.snapshot()
+        XCTAssertEqual(missing.credentials.count, 1)
+        XCTAssertEqual(missing.credentials["fixture"]?.missingSecretFields, ["key"])
+        XCTAssertEqual(missing.credentials["fixture"]?.secrets, [:])
         values.blob = Data(#"{"version":1,"credentials":{"fixture":{"key":"synthetic"}},"future":1}"#.utf8)
         XCTAssertThrowsError(try adapter.snapshot())
         XCTAssertEqual(values.writes, 0)

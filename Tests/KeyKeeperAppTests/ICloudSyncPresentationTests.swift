@@ -7,6 +7,8 @@ final class ICloudSyncPresentationTests: XCTestCase {
         XCTAssertEqual(state.phase, .off)
         XCTAssertFalse(state.enabled)
         XCTAssertNil(state.review)
+        XCTAssertNil(state.missingCredentialCount)
+        XCTAssertNil(state.missingFieldCount)
     }
 
     func testOnlyCompleteCurrentReviewCanApplyAndChangedReviewClearsChoices() {
@@ -34,6 +36,31 @@ final class ICloudSyncPresentationTests: XCTestCase {
             selection.select(.local, for: row.id, review: review)
             XCTAssertNil(selection.action(for: review, currentReviewID: review.id))
         }
+    }
+
+    func testUnavailableChoiceCannotBeSelectedOrSubmittedAfterRestrictionsChange() {
+        let id = UUID()
+        let allowed = ICloudSyncPresentation.ConflictReview(id: id, rows: [
+            .init(id: "synthetic", label: "Synthetic", localExists: true, remoteExists: true)
+        ])
+        let guarded = ICloudSyncPresentation.ConflictReview(id: id, rows: [
+            .init(id: "synthetic", label: "Synthetic", localExists: true, remoteExists: true,
+                  canChooseLocal: false, canChooseRemote: true)
+        ])
+        var selection = ICloudSyncReviewSelection(reviewID: id)
+        selection.select(.local, for: "synthetic", review: guarded)
+        XCTAssertTrue(selection.choices.isEmpty, "Disabled choices cannot enter the selection model")
+        selection.select(.local, for: "synthetic", review: allowed)
+        XCTAssertNotNil(selection.action(for: allowed, currentReviewID: id))
+        XCTAssertNil(selection.action(for: guarded, currentReviewID: id), "A previously valid choice cannot bypass a current restriction")
+        selection.select(.remote, for: "synthetic", review: guarded)
+        XCTAssertEqual(selection.action(for: guarded, currentReviewID: id),
+            .resolve(reviewID: id, choices: ["synthetic": .remote]))
+        let blocked = ICloudSyncPresentation.ConflictReview(id: id, rows: [
+            .init(id: "synthetic", label: "Synthetic", localExists: true, remoteExists: true,
+                  canChooseLocal: false, canChooseRemote: false)
+        ])
+        XCTAssertNil(selection.action(for: blocked, currentReviewID: id))
     }
 
     func testSyncCopyHasChineseAndMatchingPlaceholders() {

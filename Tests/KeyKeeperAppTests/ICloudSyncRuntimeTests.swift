@@ -104,6 +104,40 @@ final class ICloudSyncRuntimeTests: XCTestCase {
         XCTAssertEqual(presentation.review?.rows.first?.remoteExists, false)
     }
 
+    func testLocalDataFailureExplainsVerificationInsteadOfNetworkOrMissingValues() {
+        let state = ICloudSyncRuntime.presentation(.init(phase: .paused, error: .localDataUnavailable))
+        XCTAssertEqual(state.issue, .incompleteVault)
+        XCTAssertEqual(ICloudSyncSettingsCard.issueText(.incompleteVault),
+            L("Credential data could not be verified. Existing data was kept. Restore storage access before retrying."))
+    }
+
+    func testPresentationCarriesMissingCountsAndSafeChoicesWithoutChangingReadyState() {
+        let state = ICloudSyncRuntime.presentation(.init(enabled: true, phase: .synced,
+            conflicts: [.init(credentialID: "synthetic", title: "Synthetic", localDeleted: false,
+                              remoteDeleted: false, canChooseLocal: false, canChooseRemote: true)],
+            reviewID: UUID(), missingCredentialCount: 1, missingFieldCount: 2))
+        XCTAssertEqual(state.phase, .ready)
+        XCTAssertNil(state.issue)
+        XCTAssertEqual(state.missingCredentialCount, 1)
+        XCTAssertEqual(state.missingFieldCount, 2)
+        XCTAssertEqual(state.review?.rows.first?.canChooseLocal, false)
+        XCTAssertEqual(state.review?.rows.first?.canChooseRemote, true)
+        let unchecked = ICloudSyncRuntime.presentation(.init())
+        XCTAssertNil(unchecked.missingCredentialCount)
+        XCTAssertNil(unchecked.missingFieldCount)
+        let repaired = ICloudSyncRuntime.presentation(.init(enabled: true, phase: .synced,
+            missingCredentialCount: 0, missingFieldCount: 0))
+        XCTAssertEqual(repaired.missingCredentialCount, 0)
+        XCTAssertEqual(repaired.missingFieldCount, 0)
+    }
+
+    func testUnsupportedSnapshotAsksForUpgradeInsteadOfNetworkRetry() {
+        let state = ICloudSyncRuntime.presentation(.init(phase: .paused, error: .unsupportedSnapshotVersion))
+        XCTAssertEqual(state.issue, .unsupportedSnapshotVersion)
+        XCTAssertEqual(ICloudSyncSettingsCard.issueText(.unsupportedSnapshotVersion),
+            L("This version of KeyKeeper cannot read the sync data. Update KeyKeeper on this Mac before retrying."))
+    }
+
     private func eventually(file: StaticString = #filePath, line: UInt = #line,
                             _ predicate: () async -> Bool) async {
         let deadline = ContinuousClock.now + .seconds(1)

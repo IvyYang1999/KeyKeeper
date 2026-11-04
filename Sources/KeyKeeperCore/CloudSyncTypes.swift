@@ -2,6 +2,7 @@ import Foundation
 
 public enum CloudSyncError: String, Codable, Error, Sendable, Equatable {
     case unavailable, accountChanged, conflict, pendingUpload, stateUnavailable, localChanged, setupRequired, busy
+    case localDataUnavailable, unsupportedSnapshotVersion
 }
 public enum CloudSyncPhase: String, Codable, Sendable { case off, ready, syncing, synced, conflicts, paused }
 public enum CloudSyncChoice: String, Codable, Sendable { case local, remote }
@@ -81,9 +82,13 @@ public struct CloudSyncConflictRow: Equatable, Sendable, Identifiable {
     public let title: String
     public let localDeleted: Bool
     public let remoteDeleted: Bool
-    public init(credentialID: String, title: String, localDeleted: Bool, remoteDeleted: Bool) {
+    public let canChooseLocal: Bool
+    public let canChooseRemote: Bool
+    public init(credentialID: String, title: String, localDeleted: Bool, remoteDeleted: Bool,
+                canChooseLocal: Bool = true, canChooseRemote: Bool = true) {
         self.credentialID = credentialID; self.title = title
         self.localDeleted = localDeleted; self.remoteDeleted = remoteDeleted
+        self.canChooseLocal = canChooseLocal; self.canChooseRemote = canChooseRemote
     }
 }
 public struct CloudSyncStatus: Equatable, Sendable {
@@ -95,11 +100,15 @@ public struct CloudSyncStatus: Equatable, Sendable {
     public var error: CloudSyncError?
     public var busy: Bool
     public var canRetryPendingUpload: Bool
+    public var missingCredentialCount: Int?
+    public var missingFieldCount: Int?
     public init(enabled: Bool = false, phase: CloudSyncPhase = .off, lastSuccess: Date? = nil,
                 conflicts: [CloudSyncConflictRow] = [], reviewID: UUID? = nil, error: CloudSyncError? = nil,
-                busy: Bool = false, canRetryPendingUpload: Bool = false) {
+                busy: Bool = false, canRetryPendingUpload: Bool = false,
+                missingCredentialCount: Int? = nil, missingFieldCount: Int? = nil) {
         self.enabled = enabled; self.phase = phase; self.lastSuccess = lastSuccess
         self.conflicts = conflicts; self.reviewID = reviewID; self.error = error
         self.busy = busy; self.canRetryPendingUpload = canRetryPendingUpload
+        self.missingCredentialCount = missingCredentialCount; self.missingFieldCount = missingFieldCount
     }
 }

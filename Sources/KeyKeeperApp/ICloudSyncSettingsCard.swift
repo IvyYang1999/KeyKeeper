@@ -33,6 +33,15 @@ struct ICloudSyncSettingsCard: View {
                 Text(L("Last synced: \(lastSuccess.formatted(.dateTime.month(.abbreviated).day().hour().minute().locale(AppL10n.locale)))"))
                     .font(.caption2).foregroundStyle(.secondary)
             }
+            if let records = state.missingCredentialCount, let fields = state.missingFieldCount,
+               records > 0, fields > 0 {
+                VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                    Text(L("At last sync check: \(records) records have \(fields) missing values."))
+                    Text(L("Records are preserved; available values can sync. Missing values do not replace saved values on another Mac."))
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                .accessibilityElement(children: .combine)
+            }
             actions.font(.caption)
             if state.enabled {
                 Text(L("Turning sync off keeps your data on this Mac and in iCloud."))
@@ -96,12 +105,13 @@ struct ICloudSyncSettingsCard: View {
         switch issue {
         case .identityUnavailable: L("This version cannot use iCloud sync. Install a version with iCloud support.")
         case .accountChanged: L("Your iCloud account changed or is unavailable. Sync is paused to keep accounts separate.")
-        case .incompleteVault: L("Some local keys could not be read. Restore access before syncing. Existing data has not been changed.")
+        case .incompleteVault: L("Credential data could not be verified. Existing data was kept. Restore storage access before retrying.")
         case .storageUnavailable: L("Protected storage is unavailable. Existing data has been kept; retry after access is restored.")
         case .networkUnavailable: L("iCloud could not be reached. Your local keys are still available.")
         case .pendingUpload: L("The last upload could not be confirmed. Check its result before trying it again.")
         case .stale: L("A version changed while you were reviewing it. Review the latest versions before continuing.")
         case .unsupportedMigration: L("This Mac has data that cannot be moved automatically yet. Originals remain unchanged.")
+        case .unsupportedSnapshotVersion: L("This version of KeyKeeper cannot read the sync data. Update KeyKeeper on this Mac before retrying.")
         }
     }
 }
@@ -124,6 +134,10 @@ struct ICloudSyncConfirmation: View {
                  ? L("Caller approvals stay on each Mac. Approve callers separately on your other Macs.")
                  : L("Caller approvals do not travel between Macs. Callers will need approval again after this move."))
                 .font(.caption).foregroundStyle(.secondary)
+            if kind == .enable {
+                Text(L("Update KeyKeeper on all your Macs before syncing records with missing values. Older versions cannot read these records."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             HStack {
                 Button(L("Cancel"), role: .cancel) { dismiss() }
                 Spacer(minLength: DS.Spacing.sm)
@@ -175,10 +189,16 @@ struct ICloudSyncConflictSheet: View {
                                 })) {
                                 Text(L("Choose a version…")).tag(Optional<ICloudSyncChoice>.none)
                                 Text(L("Keep this Mac’s version")).tag(Optional(ICloudSyncChoice.local))
+                                    .disabled(!row.canChooseLocal)
                                 Text(L("Use iCloud’s version")).tag(Optional(ICloudSyncChoice.remote))
+                                    .disabled(!row.canChooseRemote)
                             }
                             .labelsHidden().pickerStyle(.menu)
                             .disabled(currentReviewID != review.id)
+                            if !row.canChooseLocal || !row.canChooseRemote {
+                                Text(L("A version with missing values cannot replace available values on the other Mac."))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                         .fixedSize(horizontal: false, vertical: true)
                         .dsCard(padding: DS.Spacing.md)

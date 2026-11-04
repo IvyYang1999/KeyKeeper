@@ -78,7 +78,70 @@ final class ICloudSyncRuntimeIntegrationTests: XCTestCase {
         f.runtime.stopScheduling()
     }
 
-    private func fixture() throws -> RuntimeFixture {
+    func testMixedRecordsSyncCountsAndRemoteRepairPreserveRecordsAndDeviceLocalGrants() async throws {
+        let f = try fixture(withMissingRecord: true)
+        defer { f.runtime.stopScheduling() }
+        let approvals = ApprovalStore(io: f.grants)
+        for id in ["fixture", "missing"] {
+            try approvals.add(.init(subject: .init(fingerprint: "synthetic-caller", displayName: "Synthetic"),
+                target: .credential(id: id, fields: nil), duration: .always))
+        }
+        let beforeValues = f.values.blob, beforeGrants = f.grants.blob
+        await f.runtime.start()
+        XCTAssertNil(f.runtime.state.missingCredentialCount, "Off does not inspect values to populate counts")
+        XCTAssertNil(f.runtime.state.missingFieldCount)
+        XCTAssertEqual(f.values.blob, beforeValues)
+        XCTAssertEqual(f.values.ordinaryReads, 0)
+        XCTAssertEqual(f.cloud.factoryCount, 0)
+
+        f.runtime.perform(.enable)
+        await eventually { f.runtime.state.phase == .ready && f.runtime.state.missingFieldCount == 2 }
+        XCTAssertTrue(f.runtime.state.enabled)
+        XCTAssertEqual(f.runtime.state.missingCredentialCount, 1)
+        XCTAssertNil(f.runtime.state.issue)
+        XCTAssertEqual(f.grants.blob, beforeGrants, "Publishing unchanged local records cannot import or revoke grants")
+        let initial = try XCTUnwrap(f.cloud.remoteSnapshot)
+        XCTAssertEqual(Set(initial.credentials.keys), ["fixture", "missing"])
+        XCTAssertEqual(initial.credentials["missing"]?.missingSecretFields, ["key", "secondary"])
+        XCTAssertEqual(initial.credentials["fixture"]?.secrets["key"], "synthetic-original")
+
+        var records = initial.credentials
+        records["missing"]?.secrets["key"] = "synthetic-repaired-first"
+        records["missing"]?.missingSecretFields = ["secondary"]
+        f.cloud.setRemote(try .init(credentials: records))
+        f.runtime.perform(.syncNow)
+        await eventually { f.runtime.state.phase == .ready && f.runtime.state.missingFieldCount == 1 }
+        XCTAssertEqual(f.runtime.state.missingCredentialCount, 1)
+        XCTAssertTrue(try approvals.hasApprovals(forCredential: "fixture"))
+        XCTAssertFalse(try approvals.hasApprovals(forCredential: "missing"), "A repaired value requires new approval on this Mac")
+        XCTAssertEqual(Set(try f.meta.loadForUse().credentials.keys), ["fixture", "missing"])
+
+        records["missing"]?.secrets["secondary"] = "synthetic-repaired-second"
+        records["missing"]?.missingSecretFields = []
+        f.cloud.setRemote(try .init(credentials: records))
+        f.runtime.perform(.syncNow)
+        await eventually { f.runtime.state.phase == .ready && f.runtime.state.missingFieldCount == 0 }
+        XCTAssertEqual(f.runtime.state.missingCredentialCount, 0)
+        let repaired = try f.local.capture().snapshot
+        XCTAssertEqual(Set(repaired.credentials.keys), ["fixture", "missing"])
+        XCTAssertEqual(repaired.credentials["missing"]?.secrets,
+                       ["key": "synthetic-repaired-first", "secondary": "synthetic-repaired-second"])
+        XCTAssertEqual(try approvals.all().count, 1, "Remote synchronization never creates caller grants")
+
+        f.runtime.stopScheduling()
+        let cloud = f.cloud
+        let reloadedCoordinator = CloudSyncCoordinator(local: f.local, stateStore: f.stateStore,
+                                                       makeTransport: { cloud.constructed(); return cloud })
+        let reloaded = ICloudSyncRuntime(engine: reloadedCoordinator, center: NotificationCenter())
+        defer { reloaded.stopScheduling() }
+        await reloaded.start()
+        await eventually { reloaded.state.phase == .ready && reloaded.state.missingFieldCount == 0 }
+        XCTAssertEqual(reloaded.state.missingCredentialCount, 0)
+        XCTAssertEqual(try f.local.capture().snapshot.encoded(), try repaired.encoded())
+        XCTAssertEqual(try approvals.all().count, 1)
+    }
+
+    private func fixture(withMissingRecord: Bool = false) throws -> RuntimeFixture {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("keykeeper-sync-runtime-test-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
@@ -86,7 +149,14 @@ final class ICloudSyncRuntimeIntegrationTests: XCTestCase {
         let meta = MetaStore(directory: directory, integrityIO: integrity)
         let credential = Credential(label: "Synthetic runtime", notes: "", links: [], fields: ["key": .init(secret: true)],
             security: .strict, created: "2026-11-02", updated: "2026-11-02")
-        try meta.save(.init(storeInitialized: true, credentials: ["fixture": credential]))
+        var records = ["fixture": credential]
+        if withMissingRecord {
+            var missing = credential
+            missing.label = "Synthetic missing values"
+            missing.fields["secondary"] = .init(secret: true)
+            records["missing"] = missing
+        }
+        try meta.save(.init(storeInitialized: true, credentials: records))
         values.blob = try JSONEncoder().encode(KeychainBlobStore.Blob(version: 1, credentials: ["fixture": ["key": "synthetic-original"]]))
         grants.blob = try JSONEncoder().encode(ApprovalDocument())
         let adapter = LocalVaultCommitAdapter(metaStore: meta, valuesIO: values, integrityIO: integrity,

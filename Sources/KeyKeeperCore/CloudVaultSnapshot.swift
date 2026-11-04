@@ -5,10 +5,30 @@ import Foundation
 public struct CloudCredentialBundle: Codable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
     public var metadata: Credential
     public var secrets: [String: String]
+    /// Explicit absence inside an otherwise readable store; never an instruction to erase a value.
+    public var missingSecretFields: [String]
 
-    public init(metadata: Credential, secrets: [String: String]) {
+    public init(metadata: Credential, secrets: [String: String], missingSecretFields: [String] = []) {
         self.metadata = metadata
         self.secrets = secrets
+        self.missingSecretFields = missingSecretFields
+    }
+
+    private enum CodingKeys: String, CodingKey { case metadata, secrets, missingSecretFields }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        metadata = try c.decode(Credential.self, forKey: .metadata)
+        secrets = try c.decode([String: String].self, forKey: .secrets)
+        missingSecretFields = try c.decodeIfPresent([String].self, forKey: .missingSecretFields) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(metadata, forKey: .metadata)
+        try c.encode(secrets, forKey: .secrets)
+        // Preserve exact v1 bytes, including base/pending/transition recovery documents.
+        if !missingSecretFields.isEmpty { try c.encode(missingSecretFields, forKey: .missingSecretFields) }
     }
 
     public var description: String { "CloudCredentialBundle(<redacted>)" }
@@ -34,6 +54,8 @@ public enum CloudVaultError: Error, LocalizedError, Equatable {
 public struct CloudVaultSnapshot: Sendable, CustomStringConvertible, CustomDebugStringConvertible {
     public static let maximumBytes = 512 * 1024
     public private(set) var credentials: [String: CloudCredentialBundle]
+    public var missingCredentialCount: Int { credentials.values.filter { !$0.missingSecretFields.isEmpty }.count }
+    public var missingFieldCount: Int { credentials.values.reduce(0) { $0 + $1.missingSecretFields.count } }
 
     private struct Wire: Codable {
         let version: Int
@@ -58,7 +80,7 @@ public struct CloudVaultSnapshot: Sendable, CustomStringConvertible, CustomDebug
         let wire: Wire
         do { wire = try JSONDecoder().decode(Wire.self, from: data) }
         catch { throw CloudVaultError.invalidSnapshot }
-        guard wire.version == 1 else { throw CloudVaultError.unsupportedVersion }
+        guard wire.version == 1 || wire.version == 2 else { throw CloudVaultError.unsupportedVersion }
         let result = try Self(credentials: wire.credentials)
         // Only our canonical schema is accepted. Unknown fields (including future metadata)
         // must not silently disappear in a decode/re-encode cycle and then be uploaded as loss.
@@ -67,7 +89,7 @@ public struct CloudVaultSnapshot: Sendable, CustomStringConvertible, CustomDebug
     }
 
     private func canonicalData() throws -> Data {
-        try Self.encode(Wire(version: 1, credentials: credentials))
+        try Self.encode(Wire(version: missingFieldCount == 0 ? 1 : 2, credentials: credentials))
     }
 
     static func encode<T: Encodable>(_ value: T) throws -> Data {
@@ -90,7 +112,11 @@ public struct CloudVaultSnapshot: Sendable, CustomStringConvertible, CustomDebug
                 names[name] = id
             }
             let secretFields = Set(bundle.metadata.fields.filter { $0.value.secret }.keys)
-            guard Set(bundle.secrets.keys) == secretFields else { throw CloudVaultError.invalidSnapshot }
+            let missing = Set(bundle.missingSecretFields), present = Set(bundle.secrets.keys)
+            guard bundle.missingSecretFields == missing.sorted(),
+                  missing.isDisjoint(with: present), missing.union(present) == secretFields else {
+                throw CloudVaultError.invalidSnapshot
+            }
             var fieldNames: [String: String] = [:]
             for (name, field) in bundle.metadata.fields {
                 guard !name.isEmpty, name.utf8.count <= 1024,
@@ -138,8 +164,42 @@ public enum CloudVaultMerge {
         let conflicts = try normal?.conflictingIDs ?? divergentIDs(local: local, remote: remote)
         guard Set(choices.keys) == Set(conflicts) else { throw CloudVaultError.conflictingChanges }
         var merged = normal?.merged ?? local.credentials
-        for id in conflicts { merged[id] = choices[id] == .local ? local.credentials[id] : remote.credentials[id] }
+        for id in conflicts {
+            let pair = try completingMissing(local.credentials[id], remote.credentials[id])
+            let chosen = choices[id] == .local ? pair.0 : pair.1
+            guard preservesPresentValues(chosen, against: pair.0),
+                  preservesPresentValues(chosen, against: pair.1) else { throw CloudVaultError.conflictingChanges }
+            merged[id] = chosen
+        }
         return try CloudVaultSnapshot(credentials: merged)
+    }
+
+    /// The UI and resolver share this guard; a missing marker is never an erase action.
+    public static func canChoose(_ choice: CloudSyncChoice, local: CloudCredentialBundle?,
+                                 remote: CloudCredentialBundle?) throws -> Bool {
+        let pair = try completingMissing(local, remote)
+        let selected = choice == .local ? pair.0 : pair.1
+        return preservesPresentValues(selected, against: pair.0) && preservesPresentValues(selected, against: pair.1)
+    }
+
+    private static func preservesPresentValues(_ selected: CloudCredentialBundle?,
+                                              against other: CloudCredentialBundle?) -> Bool {
+        guard let selected, let other else { return true } // Actual group deletion remains explicit.
+        return Set(selected.missingSecretFields).isDisjoint(with: other.secrets.keys)
+    }
+
+    private static func completingMissing(_ local: CloudCredentialBundle?, _ remote: CloudCredentialBundle?)
+        throws -> (CloudCredentialBundle?, CloudCredentialBundle?) {
+        guard var l = local, var r = remote,
+              !l.missingSecretFields.isEmpty || !r.missingSecretFields.isEmpty,
+              try CloudVaultSnapshot.encode(l.metadata) == CloudVaultSnapshot.encode(r.metadata) else { return (local, remote) }
+        // Compare the whole credential contract, including provider/account/plain fields.
+        // Historical base values are deliberately never used to repair current absence.
+        for name in l.missingSecretFields { if let value = r.secrets[name] { l.secrets[name] = value } }
+        for name in r.missingSecretFields { if let value = l.secrets[name] { r.secrets[name] = value } }
+        l.missingSecretFields = l.missingSecretFields.filter { l.secrets[$0] == nil }
+        r.missingSecretFields = r.missingSecretFields.filter { r.secrets[$0] == nil }
+        return (l, r)
     }
 
     public static func divergentIDs(local: CloudVaultSnapshot, remote: CloudVaultSnapshot) throws -> [String] {
@@ -160,14 +220,20 @@ public enum CloudVaultMerge {
         var merged: [String: CloudCredentialBundle] = [:]
         var conflicts: [String] = []
         for id in ids.sorted() {
-            let b = base?.credentials[id], l = local.credentials[id], r = remote.credentials[id]
+            let b = base?.credentials[id]
+            let (l, r) = try completingMissing(local.credentials[id], remote.credentials[id])
             let bd = try b.map(CloudVaultSnapshot.encode)
             let ld = try l.map(CloudVaultSnapshot.encode)
             let rd = try r.map(CloudVaultSnapshot.encode)
-            if ld == rd { merged[id] = l }
-            else if ld == bd { merged[id] = r }
-            else if rd == bd { merged[id] = l }
-            else { conflicts.append(id) }
+            let chosen: CloudCredentialBundle?
+            if ld == rd { chosen = l }
+            else if ld == bd { chosen = r }
+            else if rd == bd { chosen = l }
+            else { conflicts.append(id); continue }
+            guard preservesPresentValues(chosen, against: l), preservesPresentValues(chosen, against: r) else {
+                conflicts.append(id); continue
+            }
+            merged[id] = chosen
         }
         // Independently valid snapshots can introduce an alias collision after merging. Fail
         // before any local/cloud commit rather than change what an existing CLI ID resolves to.

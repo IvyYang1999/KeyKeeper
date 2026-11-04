@@ -39,6 +39,24 @@ final class ICloudSyncSettingsVisualTests: XCTestCase {
                 }
             }
             try render(stack.padding(12), width: width, dark: dark, name: "cards-" + name, output: output, maximumHeight: 1800)
+            let missing = ICloudSyncPresentation(phase: .ready, enabled: true,
+                missingCredentialCount: 48, missingFieldCount: 63)
+            let unknownVersion = ICloudSyncPresentation(phase: .paused, enabled: true, issue: .unsupportedSnapshotVersion)
+            let compatibility = VStack(spacing: 12) {
+                ICloudSyncSettingsCard(state: missing, action: { _ in XCTFail("Rendering must not sync") })
+                ICloudSyncSettingsCard(state: unknownVersion, action: { _ in XCTFail("Rendering must not retry") })
+            }
+            try render(compatibility.padding(12), width: width, dark: dark,
+                       name: "missing-" + name, output: output, maximumHeight: 1000)
+            let guardedReview = ICloudSyncPresentation.ConflictReview(id: UUID(), rows: [
+                .init(id: "synthetic-missing", label: "Synthetic record with unavailable local values",
+                      localExists: true, remoteExists: true, canChooseLocal: false, canChooseRemote: true),
+                .init(id: "synthetic-both", label: "Synthetic records needing value recovery before choosing",
+                      localExists: true, remoteExists: true, canChooseLocal: false, canChooseRemote: false)
+            ])
+            try render(ICloudSyncConflictSheet(review: guardedReview, currentReviewID: guardedReview.id,
+                action: { _ in XCTFail("Unselected or disabled choices cannot submit") }),
+                width: width, dark: dark, name: "guarded-review-" + name, output: output, maximumHeight: 650)
         }
         defaults.setVolatileDomain([AppL10n.preferenceName: "zh-Hans"], forName: UserDefaults.argumentDomain)
         try render(ICloudSyncConfirmation(kind: .enable, action: { _ in XCTFail("Render must not enable") }),
