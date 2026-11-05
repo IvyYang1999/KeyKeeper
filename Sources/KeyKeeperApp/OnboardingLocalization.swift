@@ -31,6 +31,7 @@ extension AppL10n {
         "Agents and scripts use the keykeeper command to reach KeyKeeper.": "Agent 和脚本通过 keykeeper 命令使用 KeyKeeper。",
         "Found at {0}, but it did not answer. Installing again points it at this app.": "在 {0} 找到了它，但它没有响应。重新安装会让它指向这个 App。",
         "It runs, but its version could not be confirmed ({0}). Installing again points it at this app.": "它可以运行，但版本无法确认（{0}）。重新安装会让它指向这个 App。",
+        "It runs and points to this app’s own CLI, but its version could not be confirmed ({0}).": "它可以运行，指向这个 App 内置的命令行工具，但版本无法确认（{0}）。",
         "Reinstall": "重新安装",
         "This build has no bundled CLI (run from the .app in Applications).": "此构建没有内置命令行工具（请从「应用程序」里的 KeyKeeper.app 运行）。",
         "CLI install failed.": "命令行工具安装失败。",

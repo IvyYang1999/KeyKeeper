@@ -23,14 +23,21 @@ final class CLIInstallStateTests: XCTestCase {
         for (installed, app) in [("keykeeper abc", "keykeeper unknown"), ("keykeeper unknown", "keykeeper abc"),
                                  ("keykeeper unknown", "keykeeper unknown")] {
             let state = CLIInstallState.derive(installedVersion: installed, appVersion: app)
-            XCTAssertEqual(state, .unverified(installed: installed), "\(installed) vs \(app)")
+            XCTAssertEqual(state, .unverified(installed: installed, linksToThisApp: false), "\(installed) vs \(app)")
             XCTAssertFalse(state.isCurrent)
             XCTAssertTrue(state.isUsable)
             XCTAssertFalse(state.needsAttention, "Reinstalling cannot fix an unknown app version; no home nag")
         }
-        // 指向本 App 内置 CLI 的软链接就是同一个二进制：版本标签认不出也能确认。
-        XCTAssertEqual(CLIInstallState.derive(installedVersion: "keykeeper unknown", appVersion: "keykeeper unknown",
-                                              linksToThisApp: true), .current(installed: "keykeeper unknown"))
+        // 【验收 R3】指向本 App 内置 CLI 也不能把认不出的版本变绿：仍是「未确认」，另行说明指向本 App，
+        // 不再提供「重新安装」（重装也确认不了版本）。
+        let linked = CLIInstallState.derive(installedVersion: "keykeeper unknown", appVersion: "keykeeper unknown",
+                                            linksToThisApp: true)
+        XCTAssertEqual(linked, .unverified(installed: "keykeeper unknown", linksToThisApp: true))
+        XCTAssertFalse(linked.isCurrent)
+        XCTAssertNil(linked.actionLabel)
+        XCTAssertNotNil(CLIInstallState.unverified(installed: "keykeeper unknown", linksToThisApp: false).actionLabel)
+        XCTAssertEqual(CLIInstallState.derive(installedVersion: "keykeeper abc", appVersion: "keykeeper abc", linksToThisApp: true),
+                       .current(installed: "keykeeper abc"))
     }
 
     func test探测不到二进制时为missing() {
@@ -80,11 +87,16 @@ final class CLIInstallStateTests: XCTestCase {
         let unknown = try binary("unknown", prints: "keykeeper unknown")
         XCTAssertEqual(CLIInstallState.probe(appVersion: "keykeeper abc", paths: [same], bundledCLI: "/elsewhere"), .current(installed: "keykeeper abc"))
         XCTAssertEqual(CLIInstallState.probe(appVersion: "keykeeper abc", paths: [older], bundledCLI: "/elsewhere"), .stale(installed: "keykeeper 000"))
-        XCTAssertEqual(CLIInstallState.probe(appVersion: "keykeeper abc", paths: [unknown], bundledCLI: "/elsewhere"), .unverified(installed: "keykeeper unknown"))
+        XCTAssertEqual(CLIInstallState.probe(appVersion: "keykeeper abc", paths: [unknown], bundledCLI: "/elsewhere"),
+                       .unverified(installed: "keykeeper unknown", linksToThisApp: false))
         let link = root.appendingPathComponent("link").path
         try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: unknown)
         XCTAssertEqual(CLIInstallState.probe(appVersion: "keykeeper unknown", paths: [link], bundledCLI: unknown),
-                       .current(installed: "keykeeper unknown"))
+                       .unverified(installed: "keykeeper unknown", linksToThisApp: true), "Same file, still not a confirmed version")
+        let sameLink = root.appendingPathComponent("same-link").path
+        try FileManager.default.createSymbolicLink(atPath: sameLink, withDestinationPath: same)
+        XCTAssertEqual(CLIInstallState.probe(appVersion: "keykeeper abc", paths: [sameLink], bundledCLI: same),
+                       .current(installed: "keykeeper abc"))
     }
 
     /// 旧的独立 skill 只用来提醒「可能有两份说明同时生效」，不再当作接入成功的证据。

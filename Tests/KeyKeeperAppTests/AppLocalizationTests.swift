@@ -143,6 +143,7 @@ extension AppLocalizationTests {
         let templates: [UILocalizedString] = [
             "Found at \("/usr/local/bin/keykeeper"), but it did not answer. Installing again points it at this app.",
             "It runs, but its version could not be confirmed (\("keykeeper unknown")). Installing again points it at this app.",
+            "It runs and points to this app’s own CLI, but its version could not be confirmed (\("keykeeper unknown")).",
             "\(3) keys saved.",
             "Start a new conversation in \("Codex") and ask for what you need, for example: “Use my OpenAI key from KeyKeeper to run the tests. Don’t show its value.”",
         ]

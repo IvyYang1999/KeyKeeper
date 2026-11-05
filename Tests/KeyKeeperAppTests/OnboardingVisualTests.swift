@@ -17,7 +17,7 @@ final class OnboardingVisualTests: XCTestCase {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let plugins = AgentPluginSetup(root: root)
         let cases: [(String, Int?, CLIInstallState)] = [
-            ("empty-missing", 0, .missing), ("keys-unverified", 12, .unverified(installed: "keykeeper unknown")),
+            ("empty-missing", 0, .missing), ("keys-unverified", 12, .unverified(installed: "keykeeper unknown", linksToThisApp: true)),
             ("unknown-current", nil, .current(installed: "keykeeper ce7a8778a7dd"))
         ]
         for language in ["zh-Hans", "en"] {

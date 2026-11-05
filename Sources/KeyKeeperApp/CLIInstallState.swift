@@ -11,20 +11,22 @@ enum CLIInstallState: Equatable {
     case failed(path: String)
     /// It runs and reports a different, known build than this app.
     case stale(installed: String)
-    /// It runs, but its build cannot be confirmed: a version is unknown on one side and the
-    /// entry is not a link to this app's own CLI.
-    case unverified(installed: String)
-    /// It runs and is this app's build: a link to the bundled CLI, or the same known version.
+    /// It runs, but its build cannot be confirmed because a version is unknown on one side.
+    /// Pointing at this app's own CLI is reported alongside; it does not make the version known.
+    case unverified(installed: String, linksToThisApp: Bool)
+    /// It runs and reports the same known build as this app.
     case current(installed: String)
 
     static let searchPaths = ["/usr/local/bin/keykeeper", "/opt/homebrew/bin/keykeeper"]
 
     /// 【曾经的 bug】"keykeeper unknown" on either side used to count as current, so a build
     /// without version information showed a green check next to "Installed: keykeeper unknown".
+    /// 【验收 R3】a link to this app's CLI also used to turn unknown green; it no longer does.
     static func derive(installedVersion: String?, appVersion: String, linksToThisApp: Bool = false) -> CLIInstallState {
         guard let installedVersion, !installedVersion.isEmpty else { return .missing }
-        if linksToThisApp { return .current(installed: installedVersion) }
-        guard isKnown(installedVersion), isKnown(appVersion) else { return .unverified(installed: installedVersion) }
+        guard isKnown(installedVersion), isKnown(appVersion) else {
+            return .unverified(installed: installedVersion, linksToThisApp: linksToThisApp)
+        }
         return installedVersion == appVersion ? .current(installed: installedVersion) : .stale(installed: installedVersion)
     }
 
@@ -126,8 +128,10 @@ extension CLIInstallState {
             return L("Found at \(path), but it did not answer. Installing again points it at this app.")
         case .stale(let installed):
             return L("The installed CLI (\(installed)) was built from a different version than this app (\(BuildVersion.identifier)). Update it so the two agree.")
-        case .unverified(let installed):
-            return L("It runs, but its version could not be confirmed (\(installed)). Installing again points it at this app.")
+        case .unverified(let installed, let linksToThisApp):
+            return linksToThisApp
+                ? L("It runs and points to this app’s own CLI, but its version could not be confirmed (\(installed)).")
+                : L("It runs, but its version could not be confirmed (\(installed)). Installing again points it at this app.")
         case .current(let installed):
             return installed
         }
@@ -136,7 +140,9 @@ extension CLIInstallState {
     var actionLabel: String? {
         switch self {
         case .missing: return L("Install")
-        case .failed, .unverified: return L("Reinstall")
+        case .failed: return L("Reinstall")
+        // Reinstalling cannot confirm a version when the link already points here.
+        case .unverified(_, let linksToThisApp): return linksToThisApp ? nil : L("Reinstall")
         case .stale: return L("Update")
         case .current: return nil
         }
