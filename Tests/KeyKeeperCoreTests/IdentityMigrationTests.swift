@@ -64,28 +64,51 @@ final class IdentityMigrationTests: XCTestCase {
         XCTAssertFalse(String(reflecting: source).contains("synthetic"))
         XCTAssertFalse(String(data: try XCTUnwrap(destination.files["meta.json"]), encoding: .utf8)!.contains("synthetic-value"))
     }
-    /// 【曾经的 bug】第二台 Mac 只跑过隔离假数据包，首装却显示「移动旧数据」。分流必须按真实来源：
-    /// 什么都没有才算全新安装；有旧数据要报数量；复制会拒绝的来源，预览也必须拒绝，不能当成空库。
-    func testPreviewSeparatesFirstInstallFromLegacyDataAndRefusesWhatCopyWouldRefuse() throws {
-        let empty = IdentityMigrationSource(preferences: Data("{}".utf8))
-        XCTAssertEqual(try empty.preview(), .init(hasLegacyData: false, credentialCount: 0,
-                                                  missingValueCount: 0, browserSessionCount: 0))
-        let languageOnly = IdentityMigrationSource(preferences: Data(#"{"interfaceLanguage":"en"}"#.utf8))
-        XCTAssertFalse(try languageOnly.preview().hasLegacyData, "Preferences alone are not old keys")
+    /// 【验收 R1】确认之前只能看旧文件夹里有没有文件名：文件不可读也照样判断，说明没有打开内容；
+    /// 不存在是全新安装；符号链接、不是目录等异常必须失败，不能当成空。
+    func testPresenceCheckUsesNamesOnlyAndFailsClosed() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-presence-\(UUID())")
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.appendingPathComponent("old").path)
+                try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        XCTAssertFalse(try IdentityMigrationLegacyCapture.legacyFilesExist(directory: root.appendingPathComponent("missing")))
+        let old = root.appendingPathComponent("old")
+        try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
+        XCTAssertFalse(try IdentityMigrationLegacyCapture.legacyFilesExist(directory: old))
+        try Data().write(to: old.appendingPathComponent(".DS_Store"))
+        XCTAssertFalse(try IdentityMigrationLegacyCapture.legacyFilesExist(directory: old), "Finder metadata is not old data")
+        let meta = old.appendingPathComponent("meta.json")
+        try Data("synthetic-unreadable".utf8).write(to: meta)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: meta.path)
+        XCTAssertTrue(try IdentityMigrationLegacyCapture.legacyFilesExist(directory: old), "Presence must not need to open the file")
+        let link = root.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: old)
+        XCTAssertThrowsError(try IdentityMigrationLegacyCapture.legacyFilesExist(directory: link))
+        let file = root.appendingPathComponent("file")
+        try Data().write(to: file)
+        XCTAssertThrowsError(try IdentityMigrationLegacyCapture.legacyFilesExist(directory: file))
+    }
 
-        let source = try fixture(), before = try source.encoded()
-        XCTAssertEqual(try source.preview(), .init(hasLegacyData: true, credentialCount: 1,
-                                                   missingValueCount: 1, browserSessionCount: 0))
-        XCTAssertEqual(try source.encoded(), before, "Preview must not change the source")
-        let auditOnly = IdentityMigrationSource(approvals: source.approvals)
-        XCTAssertTrue(try auditOnly.preview().hasLegacyData, "Old access history is old data even without keys")
-
-        var unsigned = source
-        var meta = try IdentityMigrationCodec.decode(MetaFile.self, from: XCTUnwrap(source.metadata))
-        meta.integrity = nil; unsigned.metadata = try IdentityMigrationCodec.encode(meta); unsigned.integrityKey = nil
-        XCTAssertThrowsError(try unsigned.preview()) { XCTAssertEqual($0 as? IdentityMigrationError, .unsignedMetadata) }
-        var invalid = source; invalid.integrityKey = Data(repeating: 8, count: 32)
-        XCTAssertThrowsError(try invalid.preview()) { XCTAssertEqual($0 as? IdentityMigrationError, .malformed) }
+    /// 【验收 R2】确认的是「准备空库」却读到旧数据，或确认「复制」却读到空来源：一个字节都不写。
+    func testFirstWriteRefusesASourceOfTheOtherKindThanConfirmed() throws {
+        let legacy = try fixture(), empty = IdentityMigrationSource(preferences: Data("{}".utf8))
+        XCTAssertTrue(legacy.hasLegacyData)
+        XCTAssertFalse(empty.hasLegacyData)
+        XCTAssertFalse(IdentityMigrationSource(preferences: Data(#"{"interfaceLanguage":"en"}"#.utf8)).hasLegacyData)
+        XCTAssertTrue(IdentityMigrationSource(approvals: legacy.approvals).hasLegacyData, "Old access history is old data")
+        for (source, expected) in [(legacy, false), (empty, true)] {
+            let destination = Destination()
+            XCTAssertThrowsError(try IdentityMigrationCoordinator(destination: destination)
+                .migrate(source: source, expectedLegacyData: expected)) {
+                XCTAssertEqual($0 as? IdentityMigrationError, .sourceChanged)
+            }
+            XCTAssertEqual(destination.writeCount, 0); XCTAssertNil(destination.journal)
+        }
+        for (source, expected) in [(legacy, true), (empty, false)] {
+            let destination = Destination(), coordinator = IdentityMigrationCoordinator(destination: destination)
+            try coordinator.migrate(source: source, expectedLegacyData: expected)
+            XCTAssertEqual(try coordinator.status(), .ready)
+        }
     }
 
     func testEveryPartialWriteRecoversForwardAndReplayHasNoAdditionalEffects() throws {

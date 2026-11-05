@@ -52,6 +52,25 @@ public enum IdentityMigrationLegacyCapture {
                 browserMarker: marker("browser-store.created"), proposalMarker: marker("browser-import-proposals.created"))
         }
     }
+    /// Before the person confirms anything: does the old KeyKeeper folder hold anything at all?
+    /// File names and the folder's own attributes only. No file is opened and no Keychain item is
+    /// queried, so no secret can be read here. An unexpected folder fails instead of meaning "empty".
+    public static func legacyFilesExist(directory: URL = StorageIdentity.legacy.directory) throws -> Bool {
+        var info = stat()
+        guard lstat(directory.path, &info) == 0 else {
+            if errno == ENOENT { return false }
+            throw IdentityMigrationError.unavailable
+        }
+        guard info.st_mode & S_IFMT == S_IFDIR, info.st_uid == getuid(),
+              directory.standardizedFileURL.path == directory.resolvingSymlinksInPath().path else {
+            throw IdentityMigrationError.unavailable
+        }
+        let names: [String]
+        do { names = try FileManager.default.contentsOfDirectory(atPath: directory.path) }
+        catch { throw IdentityMigrationError.unavailable }
+        return names.contains { $0 != ".DS_Store" }
+    }
+
     /// The caller holds the legacy endpoint lock for this whole operation. A direct legacy
     /// writer still changing any input makes the copy fail rather than activate mixed data.
     public static func stableCapture(read: () throws -> IdentityMigrationSource) throws -> IdentityMigrationSource {

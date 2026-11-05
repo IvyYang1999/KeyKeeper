@@ -141,9 +141,6 @@ extension AppLocalizationTests {
             }
         }
         let templates: [UILocalizedString] = [
-            "Found \(91) keys saved by an earlier version on this Mac. They will be copied into the new protected storage; the originals stay where they are.",
-            "\(48) values were already missing before the copy. They stay marked as missing; copying cannot recover them.",
-            "\(2) website sign-ins are copied too.",
             "Found at \("/usr/local/bin/keykeeper"), but it did not answer. Installing again points it at this app.",
             "It runs, but its version could not be confirmed (\("keykeeper unknown")). Installing again points it at this app.",
             "\(3) keys saved.",

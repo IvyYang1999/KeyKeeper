@@ -5,24 +5,29 @@ import KeyKeeperCore
 /// The only entry into the new vault. No business store is created before admission.
 ///
 /// 2026-11-05: a first install used to be shown as "move your old data", because every
-/// `.required` status shared the migration screen. The old store is now looked at first
-/// (read-only, counts only) so the screen says what is really there: nothing (first install),
-/// old data (copy, originals kept), or a source that could not be read (stop, never an empty store).
+/// `.required` status shared the migration screen. Before the person confirms anything, only the
+/// old folder's file names are looked at (no file contents, no Keychain), so the screen says what
+/// is there: nothing (first install), old data (copy, originals kept), or a folder that could not
+/// be checked (stop, never an empty store). The full, secret-bearing read happens only after the
+/// person confirms, and the write is bound to what they confirmed (main-Mac acceptance R1/R2).
 @MainActor
 final class IdentityStartupAdmission: ObservableObject {
     struct Operations {
         let status: () throws -> IdentityMigrationStatus
         let recover: () throws -> Void
         let applyPreferences: () throws -> Void
-        /// Read-only look at the old store. Returns counts; the source itself is discarded.
-        let preview: () async throws -> IdentityMigrationPreview
-        let migrate: () async throws -> Void
+        /// Names only: does the old KeyKeeper folder hold anything? Never reads contents or Keychain.
+        let legacyFilesExist: () throws -> Bool
+        /// The full old source, values included. Called only from `prepare()`, after confirmation.
+        let readSource: () async throws -> IdentityMigrationSource
+        /// The first write, refused by the coordinator if the source is not the confirmed kind.
+        let migrate: (_ source: IdentityMigrationSource, _ expectedLegacyData: Bool) throws -> Void
     }
 
     enum Stage: Equatable {
         case checking
         case firstInstall
-        case legacyFound(IdentityMigrationPreview)
+        case legacyFound
         case preparing
         case failed(Failure)
     }
@@ -42,6 +47,9 @@ final class IdentityStartupAdmission: ObservableObject {
     }
 
     @Published private(set) var stage: Stage = .checking
+    /// The confirmed screen no longer matched what was read; nothing was written and the person
+    /// is asked again on the screen that matches.
+    @Published private(set) var sourceChangedSinceConfirmation = false
     private(set) var admitted = false
     private var busy = false
     private let operations: Operations
@@ -58,55 +66,61 @@ final class IdentityStartupAdmission: ObservableObject {
             status: { try coordinator.status() },
             recover: { _ = try coordinator.recover() },
             applyPreferences: { try coordinator.applyPreferences() },
-            preview: { try await IdentityMigrationBridge.read(from: helper).preview() },
-            migrate: {
-                let source = try await IdentityMigrationBridge.read(from: helper)
-                _ = try coordinator.migrate(source: source)
+            legacyFilesExist: { try IdentityMigrationLegacyCapture.legacyFilesExist() },
+            readSource: { try await IdentityMigrationBridge.read(from: helper) },
+            migrate: { source, expected in
+                _ = try coordinator.migrate(source: source, expectedLegacyData: expected)
             }), onReady: onReady)
     }
 
-    /// Finishes an interrupted copy or admits a ready store synchronously; otherwise looks at the
-    /// old store in the background. The returned task lets tests wait for that look to finish.
-    @discardableResult
-    func start() -> Task<Void, Never>? {
-        guard !admitted, !busy else { return nil }
+    /// Finishes an interrupted copy or admits a ready store; otherwise shows the screen that
+    /// matches the old folder. Never reads the old source.
+    func start() {
+        guard !admitted, !busy else { return }
         stage = .checking
         do {
-            if try checkpoint() { return nil }
+            if try checkpoint() { return }
         } catch {
             fail(error, during: .storage)
-            return nil
+            return
         }
-        busy = true
-        return Task { await inspectSource() }
+        do {
+            stage = try operations.legacyFilesExist() ? .legacyFound : .firstInstall
+        } catch { fail(error, during: .sourceUnreadable) }
     }
 
     func retry() {
-        if case .failed = stage { start() }
+        if case .failed = stage { sourceChangedSinceConfirmation = false; start() }
     }
 
     /// The person confirmed the screen they saw: set up an empty store, or copy the old data.
     func prepare() async {
         guard !admitted, !busy else { return }
+        let expectLegacy: Bool
         switch stage {
-        case .firstInstall, .legacyFound: break
+        case .firstInstall: expectLegacy = false
+        case .legacyFound: expectLegacy = true
         default: return
         }
-        busy = true; stage = .preparing
+        busy = true; stage = .preparing; sourceChangedSinceConfirmation = false
         defer { busy = false }
         do {
             // A pending journal is already a confirmed source; never read a second source.
-            if try operations.status() == .required { try await operations.migrate() }
+            if try operations.status() == .required {
+                let source: IdentityMigrationSource
+                do { source = try await operations.readSource() } catch {
+                    fail(error, during: .sourceUnreadable); return
+                }
+                guard source.hasLegacyData == expectLegacy else {
+                    // Not what was confirmed: write nothing and ask on the screen that matches.
+                    sourceChangedSinceConfirmation = true
+                    stage = source.hasLegacyData ? .legacyFound : .firstInstall
+                    return
+                }
+                try operations.migrate(source, expectLegacy)
+            }
             if try !checkpoint() { throw IdentityMigrationError.unavailable }
         } catch { fail(error, during: .storage) }
-    }
-
-    private func inspectSource() async {
-        defer { busy = false }
-        do {
-            let preview = try await operations.preview()
-            stage = preview.hasLegacyData ? .legacyFound(preview) : .firstInstall
-        } catch { fail(error, during: .sourceUnreadable) }
     }
 
     /// Returns true once admitted. Only a store that reads back as ready is admitted.
@@ -148,7 +162,13 @@ struct IdentityStartupView: View {
                 Spacer()
                 LanguageMenu(selection: $interfaceLanguage)
             }
-            VStack(alignment: .leading, spacing: DS.Spacing.sm) { content }
+            VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                if admission.sourceChangedSinceConfirmation {
+                    Text(L("The earlier KeyKeeper’s data on this Mac changed after you confirmed. Nothing was written. Check this screen and confirm again."))
+                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
+                content
+            }
                 .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
             HStack {
                 Button(L("Quit KeyKeeper")) { NSApp.terminate(nil) }
@@ -173,17 +193,10 @@ struct IdentityStartupView: View {
             title(L("First, set up this Mac"))
             paragraph(L("KeyKeeper keeps your keys in protected storage on this Mac. Nothing is uploaded."))
             note(L("iCloud sync stays off. You can turn it on later in Settings."))
-        case .legacyFound(let found):
+        case .legacyFound:
             title(L("Copy data from the earlier KeyKeeper"))
-            paragraph(found.credentialCount > 0
-                 ? L("Found \(found.credentialCount) keys saved by an earlier version on this Mac. They will be copied into the new protected storage; the originals stay where they are.")
-                 : L("Found settings and history from an earlier version, but no saved keys. They will be copied into the new protected storage; the originals stay where they are."))
-            if found.missingValueCount > 0 {
-                note(L("\(found.missingValueCount) values were already missing before the copy. They stay marked as missing; copying cannot recover them."))
-            }
-            if found.browserSessionCount > 0 {
-                note(L("\(found.browserSessionCount) website sign-ins are copied too."))
-            }
+            paragraph(L("This Mac has data from an earlier version of KeyKeeper. It will be copied into the new protected storage; the originals stay where they are."))
+            note(L("Values that were already missing stay marked as missing; copying cannot recover them."))
             note(L("Approvals are not copied. Each agent asks you again the first time it uses a key."))
             note(L("iCloud sync stays off. You can turn it on later in Settings."))
         case .failed(let failure):

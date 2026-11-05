@@ -40,13 +40,20 @@ public final class IdentityMigrationCoordinator {
         }
     }
 
+    /// `expectedLegacyData` binds a first write to what the person confirmed: preparing an empty
+    /// store (false) or copying old data (true). A source of the other kind writes nothing.
+    /// A pending journal is already confirmed and is finished by digest, never re-judged.
     @discardableResult
-    public func migrate(source: IdentityMigrationSource, allowUnsignedMetadata: Bool = false) throws -> IdentityMigrationSummary {
+    public func migrate(source: IdentityMigrationSource, allowUnsignedMetadata: Bool = false,
+                        expectedLegacyData: Bool? = nil) throws -> IdentityMigrationSummary {
         try lock.withLock {
             if let prior = try journal() {
                 if prior.prepared == nil { try verifyReady(prior); return prior.summary }
                 guard prior.sourceDigest == Self.digest(try source.encoded()) else { throw IdentityMigrationError.sourceChanged }
                 return try finish(prior)
+            }
+            if let expectedLegacyData, source.hasLegacyData != expectedLegacyData {
+                throw IdentityMigrationError.sourceChanged
             }
             try requireEmpty()
             let prepared = try source.prepared(allowUnsignedMetadata: allowUnsignedMetadata)

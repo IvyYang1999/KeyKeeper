@@ -69,19 +69,18 @@ final class ICloudSyncSettingsVisualTests: XCTestCase {
             name: "review-en-small", output: output, maximumHeight: 600)
         try render(ICloudSyncConflictSheet(review: review, currentReviewID: UUID(), action: { _ in XCTFail("Stale review must not resolve") }),
             width: 600, dark: true, name: "review-stale-wide", output: output, maximumHeight: 600)
-        let fresh = IdentityMigrationPreview(hasLegacyData: false, credentialCount: 0, missingValueCount: 0, browserSessionCount: 0)
-        let legacy = IdentityMigrationPreview(hasLegacyData: true, credentialCount: 91, missingValueCount: 48, browserSessionCount: 2)
-        let startupCases: [(String, Result<IdentityMigrationPreview, IdentityMigrationError>)] = [
-            ("first-install", .success(fresh)), ("legacy", .success(legacy)),
-            ("old-running", .failure(.legacyRunning)), ("unsupported", .failure(.unsignedMetadata))
+        let startupCases: [(String, Result<Bool, IdentityMigrationError>)] = [
+            ("first-install", .success(false)), ("legacy", .success(true)), ("unreadable", .failure(.unavailable))
         ]
         for language in ["zh-Hans", "en"] {
             defaults.setVolatileDomain([AppL10n.preferenceName: language], forName: UserDefaults.argumentDomain)
             for (name, result) in startupCases {
                 let admission = IdentityStartupAdmission(operations: .init(
                     status: { .required }, recover: { XCTFail() }, applyPreferences: { XCTFail() },
-                    preview: { try result.get() }, migrate: { XCTFail() }), onReady: { XCTFail() })
-                await admission.start()?.value
+                    legacyFilesExist: { try result.get() },
+                    readSource: { XCTFail("Rendering must not read the source"); throw IdentityMigrationError.unavailable },
+                    migrate: { _, _ in XCTFail() }), onReady: { XCTFail() })
+                admission.start()
                 try render(IdentityStartupView(admission: admission), width: 460, dark: language == "zh-Hans",
                            name: "startup-\(name)-\(language)", output: output, maximumHeight: 700)
             }
