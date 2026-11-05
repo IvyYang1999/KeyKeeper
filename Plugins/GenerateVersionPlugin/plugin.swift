@@ -40,10 +40,16 @@ struct GenerateVersionPlugin: BuildToolPlugin {
             let location = pointer.dropFirst("gitdir: ".count).trimmingCharacters(in: .whitespacesAndNewlines)
             gitDirectory = URL(fileURLWithPath: location, relativeTo: root).standardizedFileURL
         }
-        var candidates = [gitDirectory.appendingPathComponent("HEAD"), gitDirectory.appendingPathComponent("packed-refs")]
+        // A linked worktree's branch refs and packed-refs live in the shared `commondir`.
+        var directories = [gitDirectory]
+        if let pointer = try? String(contentsOf: gitDirectory.appendingPathComponent("commondir"), encoding: .utf8) {
+            let common = pointer.trimmingCharacters(in: .whitespacesAndNewlines)
+            directories.append(URL(fileURLWithPath: common, relativeTo: gitDirectory.appendingPathComponent("")).standardizedFileURL)
+        }
+        var candidates = [gitDirectory.appendingPathComponent("HEAD")] + directories.map { $0.appendingPathComponent("packed-refs") }
         if let head = try? String(contentsOf: gitDirectory.appendingPathComponent("HEAD"), encoding: .utf8), head.hasPrefix("ref: ") {
             let reference = head.dropFirst("ref: ".count).trimmingCharacters(in: .whitespacesAndNewlines)
-            candidates.append(gitDirectory.appendingPathComponent(reference))
+            candidates += directories.map { $0.appendingPathComponent(reference) }
         }
         inputs += candidates.filter { FileManager.default.fileExists(atPath: $0.path) }.map { Path($0.path) }
         return inputs

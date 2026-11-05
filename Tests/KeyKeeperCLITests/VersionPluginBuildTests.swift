@@ -70,5 +70,23 @@ final class VersionPluginBuildTests: XCTestCase {
             let actual = try run(fixture.appendingPathComponent(".build/debug/probe"), [], override: nil)
             XCTAssertEqual(actual, "keykeeper \(expected)")
         }
+
+        // 【曾经的 bug】A linked worktree (`.git` is a `gitdir:` file) keeps branch refs and
+        // packed-refs in the shared repository; every worktree build used to say "unknown".
+        try FileManager.default.removeItem(at: fixture.appendingPathComponent(".git"))
+        let worktreeGit = fixture.appendingPathComponent("shared.git/worktrees/wt")
+        try write("gitdir: \(worktreeGit.path)\n", to: ".git")
+        try write("ref: refs/heads/wt-branch\n", to: "shared.git/worktrees/wt/HEAD")
+        try write("../..\n", to: "shared.git/worktrees/wt/commondir")
+        try write(String(repeating: "c", count: 40) + "\n", to: "shared.git/refs/heads/wt-branch")
+        _ = try run(URL(fileURLWithPath: "/usr/bin/xcrun"), ["swift", "build", "--disable-keychain", "--product", "probe"], override: nil)
+        XCTAssertEqual(try run(fixture.appendingPathComponent(".build/debug/probe"), [], override: nil),
+                       "keykeeper \(String(repeating: "c", count: 12))")
+        try FileManager.default.removeItem(at: fixture.appendingPathComponent("shared.git/refs/heads/wt-branch"))
+        try write("# pack-refs with: peeled fully-peeled sorted\n\(String(repeating: "d", count: 40)) refs/heads/wt-branch\n",
+                  to: "shared.git/packed-refs")
+        _ = try run(URL(fileURLWithPath: "/usr/bin/xcrun"), ["swift", "build", "--disable-keychain", "--product", "probe"], override: nil)
+        XCTAssertEqual(try run(fixture.appendingPathComponent(".build/debug/probe"), [], override: nil),
+                       "keykeeper \(String(repeating: "d", count: 12))")
     }
 }

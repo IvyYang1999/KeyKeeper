@@ -25,6 +25,14 @@ private func gitDirectory(packageDirectory: URL) -> URL? {
     return URL(fileURLWithPath: location, relativeTo: packageDirectory).standardizedFileURL
 }
 
+/// A linked worktree keeps only HEAD in its own git directory; branch refs and packed-refs live
+/// in the shared repository named by `commondir`. 【曾经的 bug】reading refs only from the worktree
+/// directory made every worktree build `keykeeper unknown`.
+private func commonDirectory(gitDirectory: URL) -> URL? {
+    guard let pointer = readTrimmed(gitDirectory.appendingPathComponent("commondir")) else { return nil }
+    return URL(fileURLWithPath: pointer, relativeTo: gitDirectory.appendingPathComponent("")).standardizedFileURL
+}
+
 private func isCommitIdentifier(_ candidate: String) -> Bool {
     candidate.count >= 7 && candidate.allSatisfy { $0.isHexDigit }
 }
@@ -50,18 +58,20 @@ private func resolveRevision(packageDirectory: URL) -> String {
         return "unknown"
     }
     let reference = String(head.dropFirst("ref: ".count))
-    if let revision = readTrimmed(gitDirectory.appendingPathComponent(reference)),
-       isCommitIdentifier(revision) {
-        return String(revision.prefix(12))
+    let directories = [gitDirectory] + (commonDirectory(gitDirectory: gitDirectory).map { [$0] } ?? [])
+    for directory in directories {
+        if let revision = readTrimmed(directory.appendingPathComponent(reference)),
+           isCommitIdentifier(revision) {
+            return String(revision.prefix(12))
+        }
     }
-
-    guard let packedReferences = readTrimmed(gitDirectory.appendingPathComponent("packed-refs")) else {
-        return "unknown"
-    }
-    for line in packedReferences.split(separator: "\n") {
-        let fields = line.split(separator: " ", maxSplits: 1).map(String.init)
-        if fields.count == 2, fields[1] == reference, isCommitIdentifier(fields[0]) {
-            return String(fields[0].prefix(12))
+    for directory in directories {
+        guard let packedReferences = readTrimmed(directory.appendingPathComponent("packed-refs")) else { continue }
+        for line in packedReferences.split(separator: "\n") {
+            let fields = line.split(separator: " ", maxSplits: 1).map(String.init)
+            if fields.count == 2, fields[1] == reference, isCommitIdentifier(fields[0]) {
+                return String(fields[0].prefix(12))
+            }
         }
     }
     return "unknown"
