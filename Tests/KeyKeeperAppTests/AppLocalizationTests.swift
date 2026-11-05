@@ -126,3 +126,41 @@ extension AppLocalizationTests {
         XCTAssertFalse(rendered.contains("{1}"), "占位符没被替换掉：\(rendered)")
     }
 }
+
+extension AppLocalizationTests {
+    /// 2026-11-05 首装引导：首次启动、欢迎页、命令行状态、插件卡片的每条文案都要有中文，
+    /// 并且占位符一一对应。按文件扫 L("…") 字面量，插值模板逐条列出。
+    func test首装引导文案都有中文() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let pattern = try NSRegularExpression(pattern: #"L\("([^"\\]*)"\)"#)
+        for file in ["SetupView", "IdentityStartupAdmission", "CLIInstallState", "AgentPluginsCard"] {
+            let source = try String(contentsOf: root.appendingPathComponent("Sources/KeyKeeperApp/\(file).swift"), encoding: .utf8)
+            for match in pattern.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
+                let key = (source as NSString).substring(with: match.range(at: 1))
+                XCTAssertNotEqual(AppL10n.render(key, language: "zh-Hans"), key, "\(file): \(key)")
+            }
+        }
+        let templates: [UILocalizedString] = [
+            "Found \(91) keys saved by an earlier version on this Mac. They will be copied into the new protected storage; the originals stay where they are.",
+            "\(48) values were already missing before the copy. They stay marked as missing; copying cannot recover them.",
+            "\(2) website sign-ins are copied too.",
+            "Found at \("/usr/local/bin/keykeeper"), but it did not answer. Installing again points it at this app.",
+            "It runs, but its version could not be confirmed (\("keykeeper unknown")). Installing again points it at this app.",
+            "\(3) keys saved.",
+            "Start a new conversation in \("Codex") and ask for what you need, for example: “Use my OpenAI key from KeyKeeper to run the tests. Don’t show its value.”",
+        ]
+        for template in templates {
+            XCTAssertNotNil(AppL10n.onboardingChinese[template.template], template.template)
+            let chinese = AppL10n.render(template.template, arguments: template.arguments, language: "zh-Hans")
+            for argument in template.arguments { XCTAssertTrue(chinese.contains(argument), chinese) }
+        }
+        for (key, translation) in AppL10n.onboardingChinese {
+            XCTAssertEqual(AppL10n.placeholders(in: key), AppL10n.placeholders(in: translation), key)
+        }
+        for error in [IdentityMigrationError.unavailable, .malformed, .unsignedMetadata, .activeImport,
+                      .sourceChanged, .destinationConflict, .legacyRunning, .identity] {
+            let message = try XCTUnwrap(error.errorDescription)
+            XCTAssertNotEqual(AppL10n.render(message, language: "zh-Hans"), message, message)
+        }
+    }
+}

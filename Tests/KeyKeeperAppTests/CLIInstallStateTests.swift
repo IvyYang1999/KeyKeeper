@@ -17,10 +17,20 @@ final class CLIInstallStateTests: XCTestCase {
         XCTAssertEqual(CLIInstallState.derive(installedVersion: "", appVersion: "keykeeper 1"), .missing)
     }
 
-    func test无git元数据的构建不判stale() {
-        XCTAssertTrue(
-            CLIInstallState.derive(installedVersion: "keykeeper abc", appVersion: "keykeeper unknown").isCurrent
-        )
+    /// 【曾经的 bug】第二台 Mac 欢迎页：绿色勾 + 「Installed: keykeeper unknown.」。
+    /// 版本认不出来就是「未确认」，既不是最新也不是过期。
+    func test曾经的Bug版本未知时是未确认而不是绿勾() {
+        for (installed, app) in [("keykeeper abc", "keykeeper unknown"), ("keykeeper unknown", "keykeeper abc"),
+                                 ("keykeeper unknown", "keykeeper unknown")] {
+            let state = CLIInstallState.derive(installedVersion: installed, appVersion: app)
+            XCTAssertEqual(state, .unverified(installed: installed), "\(installed) vs \(app)")
+            XCTAssertFalse(state.isCurrent)
+            XCTAssertTrue(state.isUsable)
+            XCTAssertFalse(state.needsAttention, "Reinstalling cannot fix an unknown app version; no home nag")
+        }
+        // 指向本 App 内置 CLI 的软链接就是同一个二进制：版本标签认不出也能确认。
+        XCTAssertEqual(CLIInstallState.derive(installedVersion: "keykeeper unknown", appVersion: "keykeeper unknown",
+                                              linksToThisApp: true), .current(installed: "keykeeper unknown"))
     }
 
     func test探测不到二进制时为missing() {
@@ -30,16 +40,64 @@ final class CLIInstallStateTests: XCTestCase {
         )
     }
 
-    func test技能文件两种位置都算已安装() throws {
+    /// 入口存在 ≠ 命令可运行：失败退出、没有输出、悬空软链接、卡住不返回，都是 failed，不是 missing 也不是绿勾。
+    func test入口存在但运行失败时为failed() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cli-probe-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func script(_ name: String, _ body: String) throws -> String {
+            let url = root.appendingPathComponent(name)
+            try Data("#!/bin/sh\n\(body)\n".utf8).write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            return url.path
+        }
+        let failing = try script("failing", "echo keykeeper abc; exit 3")
+        let silent = try script("silent", "exit 0")
+        let hanging = try script("hanging", "sleep 30")
+        let dangling = root.appendingPathComponent("dangling").path
+        try FileManager.default.createSymbolicLink(atPath: dangling, withDestinationPath: root.appendingPathComponent("gone").path)
+        for path in [failing, silent, dangling] {
+            XCTAssertEqual(CLIInstallState.probe(appVersion: "keykeeper abc", paths: [path]), .failed(path: path), path)
+        }
+        let started = Date()
+        XCTAssertEqual(CLIInstallState.probe(appVersion: "keykeeper abc", paths: [hanging], timeout: 0.5), .failed(path: hanging))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "A stuck binary must not freeze the welcome screen")
+    }
+
+    /// 当前／旧版／未知各一遍真实运行；软链接到「本 App 内置 CLI」时，安装来源与实际可执行文件能核对。
+    func test真实运行时按版本与软链接身份判定() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cli-probe-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func binary(_ name: String, prints version: String) throws -> String {
+            let url = root.appendingPathComponent(name)
+            try Data("#!/bin/sh\necho '\(version)'\n".utf8).write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            return url.path
+        }
+        let same = try binary("same", prints: "keykeeper abc")
+        let older = try binary("older", prints: "keykeeper 000")
+        let unknown = try binary("unknown", prints: "keykeeper unknown")
+        XCTAssertEqual(CLIInstallState.probe(appVersion: "keykeeper abc", paths: [same], bundledCLI: "/elsewhere"), .current(installed: "keykeeper abc"))
+        XCTAssertEqual(CLIInstallState.probe(appVersion: "keykeeper abc", paths: [older], bundledCLI: "/elsewhere"), .stale(installed: "keykeeper 000"))
+        XCTAssertEqual(CLIInstallState.probe(appVersion: "keykeeper abc", paths: [unknown], bundledCLI: "/elsewhere"), .unverified(installed: "keykeeper unknown"))
+        let link = root.appendingPathComponent("link").path
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: unknown)
+        XCTAssertEqual(CLIInstallState.probe(appVersion: "keykeeper unknown", paths: [link], bundledCLI: unknown),
+                       .current(installed: "keykeeper unknown"))
+    }
+
+    /// 旧的独立 skill 只用来提醒「可能有两份说明同时生效」，不再当作接入成功的证据。
+    func test旧独立skill只作冲突提醒() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("keykeeper-skill-home-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: home) }
-        XCTAssertFalse(CLIInstallState.skillInstalled(home: home))
+        XCTAssertFalse(CLIInstallState.legacyStandaloneSkillExists(home: home))
 
         let dir = home.appendingPathComponent(".claude/skills/keykeeper", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try Data("---\n".utf8).write(to: dir.appendingPathComponent("SKILL.md"))
-        XCTAssertTrue(CLIInstallState.skillInstalled(home: home))
+        XCTAssertTrue(CLIInstallState.legacyStandaloneSkillExists(home: home))
     }
 }
 

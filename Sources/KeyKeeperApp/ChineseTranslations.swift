@@ -327,7 +327,7 @@ extension AppL10n {
         "No terminal session": "无终端会话",
         "Available when KeyKeeper runs from the .app in Applications.": "从“应用程序”中的 KeyKeeper.app 运行时可用。",
         "Command line": "命令行",
-        "Show setup again": "重新打开设置向导",
+        "Show setup again": "重新打开首次使用引导",
         "Updates": "更新",
         "Download updates in the background": "在后台下载更新",
         "Check for Updates…": "检查更新…",

@@ -51,7 +51,19 @@ struct MainView: View {
     var body: some View {
         Group {
             if !setupComplete {
-                SetupView(setupComplete: $setupComplete)
+                SetupView(
+                    setupComplete: $setupComplete,
+                    keyCount: viewModel.loadFailure == nil && viewModel.hasLoaded ? viewModel.credentials.count : nil,
+                    onAddKey: {
+                        // Starting the first key is the end of the guide; an unsaved draft is kept.
+                        setupComplete = true
+                        if !addVM.hasDraft { addVM.reset() }
+                        page = .add
+                    },
+                    onOpenSettings: { openMainWindow(.settings, nil) },
+                    onOpenAccess: { openMainWindow(.access, nil) }
+                )
+                .onAppear { viewModel.load() }
             } else {
                 switch page {
                 case .home:
@@ -156,7 +168,7 @@ struct MainView: View {
                 changeNotice(change)
             }
 
-            if !cliState.isCurrent {
+            if cliState.needsAttention {
                 cliNotice
             }
 
@@ -191,20 +203,27 @@ struct MainView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "terminal.fill").font(.system(size: 18)).foregroundColor(.orange)
             VStack(alignment: .leading, spacing: 2) {
-                Text(cliState.isUsable ? L("The keykeeper command is from an older version")
-                                       : L("The keykeeper command is not installed"))
+                Text(cliNoticeTitle)
                     .font(.callout.weight(.semibold)).lineLimit(1)
                 Text(L("Agents use it to reach KeyKeeper. Installing it once now also keeps it current after every update."))
                     .font(.caption).foregroundColor(.secondary).lineLimit(3)
             }
             Spacer(minLength: 4)
-            Button(L("Install")) {
-                cliError = CLIInstaller.installWithAdminPrivileges()
+            Button(cliState.actionLabel ?? L("Install")) {
+                cliError = CLIInstaller.installWithAdminPrivileges().map { AppL10n.text($0) }
                 cliState = CLIInstallState.probe(appVersion: BuildVersion.identifier)
             }
         }
         .padding(12)
         .surface(.card, radius: 14)
+    }
+
+    private var cliNoticeTitle: String {
+        switch cliState {
+        case .stale: return L("The keykeeper command is from an older version")
+        case .missing: return L("The keykeeper command is not installed")
+        default: return cliState.title
+        }
     }
 
     /// No prompt when an agent renames or re-describes a key; it is said here instead.

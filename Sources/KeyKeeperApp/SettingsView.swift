@@ -292,16 +292,16 @@ extension SettingsView {
             SectionLabel(text: L("Command line"))
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(cliTitle).font(.callout)
-                    Text(cliDetail)
+                    Text(cliState.title).font(.callout)
+                    Text(cliState.detail)
                         .font(.caption2)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
-                if let action = cliActionLabel {
+                if let action = cliState.actionLabel {
                     Button(action) {
-                        cliError = CLIInstaller.installWithAdminPrivileges()
+                        cliError = CLIInstaller.installWithAdminPrivileges().map { AppL10n.text($0) }
                         cliState = CLIInstallState.probe(appVersion: BuildVersion.identifier)
                     }
                     .font(.caption)
@@ -333,30 +333,6 @@ extension SettingsView {
             .foregroundColor(.accentColor)
         }
         .dsCard(padding: DS.Spacing.md)
-    }
-
-    private var cliTitle: String {
-        switch cliState {
-        case .missing: return L("CLI not installed")
-        case .stale: return L("CLI is out of date")
-        case .current: return L("CLI up to date")
-        }
-    }
-
-    private var cliDetail: String {
-        switch cliState {
-        case .missing: return L("Scripts and AI tools need `keykeeper` on the PATH.")
-        case .stale(let installed): return L("\(installed) vs app \(BuildVersion.identifier)")
-        case .current(let installed): return installed
-        }
-    }
-
-    private var cliActionLabel: String? {
-        switch cliState {
-        case .missing: return L("Install")
-        case .stale: return L("Update")
-        case .current: return nil
-        }
     }
 
     // MARK: - Data

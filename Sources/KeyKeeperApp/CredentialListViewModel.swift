@@ -12,6 +12,8 @@ class CredentialListViewModel: ObservableObject {
     /// Set when meta.json exists but cannot be read. Distinct from "no credentials yet":
     /// a secrets manager must never tell the user their data is gone when a file is merely unreadable.
     @Published private(set) var loadFailure: LoadFailure?
+    /// True after at least one successful read: before that, zero rows means "not known yet".
+    @Published private(set) var hasLoaded = false
     /// meta.json no longer carries KeyKeeper's signature: something else wrote it, so which fields
     /// are secret and what the plain values say are unproven.
     ///
@@ -70,6 +72,7 @@ class CredentialListViewModel: ObservableObject {
             let (meta, verdict) = try store.loadVerified()
             credentials = Self.sorted(meta.credentials.map { (id: $0.key, credential: $0.value) })
             loadFailure = nil
+            hasLoaded = true
             metadataTampered = verdict == .tampered
             if !metadataTampered { checkValues() }
         } catch {
