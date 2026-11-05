@@ -7,7 +7,7 @@ import KeyKeeperCore
 /// Background snapshots of production views; no window, cloud service or real data.
 @MainActor
 final class ICloudSyncSettingsVisualTests: XCTestCase {
-    func testSyntheticSettingsAndReviewOffscreen() throws {
+    func testSyntheticSettingsAndReviewOffscreen() async throws {
         guard let output = ProcessInfo.processInfo.environment["KEYKEEPER_ICLOUD_PREVIEW"] else {
             throw XCTSkip("Opt-in synthetic iCloud settings render; no native window")
         }
@@ -69,15 +69,22 @@ final class ICloudSyncSettingsVisualTests: XCTestCase {
             name: "review-en-small", output: output, maximumHeight: 600)
         try render(ICloudSyncConflictSheet(review: review, currentReviewID: UUID(), action: { _ in XCTFail("Stale review must not resolve") }),
             width: 600, dark: true, name: "review-stale-wide", output: output, maximumHeight: 600)
-        defaults.setVolatileDomain([AppL10n.preferenceName: "zh-Hans"], forName: UserDefaults.argumentDomain)
-        let startupCases: [(String, IdentityMigrationError?)] = [("required", nil), ("old-running", .legacyRunning)]
-        for (name, error) in startupCases {
-            let admission = IdentityStartupAdmission(operations: .init(
-                status: { if let error { throw error }; return .required }, recover: { XCTFail() },
-                applyPreferences: { XCTFail() }, migrate: { XCTFail() }), onReady: { XCTFail() })
-            admission.start()
-            try render(IdentityStartupView(admission: admission), width: 460, dark: true,
-                       name: "startup-" + name, output: output, maximumHeight: 700)
+        let fresh = IdentityMigrationPreview(hasLegacyData: false, credentialCount: 0, missingValueCount: 0, browserSessionCount: 0)
+        let legacy = IdentityMigrationPreview(hasLegacyData: true, credentialCount: 91, missingValueCount: 48, browserSessionCount: 2)
+        let startupCases: [(String, Result<IdentityMigrationPreview, IdentityMigrationError>)] = [
+            ("first-install", .success(fresh)), ("legacy", .success(legacy)),
+            ("old-running", .failure(.legacyRunning)), ("unsupported", .failure(.unsignedMetadata))
+        ]
+        for language in ["zh-Hans", "en"] {
+            defaults.setVolatileDomain([AppL10n.preferenceName: language], forName: UserDefaults.argumentDomain)
+            for (name, result) in startupCases {
+                let admission = IdentityStartupAdmission(operations: .init(
+                    status: { .required }, recover: { XCTFail() }, applyPreferences: { XCTFail() },
+                    preview: { try result.get() }, migrate: { XCTFail() }), onReady: { XCTFail() })
+                await admission.start()?.value
+                try render(IdentityStartupView(admission: admission), width: 460, dark: language == "zh-Hans",
+                           name: "startup-\(name)-\(language)", output: output, maximumHeight: 700)
+            }
         }
     }
 

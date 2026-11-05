@@ -64,6 +64,30 @@ final class IdentityMigrationTests: XCTestCase {
         XCTAssertFalse(String(reflecting: source).contains("synthetic"))
         XCTAssertFalse(String(data: try XCTUnwrap(destination.files["meta.json"]), encoding: .utf8)!.contains("synthetic-value"))
     }
+    /// 【曾经的 bug】第二台 Mac 只跑过隔离假数据包，首装却显示「移动旧数据」。分流必须按真实来源：
+    /// 什么都没有才算全新安装；有旧数据要报数量；复制会拒绝的来源，预览也必须拒绝，不能当成空库。
+    func testPreviewSeparatesFirstInstallFromLegacyDataAndRefusesWhatCopyWouldRefuse() throws {
+        let empty = IdentityMigrationSource(preferences: Data("{}".utf8))
+        XCTAssertEqual(try empty.preview(), .init(hasLegacyData: false, credentialCount: 0,
+                                                  missingValueCount: 0, browserSessionCount: 0))
+        let languageOnly = IdentityMigrationSource(preferences: Data(#"{"interfaceLanguage":"en"}"#.utf8))
+        XCTAssertFalse(try languageOnly.preview().hasLegacyData, "Preferences alone are not old keys")
+
+        let source = try fixture(), before = try source.encoded()
+        XCTAssertEqual(try source.preview(), .init(hasLegacyData: true, credentialCount: 1,
+                                                   missingValueCount: 1, browserSessionCount: 0))
+        XCTAssertEqual(try source.encoded(), before, "Preview must not change the source")
+        let auditOnly = IdentityMigrationSource(approvals: source.approvals)
+        XCTAssertTrue(try auditOnly.preview().hasLegacyData, "Old access history is old data even without keys")
+
+        var unsigned = source
+        var meta = try IdentityMigrationCodec.decode(MetaFile.self, from: XCTUnwrap(source.metadata))
+        meta.integrity = nil; unsigned.metadata = try IdentityMigrationCodec.encode(meta); unsigned.integrityKey = nil
+        XCTAssertThrowsError(try unsigned.preview()) { XCTAssertEqual($0 as? IdentityMigrationError, .unsignedMetadata) }
+        var invalid = source; invalid.integrityKey = Data(repeating: 8, count: 32)
+        XCTAssertThrowsError(try invalid.preview()) { XCTAssertEqual($0 as? IdentityMigrationError, .malformed) }
+    }
+
     func testEveryPartialWriteRecoversForwardAndReplayHasNoAdditionalEffects() throws {
         let source = try fixture(), complete = Destination()
         try IdentityMigrationCoordinator(destination: complete).migrate(source: source)

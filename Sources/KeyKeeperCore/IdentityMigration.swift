@@ -50,6 +50,18 @@ public struct IdentityMigrationSource: Codable, Sendable, CustomStringConvertibl
         return try IdentityMigrationCodec.decode(Self.self, from: data)
     }
 
+    /// What a read-only look at the old store found. Nothing is written; the caller discards the
+    /// source afterwards. Validation is the same as the real copy, so a source the copy would
+    /// refuse fails here too instead of being presented as an empty new install.
+    public func preview() throws -> IdentityMigrationPreview {
+        let summary = try prepared(allowUnsignedMetadata: false).summary
+        // Preferences are always captured (possibly as `{}`) and are not old keys or records.
+        let hasLegacyData = metadata != nil || values != nil || integrityKey != nil || approvals != nil
+            || browserSessions != nil || proposals != nil || metadataHistory != nil || browserMarker || proposalMarker
+        return .init(hasLegacyData: hasLegacyData, credentialCount: summary.credentialCount,
+                     missingValueCount: summary.missingValueCount, browserSessionCount: summary.browserSessionCount)
+    }
+
     func prepared(allowUnsignedMetadata: Bool) throws -> IdentityMigrationPrepared {
         guard version == 1, try encoded().count <= Self.maximumBytes else { throw IdentityMigrationError.malformed }
         var meta: MetaFile
@@ -148,6 +160,19 @@ public struct IdentityMigrationSummary: Codable, Sendable, Equatable {
     public var missingValueCount: Int
     public var browserSessionCount: Int
     public var transferredGrants: Int { 0 }
+}
+
+/// Counts only; never values, names or IDs.
+public struct IdentityMigrationPreview: Sendable, Equatable {
+    /// False means nothing from an older KeyKeeper exists here: this is a first install.
+    public var hasLegacyData: Bool
+    public var credentialCount: Int
+    public var missingValueCount: Int
+    public var browserSessionCount: Int
+    public init(hasLegacyData: Bool, credentialCount: Int, missingValueCount: Int, browserSessionCount: Int) {
+        self.hasLegacyData = hasLegacyData; self.credentialCount = credentialCount
+        self.missingValueCount = missingValueCount; self.browserSessionCount = browserSessionCount
+    }
 }
 
 public enum IdentityMigrationStatus: Sendable, Equatable { case required, pending, ready }
