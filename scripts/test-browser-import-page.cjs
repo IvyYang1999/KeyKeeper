@@ -8,18 +8,21 @@ async function main(){
   try {
     const code=source.split('<script>')[1].split('</script>')[0];
     function setup(hash='#'+'a'.repeat(64)){
-      const elements=Object.fromEntries(['paste','cancel','result'].map(id=>[id,{disabled:false,value:'',textContent:'',events:{},addEventListener(n,f){this.events[n]=f}}]));
+      const elements=Object.fromEntries(['paste','cancel','result','flow'].map(id=>[id,{disabled:false,value:'',textContent:'',dataset:{step:'paste'},events:{},addEventListener(n,f){this.events[n]=f}}]));
       const posts=[],timers=[];
       vm.runInNewContext(code,{document:{getElementById:id=>elements[id]},location:{hash},history:{replaceState(){}},TextEncoder,
         setTimeout:f=>{timers.push(f);return timers.length},clearTimeout(){},addEventListener(){},fetch:async(u,o={})=>{posts.push({u,o});return {json:async()=>u==='/status'?({state:'committed'}):({state:'pasteReceived'})}}});
       return {elements,posts,timers};
     }
     const paste=(h,value)=>h.elements.paste.events.paste({preventDefault(){},clipboardData:{getData:()=>value}});
-    let h=setup();assert.equal(h.posts.length,0);await paste(h,'synthetic-key');
+    // The three steps the page shows: paste → confirm on the Mac → saved.
+    let h=setup();assert.equal(h.posts.length,0);assert.equal(h.elements.flow.dataset.step,'paste');await paste(h,'synthetic-key');
     assert.equal(h.posts.length,1);assert.equal(h.posts[0].u,'/import');assert.equal(h.posts[0].o.body,'synthetic-key');assert.equal(h.elements.paste.value,'');
+    assert.equal(h.elements.flow.dataset.step,'confirm');
     await h.timers.at(-1)();assert.equal(h.posts.at(-1).u,'/status');assert.equal(h.elements.paste.disabled,true);
+    assert.equal(h.elements.flow.dataset.step,'done');assert.equal(h.elements.cancel.disabled,true);
     assert(!h.elements.result.textContent.includes('synthetic-key'));await paste(h,'synthetic-duplicate');assert.equal(h.posts.length,2);
-    for(const value of ['', ' '.repeat(3), 'x'.repeat(65537)]){h=setup();await paste(h,value);assert.equal(h.posts.length,0);assert.equal(h.elements.paste.disabled,false);}
+    for(const value of ['', ' '.repeat(3), 'x'.repeat(65537)]){h=setup();await paste(h,value);assert.equal(h.posts.length,0);assert.equal(h.elements.paste.disabled,false);assert.equal(h.elements.flow.dataset.step,'paste');}
     for(const terminal of ['cancel','expire','invalid']){
       h=setup(terminal==='invalid'?'#invalid':undefined);
       if(terminal==='cancel')await h.elements.cancel.events.click();
@@ -27,6 +30,7 @@ async function main(){
       await paste(h,'synthetic-late');
       assert.equal(h.posts.filter(p=>p.u==='/import').length,0);
       assert.equal(h.elements.paste.disabled,true);
+      assert.equal(h.elements.flow.dataset.step,'stopped',terminal);
     }
   } finally {clearTimeout(watchdog);}
 }
