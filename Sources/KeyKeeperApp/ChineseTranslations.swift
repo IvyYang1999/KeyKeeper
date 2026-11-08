@@ -123,6 +123,7 @@ extension AppL10n {
         "Stop window": "停止窗口",
         "Copy command for agents": "复制给 Agent 的命令",
         "More": "更多",
+        "Preview the prompt": "预览提示词",
         "Remove snapshot…": "删除快照…",
         "Stopping or removing a snapshot does not log out Chrome or revoke the website's server-side session.": "停止窗口或删除快照，不会退出 Chrome 登录，也不会作废网站服务器的会话。",
         "KeyKeeper — Website session": "KeyKeeper — 网站登录态",

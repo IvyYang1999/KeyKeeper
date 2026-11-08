@@ -185,6 +185,7 @@ struct CredentialDetailView: View {
 
                 // What you stored comes first, then what your agent gets.
                 keysCard
+                noteSection
                 agentHandoff
 
                 // Who is approved: terminal sessions and background callers in one list
@@ -387,6 +388,16 @@ struct CredentialDetailView: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
+
+            // When it stops working sits with the keys; the provider's general policy is the hover text.
+            if let expiry = ExpiryPresentation.line(vm.credential.expires) {
+                Label(expiry, systemImage: "calendar")
+                    .font(.callout)
+                    .foregroundColor(ExpiryPresentation.badge(vm.credential.expires)?.isExpired == true ? .red : .secondary)
+                    .help(ProviderExpiryPolicyLine.text(providerId: vm.credential.provider) ?? "")
+            } else {
+                ProviderExpiryPolicyLine(providerId: vm.credential.provider)
+            }
         }
         .padding(layout == .embedded ? 14 : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -524,51 +535,38 @@ struct CredentialDetailView: View {
 
     /// The one thing most people do with a stored key: tell their agent to use it. The note
     /// (the "visible to AI" description) travels inside the prompt, so it lives here too.
+    /// The note for the agent: the person's own words, so a section of its own.
+    private var noteSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(text: L("Note for your agent"), hint: L("added to the end of the prompt"))
+            if vm.credential.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(L("No note yet. Add what it is for, its limits or which environment to use; it goes into the prompt."))
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(L("Add a note\u{2026}")) { vm.beginEditing() }
+                    .buttonStyle(.plain)
+                    .font(.callout)
+                    .foregroundColor(.accentColor)
+            } else {
+                Text(NoteText.attributed(vm.credential.notes))
+                    .font(.callout)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(layout == .embedded ? 14 : 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(EmbeddedCard(layout: layout))
+    }
+
+    /// One button, then the rest folded: the full prompt, running it by hand, the group ID.
+    ///
+    /// 【曾经的 bug】2026-11-08 yyt：详情页中间看起来乱——这一张卡里塞了整段提示词、服务商有效期说明、
+    /// 最后可用日、备注、复制按钮、终端用法和组 ID。到期挪进密钥卡，备注单独一块，提示词收进「预览」。
     private var agentHandoff: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel(text: L("Hand it to your agent"), hint: L("names only, never the value"))
-
-            Text(AgentPromptCopy.prompt(credentialId: credentialId, credential: vm.credential, includeNote: false))
-                .font(.callout)
-                .foregroundColor(.secondary)
-                .lineLimit(layout == .embedded ? 5 : 3)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-
-            VStack(alignment: .leading, spacing: 4) {
-                ProviderExpiryPolicyLine(providerId: vm.credential.provider)
-                if let expiry = ExpiryPresentation.line(vm.credential.expires) {
-                    Label(expiry, systemImage: "calendar")
-                        .font(.callout)
-                        .foregroundColor(ExpiryPresentation.badge(vm.credential.expires)?.isExpired == true ? .red : .secondary)
-                }
-                HStack(spacing: 6) {
-                    Text(L("Note for your agent"))
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.secondary)
-                    Text(L("added to the end of the prompt"))
-                        .font(.caption2)
-                        .foregroundColor(.secondary.opacity(0.7))
-                }
-                if vm.credential.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(L("No note yet. Add what it is for, its limits or which environment to use; it goes into the prompt."))
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button(L("Add a note\u{2026}")) { vm.isEditing = true }
-                        .buttonStyle(.plain)
-                        .font(.callout)
-                        .foregroundColor(.accentColor)
-                } else {
-                    Text(NoteText.attributed(vm.credential.notes))
-                        .font(.callout)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .surface(.inset, radius: DS.Radius.sm)
 
             Button {
                 PlainPasteboard.copy(AgentPromptCopy.prompt(credentialId: credentialId, credential: vm.credential))
@@ -580,6 +578,17 @@ struct CredentialDetailView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(layout == .embedded ? .large : .regular)
+
+            DisclosureGroup(L("Preview the prompt")) {
+                Text(AgentPromptCopy.prompt(credentialId: credentialId, credential: vm.credential))
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .padding(.top, 6)
+            }
+            .font(.caption)
+            .foregroundColor(.secondary)
 
             // The agent types this, not you; it stays folded for the rare manual run.
             DisclosureGroup(L("Run it yourself in a terminal")) {
