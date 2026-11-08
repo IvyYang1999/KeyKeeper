@@ -137,6 +137,75 @@ import KeyKeeperTestSupport
         }
     }
 
+    /// The narrowest main window (820 points, the window's minimum) and a wide one, with long names.
+    func test最窄主窗口与长名字() throws {
+        guard let output = ProcessInfo.processInfo.environment["KEYKEEPER_PANEL_PREVIEW"] else {
+            throw XCTSkip("Opt-in synthetic narrow window render")
+        }
+        _ = NSApplication.shared
+        let directory = URL(fileURLWithPath: output).appendingPathComponent("fixture-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MetaStore(directory: directory, integrityIO: FakeKeychainIO())
+        let session = KeychainCredentialService(store: KeychainBlobStore(io: FakeKeychainIO()))
+        let approvals = ApprovalStore.inMemory()
+        var long = Credential(label: "Stripe 生产环境主账号（只读报表任务）", notes: "", links: [],
+                              fields: ["restricted-reporting-secret-key": .init(secret: true),
+                                       "account-id": .init(value: "acct_synthetic_0000000000", secret: false)],
+                              security: .strict, created: "2026-10-01", updated: "2026-11-06", provider: "stripe")
+        long.expires = "2026-11-15"
+        try store.save(MetaFile(credentials: ["stripe-reporting-production": long]))
+        try session.save(credentialId: "stripe-reporting-production", fieldName: "restricted-reporting-secret-key",
+                         value: "rk_live_synthetic_0000_9Zq4", security: .strict)
+        let defaults = UserDefaults.standard
+        let original = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        defer { defaults.setVolatileDomain(original, forName: UserDefaults.argumentDomain) }
+        for (language, dark) in [("zh-Hans", false), ("en", true)] {
+            defaults.setVolatileDomain([AppL10n.preferenceName: language, "setupComplete": true], forName: UserDefaults.argumentDomain)
+            for width in [820.0, 1000] {
+                let router = MainWindowRouter()
+                router.selectedCredentialId = "stripe-reporting-production"
+                let window = MainWindowView(router: router, updateController: UpdateController(driver: PreviewUpdateDriver()),
+                    session: session, browserSessions: nil, importFile: nil, onShowSetup: {},
+                    listModel: CredentialListViewModel(session: session, store: store), metaStore: store, approvals: approvals)
+                try render(window, name: "narrow-\(Int(width))-\(language)-\(dark ? "dark" : "light")", size: NSSize(width: width, height: 700),
+                           dark: dark, language: language, layout: .embedded, output: output)
+            }
+        }
+    }
+
+    /// The website sessions page with a few synthetic sessions, offscreen.
+    func test网站会话列表() throws {
+        guard let output = ProcessInfo.processInfo.environment["KEYKEEPER_PANEL_PREVIEW"] else {
+            throw XCTSkip("Opt-in synthetic sessions render")
+        }
+        _ = NSApplication.shared
+        let directory = URL(fileURLWithPath: output).appendingPathComponent("fixture-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let setup = BrowserExtensionSetup(extensionFolder: directory, launcher: directory.appendingPathComponent("host"),
+            manifestURL: directory.appendingPathComponent("registration.json"), expectedExtensionID: String(repeating: "a", count: 32))
+        try Data("synthetic fixture, not executable".utf8).write(to: setup.launcher!)
+        let store = BrowserSessionStore(io: FakeKeychainIO(), marker: PreviewSessionMarker())
+        for (origin, label) in [("https://dashboard.synthetic-shop.example", "合成商店后台"), ("https://console.example.com", "Example Console"),
+                                ("https://analytics.example.org", "分析看板（只读）")] {
+            try store.save(.init(id: UUID().uuidString, origin: origin, label: label, cookies: [
+                .init(name: "fixture", value: "synthetic", domain: URL(string: origin)!.host!, hostOnly: true,
+                      path: "/", secure: true, httpOnly: true, sameSite: "lax", expirationDate: nil)
+            ]))
+        }
+        let controller = BrowserSessionController(store: store, runtime: PreviewSessionRuntime(),
+            present: { _, reply in reply(false) }, dismiss: {}, approvals: .inMemory())
+        let defaults = UserDefaults.standard
+        let original = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        defer { defaults.setVolatileDomain(original, forName: UserDefaults.argumentDomain) }
+        for (language, dark) in [("zh-Hans", false), ("en", true)] {
+            defaults.setVolatileDomain([AppL10n.preferenceName: language], forName: UserDefaults.argumentDomain)
+            try render(BrowserSessionManagerView(controller: controller, setup: setup), name: "sessions-\(language)-\(dark ? "dark" : "light")",
+                       size: NSSize(width: 900, height: 640), dark: dark, language: language, layout: .embedded, output: output)
+        }
+    }
+
     private func render<V: View>(_ page: V, name: String, size: NSSize, dark: Bool, language: String,
                                  layout: PanelLayout, output: String) throws {
         let root = page
@@ -160,4 +229,18 @@ import KeyKeeperTestSupport
             .write(to: URL(fileURLWithPath: output).appendingPathComponent("\(name).png"))
         window.close()
     }
+}
+
+private final class PreviewSessionMarker: BrowserSessionMarker, @unchecked Sendable {
+    var exists = false
+    func wasCreated() throws -> Bool { exists }
+    func markCreated() throws { exists = true }
+}
+
+@MainActor private final class PreviewSessionRuntime: BrowserSessionRuntime {
+    func setReauthorizationHandler(_ handler: @escaping (String, @escaping (Bool) -> Void) -> Void) {}
+    var activeIDs: [String] = []
+    func open(_ snapshot: BrowserSessionImport, bringToFront: Bool, completion: @escaping (Bool) -> Void) { completion(false) }
+    func stop(id: String) {}
+    func stopAll() {}
 }

@@ -101,21 +101,50 @@ struct CredentialDetailView: View {
     ///
     /// 【曾经的 bug】2026-11-07 yyt 盘点：标题区同时放了大号名字、等宽的组 ID、复制按钮、保护级别和服务商
     /// 下拉框，信息太多；服务商和组 ID 是「设置这把 key」的事，平时不用看。
+    ///
+    /// 【曾经的 bug】2026-11-08 渲染发现：主窗口最窄（820 点）、名字又长时，服务商那一行被挤成一列一两个字，
+    /// 「每次询问」压成空色块。放不下时名字和「编辑」一行，服务商、标签和控制台链接排到下面、用整行宽度。
     private var embeddedHeader: some View {
-        HStack(alignment: .center, spacing: 14) {
-            KeyAvatar(credential: vm.credential, size: 46)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(vm.credential.label).font(.system(size: 23, weight: .bold)).lineLimit(2)
-                HStack(spacing: 8) {
-                    ProviderPickerButton(selection: providerSelection, plain: true)
-                    ProviderConsoleLink(providerID: vm.credential.provider, purpose: .manage)
-                    // Only the exception is marked, as in the list.
-                    if vm.credential.security == .strict { SecurityBadge(level: .strict) }
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 14) {
+                KeyAvatar(credential: vm.credential, size: 46)
+                VStack(alignment: .leading, spacing: 4) {
+                    headerTitle
+                    HStack(spacing: 8) { providerPicker; consoleLink; strictBadge }.fixedSize()
+                }
+                Spacer(minLength: 12)
+                editButton
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .center, spacing: 12) {
+                    KeyAvatar(credential: vm.credential, size: 40)
+                    headerTitle.frame(maxWidth: .infinity, alignment: .leading)
+                    editButton
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) { providerPicker; strictBadge }.fixedSize()
+                    consoleLink.fixedSize()
                 }
             }
-            Spacer(minLength: 12)
-            editButton
         }
+    }
+
+    /// Wraps onto a second line before it is cut; its ideal width is capped so a long name alone
+    /// does not push the provider line under it.
+    private var headerTitle: some View {
+        Text(vm.credential.label).font(.system(size: 23, weight: .bold)).lineLimit(2)
+            .frame(minWidth: 0, idealWidth: 220, alignment: .leading)
+    }
+
+    private var providerPicker: some View { ProviderPickerButton(selection: providerSelection, plain: true) }
+
+    private var consoleLink: some View {
+        ProviderConsoleLink(providerID: vm.credential.provider, purpose: .manage).layoutProbe("detail.header.link")
+    }
+
+    /// Only the exception is marked, as in the list.
+    @ViewBuilder private var strictBadge: some View {
+        if vm.credential.security == .strict { SecurityBadge(level: .strict).fixedSize().layoutProbe("detail.header.badge") }
     }
 
     private var viewer: some View {
@@ -398,78 +427,98 @@ struct CredentialDetailView: View {
         }
     }
 
+    /// One line when there is room for the name column and a readable value; otherwise the
+    /// name on top and the value under it.
+    ///
+    /// 【曾经的 bug】2026-11-08 渲染发现：主窗口拖到最窄（820 点）时，字段名固定占 190 点，值一个字都不剩。
     private func fieldRow(index: Int, field: FieldEntry) -> some View {
-        HStack(spacing: 8) {
-            FieldNameLabel(field: field, credential: vm.credential)
-                .frame(width: layout == .embedded ? 190 : 110, alignment: .leading)
-
-            Text(field.isSecret
-                 ? (field.visible && !field.value.isEmpty
-                    ? field.value
-                    : (valueAvailability.missingFields.contains(field.name) ? L("Value missing") : ValueHintText.masked(valueHints[field.name])))
-                 : (field.value.isEmpty ? L("(empty)") : field.value))
-                .font(.callout.monospaced())
-                .foregroundColor(field.isSecret && !field.visible ? .secondary : .primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            if field.isSecret {
-                Button(action: { vm.toggleFieldVisibility(at: index) }) {
-                    Image(systemName: field.visible ? "eye.slash" : "eye")
-                        .foregroundColor(.secondary)
-                        .frame(width: 18)
-                }
-                .buttonStyle(.plain)
-                .help(field.visible ? L("Hide") : L("Show"))
-            } else if let caller = field.setByCaller {
-                // 【独立审计 2026-09-14】written over the socket by a caller, not yet seen by the
-                // person: `run` leaves it out until this button is clicked (or the value is saved here).
-                Button(action: { vm.confirmPlainField(field.name) }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                        Text(L("Confirm"))
-                    }
-                    .font(.caption)
-                }
-                .buttonStyle(.bordered)
-                .tint(.orange)
-                .help(L("Written by \(TrustPromptModel.sanitizedCaller(caller)) over the command line. Not injected by `run` until you confirm it."))
-            } else {
-                Image(systemName: "doc.plaintext")
-                    .foregroundColor(.secondary)
-                    .frame(width: 18)
-                    .help(L("Plain \u{00B7} readable by anything on this Mac"))
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                FieldNameLabel(field: field, credential: vm.credential)
+                    .frame(width: layout == .embedded ? 190 : 110, alignment: .leading)
+                fieldValue(field).frame(minWidth: 0, idealWidth: 120, maxWidth: .infinity, alignment: .leading)
+                fieldButtons(index: index, field: field)
             }
+            VStack(alignment: .leading, spacing: 4) {
+                FieldNameLabel(field: field, credential: vm.credential)
+                HStack(spacing: 8) {
+                    fieldValue(field).frame(maxWidth: .infinity, alignment: .leading)
+                    fieldButtons(index: index, field: field)
+                }
+            }
+        }
+    }
 
-            Button(action: {
-                guard field.isSecret else {
-                    // Plain values are not secrets: copy them straight, and don't wipe the
-                    // clipboard from under someone pasting an account id somewhere else.
-                    PlainPasteboard.copy(field.value)
-                    copiedFieldIndex = index
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        if copiedFieldIndex == index { copiedFieldIndex = nil }
-                    }
-                    return
-                }
-                if let value = vm.copyFieldValue(field.name) {
-                    let changeCount = SecretPasteboard.write(value)
-                    SecretPasteboard.scheduleClear(after: changeCount)
-                    copiedFieldIndex = index
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        if copiedFieldIndex == index { copiedFieldIndex = nil }
-                    }
-                }
-            }) {
-                Image(systemName: copiedFieldIndex == index ? "checkmark" : "doc.on.doc")
-                    .foregroundColor(copiedFieldIndex == index ? .green : .secondary)
+    private func fieldValue(_ field: FieldEntry) -> some View {
+        Text(field.isSecret
+             ? (field.visible && !field.value.isEmpty
+                ? field.value
+                : (valueAvailability.missingFields.contains(field.name) ? L("Value missing") : ValueHintText.masked(valueHints[field.name])))
+             : (field.value.isEmpty ? L("(empty)") : field.value))
+            .font(.callout.monospaced())
+            .foregroundColor(field.isSecret && !field.visible ? .secondary : .primary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .textSelection(.enabled)
+            .layoutProbe("detail.value")
+    }
+
+    @ViewBuilder
+    private func fieldButtons(index: Int, field: FieldEntry) -> some View {
+        if field.isSecret {
+            Button(action: { vm.toggleFieldVisibility(at: index) }) {
+                Image(systemName: field.visible ? "eye.slash" : "eye")
+                    .foregroundColor(.secondary)
                     .frame(width: 18)
             }
             .buttonStyle(.plain)
-            .help(L("Copy value (clipboard is cleared after \(Int(SecretPasteboard.clearDelay)) s)"))
+            .help(field.visible ? L("Hide") : L("Show"))
+        } else if let caller = field.setByCaller {
+            // 【独立审计 2026-09-14】written over the socket by a caller, not yet seen by the
+            // person: `run` leaves it out until this button is clicked (or the value is saved here).
+            Button(action: { vm.confirmPlainField(field.name) }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(L("Confirm"))
+                }
+                .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .tint(.orange)
+            .help(L("Written by \(TrustPromptModel.sanitizedCaller(caller)) over the command line. Not injected by `run` until you confirm it."))
+        } else {
+            Image(systemName: "doc.plaintext")
+                .foregroundColor(.secondary)
+                .frame(width: 18)
+                .help(L("Plain \u{00B7} readable by anything on this Mac"))
         }
+
+        Button(action: {
+            guard field.isSecret else {
+                // Plain values are not secrets: copy them straight, and don't wipe the
+                // clipboard from under someone pasting an account id somewhere else.
+                PlainPasteboard.copy(field.value)
+                copiedFieldIndex = index
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    if copiedFieldIndex == index { copiedFieldIndex = nil }
+                }
+                return
+            }
+            if let value = vm.copyFieldValue(field.name) {
+                let changeCount = SecretPasteboard.write(value)
+                SecretPasteboard.scheduleClear(after: changeCount)
+                copiedFieldIndex = index
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    if copiedFieldIndex == index { copiedFieldIndex = nil }
+                }
+            }
+        }) {
+            Image(systemName: copiedFieldIndex == index ? "checkmark" : "doc.on.doc")
+                .foregroundColor(copiedFieldIndex == index ? .green : .secondary)
+                .frame(width: 18)
+        }
+        .buttonStyle(.plain)
+        .help(L("Copy value (clipboard is cleared after \(Int(SecretPasteboard.clearDelay)) s)"))
     }
 
     /// The one thing most people do with a stored key: tell their agent to use it. The note

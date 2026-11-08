@@ -38,9 +38,17 @@ struct ExpiryEditor: View {
 /// Only when it matters: a badge on every row would stop meaning anything.
 struct ExpiryBadge: View {
     let expires: String?
+    /// Icon only, the words in the tooltip: for rows too narrow for the tag.
+    var compact = false
 
     var body: some View {
-        if let badge = ExpiryPresentation.badge(expires) {
+        if let badge = ExpiryPresentation.badge(expires), compact {
+            Image(systemName: "calendar.badge.exclamationmark")
+                .font(.caption)
+                .foregroundColor(badge.isExpired ? .red : .orange)
+                .help(badge.label)
+                .accessibilityLabel(badge.label)
+        } else if let badge = ExpiryPresentation.badge(expires) {
             Label(badge.label, systemImage: "calendar.badge.exclamationmark")
                 .font(.caption2.weight(.medium))
                 .foregroundColor(badge.isExpired ? .red : .orange)

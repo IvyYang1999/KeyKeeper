@@ -375,12 +375,22 @@ private struct KeysPage: View {
             HStack(spacing: 10) {
             KeyAvatar(credential: credential, size: 30)
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(credential.label).font(.callout.weight(.semibold)).lineLimit(1)
-                    // The same tag as the key's page header, not a colour of its own.
-                    if credential.security == .strict { SecurityBadge(level: .strict) }
-                    ExpiryBadge(expires: credential.expires)
-                    Spacer(minLength: 0)
+                // Name and tags on one line when they fit; a long name keeps the room and the tags
+                // become icons (words in the tooltip) instead of folding into three lines.
+                // 【曾经的 bug】2026-11-08 渲染发现：长名字时「每次询问」「8 天后过期」折成三行。
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        Text(credential.label).font(.callout.weight(.semibold)).lineLimit(1)
+                        if credential.security == .strict { SecurityBadge(level: .strict).fixedSize().layoutProbe("list.badge") }
+                        ExpiryBadge(expires: credential.expires).fixedSize().layoutProbe("list.badge")
+                        Spacer(minLength: 0)
+                    }
+                    HStack(spacing: 6) {
+                        Text(credential.label).font(.callout.weight(.semibold)).lineLimit(1)
+                        Spacer(minLength: 0)
+                        if credential.security == .strict { SecurityBadge(level: .strict, compact: true).layoutProbe("list.badge") }
+                        ExpiryBadge(expires: credential.expires, compact: true).layoutProbe("list.badge")
+                    }
                 }
                 HStack {
                     Text(subtitle(id, credential))

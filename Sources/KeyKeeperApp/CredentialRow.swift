@@ -48,8 +48,22 @@ struct CredentialRow: View {
 /// Compact "who can use this" marker, shown wherever a credential is listed.
 struct SecurityBadge: View {
     let level: SecurityLevel
+    /// Icon only, the words in the tooltip: for rows too narrow for the tag.
+    var compact = false
 
     var body: some View {
+        if compact {
+            Image(systemName: SecurityLevelPresentation.symbolName(level))
+                .font(.caption)
+                .foregroundColor(level == .strict ? .orange : .green)
+                .help(SecurityLevelPresentation.badge(level))
+                .accessibilityLabel(SecurityLevelPresentation.badge(level))
+        } else {
+            tag
+        }
+    }
+
+    private var tag: some View {
         Label(SecurityLevelPresentation.badge(level), systemImage: SecurityLevelPresentation.symbolName(level))
             .font(.caption2.weight(.medium))
             .foregroundColor(level == .strict ? .orange : .green)

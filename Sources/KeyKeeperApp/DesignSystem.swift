@@ -78,3 +78,18 @@ extension View {
             .surface(.inset, radius: DS.Radius.sm)
     }
 }
+
+/// Sizes that layout tests read back, keyed by a tag. Nothing in the app listens; tests use it
+/// to check that something is still readable at the narrowest window (see A1, 2026-11-08).
+struct LayoutProbes: PreferenceKey {
+    static let defaultValue: [String: [CGSize]] = [:]
+    static func reduce(value: inout [String: [CGSize]], nextValue: () -> [String: [CGSize]]) {
+        value.merge(nextValue()) { $0 + $1 }
+    }
+}
+
+extension View {
+    func layoutProbe(_ tag: String) -> some View {
+        background(GeometryReader { Color.clear.preference(key: LayoutProbes.self, value: [tag: [$0.size]]) })
+    }
+}
