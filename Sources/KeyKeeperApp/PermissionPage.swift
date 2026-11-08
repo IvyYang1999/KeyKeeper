@@ -30,17 +30,16 @@ import KeyKeeperCore
                             text: L("The first time a script or agent asks for a key, KeyKeeper asks you once. What you approve shows up here."))
                     }
                     ForEach(PermissionGroup.build(state.approvals)) { group in
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text(verbatim: group.who).font(.headline)
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                CallerMark(callerId: CallerAppIcon.lookupId(forName: group.who), size: 22)
+                                Text(verbatim: group.who).font(.headline)
+                            }
+                            .padding(.leading, 4)
                             VStack(spacing: 0) {
                                 ForEach(group.approvals) { approval in
                                     ActivityRecordButton(selected: selected?.id == approval.id, action: { selected = approval }) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(verbatim: label(approval.target.credentialId ?? "")).font(.callout.weight(.semibold))
-                                            Text(AccessEntryBuilder.scopeLabel(approval, now: state.now)).font(.caption).foregroundColor(.secondary)
-                                            Text(permissionStatus(approval)).font(.caption)
-                                                .foregroundColor(state.available && state.isActive(approval) ? .green : .secondary)
-                                        }
+                                        permissionLine(approval)
                                     }
                                     if approval.id != group.approvals.last?.id { GlassSeparator() }
                                 }
@@ -49,7 +48,7 @@ import KeyKeeperCore
                     }
                 }
                 .padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 24)
-                .frame(maxWidth: 720, alignment: .leading)
+                .frame(maxWidth: 776, alignment: .leading)
             }
         } detail: {
             if let selected {
@@ -90,6 +89,38 @@ import KeyKeeperCore
                 Text(L("\(AccessEntryBuilder.who(pendingRevoke)) · \(label(pendingRevoke.target.credentialId ?? "")) · \(pendingRevoke.id.prefix(8)). Only this approval will be removed. It does not erase copies already received or revoke other approvals."))
             }
         }
+    }
+
+    /// One line: the key, how long the permission lasts as a small tag, and a status only when it
+    /// is not simply in force (the usual case says nothing, instead of "Currently approved" on every row).
+    private func permissionLine(_ approval: Approval) -> some View {
+        let id = approval.target.credentialId ?? ""
+        let active = state.available && state.isActive(approval)
+        return HStack(spacing: 14) {
+            HStack(spacing: 8) {
+                avatar(id)
+                Text(verbatim: label(id)).lineLimit(1)
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            if !active {
+                HStack(spacing: 6) {
+                    StatusDot(tone: .off)
+                    Text(permissionStatus(approval)).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Text(AccessEntryBuilder.scopeLabel(approval, now: state.now))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .padding(.horizontal, 8).padding(.vertical, 2)
+                .background(Capsule().fill(Color.primary.opacity(0.07)))
+        }
+        .font(.callout)
+    }
+
+    private func avatar(_ id: String) -> KeyAvatar {
+        credentials.first { $0.id == id || $0.credential.aliases?.contains(id) == true }
+            .map { KeyAvatar(credential: $0.credential, size: 20) } ?? KeyAvatar(label: id, size: 20)
     }
 
     private func permissionStatus(_ approval: Approval) -> String {

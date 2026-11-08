@@ -29,21 +29,27 @@ private enum ActivitySelection {
 
     var body: some View {
         ActivityDetailLayout(hasSelection: selected != nil, selectionID: selected?.id, onBack: { selected = nil }) {
-            VStack(alignment: .leading, spacing: 12) {
-                Picker(L("Record type"), selection: $tab) {
-                    ForEach(ActivityTab.allCases, id: \.self) { Text($0.title).tag($0) }
+            VStack(alignment: .leading, spacing: 16) {
+                // The record type sits beside the title it changes, not floating above it.
+                HStack(alignment: .top, spacing: 16) {
+                    MainPageHeader(title: tab.title, subtitle: tab == .access
+                        ? L("Who used which key, and when. Select a row for details.")
+                        : L("Names and notes changed by callers. Not key reads."))
+                    Spacer(minLength: 0)
+                    Picker(L("Record type"), selection: $tab) {
+                        ForEach(ActivityTab.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented).labelsHidden().fixedSize()
+                    .padding(.top, 4)
                 }
-                .pickerStyle(.segmented).frame(maxWidth: 300)
                 .padding(.horizontal, 28).padding(.top, 12)
+                .frame(maxWidth: 776, alignment: .leading)
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        MainPageHeader(title: tab.title, subtitle: tab == .access
-                            ? L("Who used which key, and when. Select a row for details.")
-                            : L("Names and notes changed by callers. Not key reads."))
+                    VStack(alignment: .leading, spacing: 14) {
                         if tab == .access { accessList } else { changesList }
                     }
                     .padding(.horizontal, 28).padding(.bottom, 24)
-                    .frame(maxWidth: 720, alignment: .leading)
+                    .frame(maxWidth: 776, alignment: .leading)
                 }
                 // Different record types start at the top. Detail navigation leaves this
                 // same scroll view mounted, preserving its position when going back.
@@ -81,22 +87,22 @@ private enum ActivitySelection {
         } else {
             LazyVStack(spacing: 0) {
                 ForEach(access.groups) { group in
+                    let status = access.status(for: group)
                     HStack(spacing: 4) {
                         ActivityRecordButton(selected: selected?.id == group.id, action: { selected = .access(group) }) {
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(verbatim: group.who + " · " + label(group.credentialId))
-                                    .font(.callout.weight(.medium)).lineLimit(2)
-                                HStack {
-                                    AccessHistoryTag(kind: group.kind)
-                                    Text(ActivityDetailCopy.relative(group.latest)).font(.caption).foregroundColor(.secondary)
-                                }
-                                if group.kind == .approvalRequired, access.status(for: group) == .approved {
-                                    Text(L("Currently approved")).font(.caption).foregroundColor(.green)
-                                }
-                                if group.count > 1 { Text(L("\(group.count) records")).font(.caption).foregroundColor(.secondary) }
-                            }
+                            ActivityLine(caller: group.who, keyLabel: label(group.credentialId),
+                                         keyAvatar: avatar(group.credentialId),
+                                         result: AccessHistoryTag.text(group.kind),
+                                         tone: ActivityLine.tone(group.kind, status: status),
+                                         time: ActivityDetailCopy.relative(group.latest), count: group.count)
+                                .help(group.kind == .approvalRequired && status == .approved ? L("Currently approved") : "")
                         }
-                        approveButton(group).padding(.trailing, 10)
+                        // Same width on every row when any row has the button, so the columns line up.
+                        if access.groups.contains(where: { approveAction($0) != nil }) {
+                            Color.clear.frame(width: 96, height: 1)
+                                .overlay(alignment: .trailing) { approveButton(group).fixedSize() }
+                                .padding(.trailing, 10)
+                        }
                     }
                     .id(group.id)
                     if group.id != access.groups.last?.id { GlassSeparator() }
@@ -117,10 +123,15 @@ private enum ActivitySelection {
             LazyVStack(spacing: 0) {
                 ForEach(edits) { record in
                     ActivityRecordButton(selected: selected?.id == record.id, action: { selected = .change(record) }) {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(verbatim: ActivityDetailCopy.text(MetadataEditCopy.headline(record))).font(.callout).lineLimit(2)
-                            Text(ActivityDetailCopy.relative(record.timestamp)).font(.caption).foregroundColor(.secondary)
+                        HStack(spacing: 14) {
+                            CallerMark(callerId: CallerAppIcon.lookupId(forName: record.caller), size: 20)
+                            Text(verbatim: ActivityDetailCopy.text(MetadataEditCopy.headline(record)))
+                                .lineLimit(1)
+                                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                            Text(ActivityDetailCopy.relative(record.timestamp)).foregroundStyle(.secondary)
+                                .frame(width: 96, alignment: .trailing)
                         }
+                        .font(.callout)
                     }
                     .id(record.id)
                     if record.id != edits.last?.id { GlassSeparator() }
@@ -157,6 +168,9 @@ private enum ActivitySelection {
         credentials.first { $0.id == id || $0.credential.aliases?.contains(id) == true }?.credential
     }
     private func label(_ id: String) -> String { credential(id)?.label ?? id }
+    private func avatar(_ id: String) -> KeyAvatar {
+        credential(id).map { KeyAvatar(credential: $0, size: 20) } ?? KeyAvatar(label: id, size: 20)
+    }
     private func openAction(_ id: String) -> (() -> Void)? {
         guard credential(id) != nil, let onOpenCredential else { return nil }
         return { onOpenCredential(id) }

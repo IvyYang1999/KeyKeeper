@@ -421,6 +421,12 @@ enum CallerAppIcon {
         return nil
     }
 
+    /// What to look an icon up by when a list only kept the name it shows ("Claude Code" → its
+    /// bundle id). An unknown name stays as it is and gets a lettermark.
+    static func lookupId(forName name: String) -> String {
+        friendlyNames.filter { $0.value == name }.map(\.key).sorted().first ?? name
+    }
+
     static func desktopBundleIds(for callerId: String) -> [String] {
         (desktopApps[callerId] ?? []) + [callerId]
     }

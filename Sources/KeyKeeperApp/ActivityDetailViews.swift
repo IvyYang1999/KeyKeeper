@@ -99,6 +99,62 @@ struct ActivityRequestFacts: View {
     }
 }
 
+/// One record in a list, on one line: who (with their icon), which key (with its icon), what
+/// happened as a small dot, and when.
+///
+/// 【曾经的 bug】2026-11-07 yyt：访问记录和使用权限每条三行字，「当前已授权」的绿字几乎每行都有，重复又抢眼；
+/// 调用方和服务商的图标明明有，这两页却只有文字。
+struct ActivityLine: View {
+    let caller: String
+    let keyLabel: String
+    let keyAvatar: KeyAvatar
+    let result: String
+    let tone: StatusDot.Tone
+    let time: String
+    var count = 1
+
+    var body: some View {
+        HStack(spacing: 14) {
+            HStack(spacing: 8) {
+                CallerMark(callerId: CallerAppIcon.lookupId(forName: caller), size: 20)
+                Text(verbatim: caller).lineLimit(1)
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                keyAvatar
+                Text(verbatim: keyLabel).lineLimit(1)
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 6) {
+                StatusDot(tone: tone)
+                Text(result).lineLimit(1).foregroundStyle(.secondary)
+            }
+            .frame(width: 128, alignment: .leading)
+            HStack(spacing: 4) {
+                if count > 1 {
+                    Text(verbatim: "×\(count)")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Capsule().fill(Color.primary.opacity(0.07)))
+                }
+                Text(time).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .frame(width: 96, alignment: .trailing)
+        }
+        .font(.callout)
+    }
+
+    /// Green for a use that was approved, orange for one that needs a look, grey for "asked".
+    static func tone(_ kind: AccessLogEntry.Kind, status: AccessLogApprovalStatus) -> StatusDot.Tone {
+        switch kind {
+        case .approvedUse: .good
+        case .readWithoutApproval, .missedApproval: .attention
+        case .approvalRequired: status == .approved ? .good : .off
+        }
+    }
+}
+
 struct AccessHistoryTag: View {
     let kind: AccessLogEntry.Kind
     static func text(_ kind: AccessLogEntry.Kind) -> String {
