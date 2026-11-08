@@ -142,7 +142,7 @@ struct BrowserSessionManagerView: View {
             Text(L("A window opens with nothing in it — none of your browser's logins. Sign in there, press Save, and KeyKeeper keeps that site's session. This does not touch the login you already have in your browser."))
                 .font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             TextField("https://example.com", text: $loginSite)
-                .textFieldStyle(.roundedBorder).font(.callout.monospaced())
+                .dsInput(monospaced: true)
                 .onChange(of: loginSite) { _, typed in
                     loginError = nil
                     // The name is the site until someone says otherwise; nobody should have to
@@ -154,7 +154,7 @@ struct BrowserSessionManagerView: View {
                     }
                 }
             TextField(L("A name you will recognise"), text: $loginLabel)
-                .textFieldStyle(.roundedBorder)
+                .dsInput()
             if let loginError {
                 Text(loginError).font(.callout).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
             }

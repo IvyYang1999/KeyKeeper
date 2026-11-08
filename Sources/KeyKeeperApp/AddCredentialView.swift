@@ -200,7 +200,9 @@ struct AddCredentialView: View {
             Button(action: { isEditingId = true }) {
                 HStack(spacing: 4) {
                     Text(vm.idSummary)
-                        .font(.caption2.monospaced())
+                        // Monospaced only for the ID and command; the "generated from the name"
+                        // sentence in a code font looked like a broken label.
+                        .font(vm.credentialId.isEmpty ? .caption2 : .caption2.monospaced())
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)

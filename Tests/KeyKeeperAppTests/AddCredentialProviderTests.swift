@@ -81,6 +81,31 @@ import KeyKeeperTestSupport
         XCTAssertTrue(try store.load().credentials.isEmpty)
     }
 
+    /// 【曾经的 bug】2026-11-08 渲染发现：刚选好服务商、什么都还没填，模板下面就写「请填写必填项：API key」，
+    /// 像是已经出错；而且字段名没翻译（上面的标签是「API 密钥」）。
+    func test曾经的Bug选好服务商还没填时不提示必填项且字段名跟着界面语言() throws {
+        let defaults = UserDefaults.standard
+        let original = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        defer { defaults.setVolatileDomain(original, forName: UserDefaults.argumentDomain) }
+        defaults.setVolatileDomain([AppL10n.preferenceName: "zh-Hans"], forName: UserDefaults.argumentDomain)
+
+        let (vm, _, _) = try fixture()
+        XCTAssertTrue(vm.selectProvider("stripe"))
+        XCTAssertNotNil(vm.providerProblem, "保存仍然不可用")
+        XCTAssertFalse(vm.isValid)
+        XCTAssertNil(vm.shownProviderProblem, "还没开始填，不该显示必填提示")
+
+        // 填了又清空：已经开始填了，这时提示必填，字段名用界面语言。
+        vm.fields[0].value = "x"
+        vm.fields[0].value = ""
+        vm.label = "Stripe "
+        let template = try XCTUnwrap(ProviderCatalog.find("stripe"))
+        if template.fields.count > 1 { vm.fields[1].value = "synthetic" }
+        let shown = try XCTUnwrap(vm.shownProviderProblem)
+        XCTAssertTrue(shown.contains(AppL10n.text(template.fields[0].label)), shown)
+        XCTAssertFalse(shown.contains("API key"), shown)
+    }
+
     func test本地签名身份不创建空壳或导出私钥() throws {
         let (vm, store, _) = try fixture()
         XCTAssertTrue(vm.selectProvider("developer-id"))

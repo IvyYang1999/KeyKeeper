@@ -63,7 +63,11 @@ class AddCredentialViewModel: ObservableObject {
     @Published var notes = ""
     /// Last day the key works at its provider, YYYY-MM-DD; nil when the person did not record one.
     @Published var expires: String?
-    @Published var fields: [FieldEntry] = [FieldEntry(name: AddCredentialViewModel.defaultFieldName)]
+    @Published var fields: [FieldEntry] = [FieldEntry(name: AddCredentialViewModel.defaultFieldName)] {
+        didSet { if fields.contains(where: { !$0.value.isEmpty }) { startedFilling = true } }
+    }
+    /// Something was typed into a field since the provider was chosen (it may be empty again).
+    private var startedFilling = false
     @Published var security: SecurityLevel = SecurityLevelPresentation.defaultLevel
     /// Values only reach commands through `keykeeper run`; `get` and the SDKs are refused.
     @Published var injectOnly = true
@@ -174,6 +178,7 @@ class AddCredentialViewModel: ObservableObject {
         notes = ""
         expires = nil
         fields = [FieldEntry(name: Self.defaultFieldName)]
+        startedFilling = false
         security = SecurityLevelPresentation.defaultLevel
         errorMessage = nil
         fieldErrors = [:]
@@ -287,6 +292,7 @@ class AddCredentialViewModel: ObservableObject {
             FieldEntry(name: $0.name, fileFormat: $0.fileFormat,
                        displayName: $0.label, isSecret: $0.isSaveableSecret)
         } ?? [FieldEntry(name: Self.defaultFieldName)]
+        startedFilling = false
         if label.isEmpty || label == oldName {
             label = next?.name ?? ""
             autoGenerateId()
@@ -320,7 +326,18 @@ class AddCredentialViewModel: ObservableObject {
         providerFiles[fieldName] = nil
     }
 
-    var providerProblem: String? {
+    /// What the template section shows under its fields. "Complete the required field" waits
+    /// until something has been typed or a file chosen: right after picking a provider it read
+    /// like an error. Save stays unavailable either way (`providerProblem`).
+    ///
+    /// 【曾经的 bug】2026-11-08：刚选好服务商、什么都没填，模板下面就写「请填写必填项：API key」。
+    var shownProviderProblem: String? {
+        providerProblem(waitingForInput: !startedFilling && providerFileSources.isEmpty)
+    }
+
+    var providerProblem: String? { providerProblem(waitingForInput: false) }
+
+    private func providerProblem(waitingForInput: Bool) -> String? {
         guard let providerID else { return nil }
         guard let template = ProviderCatalog.find(providerID), template.contractProblems.isEmpty else {
             return L("The selected template is unavailable. Choose another provider.")
@@ -338,12 +355,14 @@ class AddCredentialViewModel: ObservableObject {
             if field.kind == .secretFile {
                 guard entry.value.isEmpty else { return L("Choose a file; do not paste file contents into a text field.") }
                 if field.required && providerFileSources[field.name] == nil {
-                    return L("Choose the required file: \(field.label)")
+                    if waitingForInput { continue }
+                    return L("Choose the required file: \(AppL10n.text(field.label))")
                 }
                 continue
             }
             if field.required && entry.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return L("Complete the required field: \(field.label)")
+                if waitingForInput { continue }
+                return L("Complete the required field: \(AppL10n.text(field.label))")
             }
             if !entry.value.isEmpty,
                let problem = template.shapeProblem(for: entry.value, fieldName: field.name) { return AppL10n.text(problem) }

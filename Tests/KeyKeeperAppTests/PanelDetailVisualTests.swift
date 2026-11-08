@@ -93,6 +93,36 @@ final class CredentialAvailabilityBadgeTests: XCTestCase {
         }
     }
 
+    func test添加页菜单栏与主窗口中英文() throws {
+        guard let output = ProcessInfo.processInfo.environment["KEYKEEPER_PANEL_PREVIEW"] else {
+            throw XCTSkip("Opt-in synthetic add page render")
+        }
+        _ = NSApplication.shared
+        let directory = URL(fileURLWithPath: output).appendingPathComponent("fixture-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MetaStore(directory: directory, integrityIO: FakeKeychainIO())
+        try store.save(MetaFile(credentials: [:]))
+        let session = KeychainCredentialService(store: KeychainBlobStore(io: FakeKeychainIO()))
+        let defaults = UserDefaults.standard
+        let original = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        defer { defaults.setVolatileDomain(original, forName: UserDefaults.argumentDomain) }
+        for (language, dark) in [("zh-Hans", false), ("en", true)] {
+            defaults.setVolatileDomain([AppL10n.preferenceName: language], forName: UserDefaults.argumentDomain)
+            let suffix = "\(language)-\(dark ? "dark" : "light")"
+            for provider in [nil, "stripe"] as [String?] {
+                let vm = AddCredentialViewModel(session: session, store: store, approvals: .inMemory())
+                if let provider { _ = vm.selectProvider(provider) }
+                let page = AddCredentialView(vm: vm, onSave: {}, onCancel: {}, onOpenExisting: { _ in })
+                let kind = provider ?? "blank"
+                try render(page, name: "add-popover-\(kind)-\(suffix)", size: NSSize(width: DS.Popover.width, height: 720),
+                           dark: dark, language: language, layout: .popover, output: output)
+                try render(page, name: "add-window-\(kind)-\(suffix)", size: NSSize(width: 760, height: 900),
+                           dark: dark, language: language, layout: .embedded, output: output)
+            }
+        }
+    }
+
     private func render<V: View>(_ page: V, name: String, size: NSSize, dark: Bool, language: String,
                                  layout: PanelLayout, output: String) throws {
         let root = page

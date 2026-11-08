@@ -58,14 +58,14 @@ struct AddProviderFields: View {
                             fieldRow(field, index: index)
                         }
                     }
-                    if let problem = vm.providerProblem {
+                    if let problem = vm.shownProviderProblem {
                         Text(problem).font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 DisclosureGroup(L("Template guidance")) {
                     VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-                        Text(template.minimalPermission)
+                        Text(ProviderText.localized(template.minimalPermission))
                         ProviderExpiryPolicyLine(providerId: template.id)
                         Text(L("Save checks required fields and documented formats, not whether the provider accepts the key."))
                     }
@@ -100,7 +100,7 @@ struct AddProviderFields: View {
                     .accessibilityIdentifier("provider-field-" + field.name)
             } else {
                 TextField(L("Plain value, e.g. an account id"), text: $vm.fields[index].value)
-                    .textFieldStyle(.roundedBorder)
+                    .dsInput()
                     .accessibilityIdentifier("provider-field-" + field.name)
             }
             Text(field.environmentNames.joined(separator: " · "))
