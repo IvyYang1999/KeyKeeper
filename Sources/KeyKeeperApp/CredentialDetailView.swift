@@ -94,7 +94,8 @@ struct CredentialDetailView: View {
         } label: {
             Label(L("Edit"), systemImage: "pencil")
         }
-        .controlSize(.small)
+        // 【曾经的 bug】2026-11-08 yyt：详情页右上角「编辑」显得特别扁——小号按钮挨着 23 号粗体标题。
+        .controlSize(layout == .embedded ? .regular : .small)
     }
 
     /// Icon, name, provider, Edit. The group ID lives in the agent card, where it is used.

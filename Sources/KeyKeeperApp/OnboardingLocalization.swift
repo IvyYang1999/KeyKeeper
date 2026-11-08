@@ -40,6 +40,12 @@ extension AppL10n {
         // Welcome guide
         "Keep API keys on this Mac. AI tools can use them without seeing the values.": "把 API key 存在这台 Mac 上。AI 工具可以使用它们，但看不到值。",
         "Reopen this guide any time in Settings → {0} → {1}.": "之后可以在设置 → {0} → {1} 里重新打开引导。",
+        "Install the plugin and your agent asks KeyKeeper for keys. You approve each use on this Mac.": "装上插件后，Agent 会向 KeyKeeper 要 key；每次使用仍要你在这台 Mac 上批准。",
+        "Save a key": "存一把 key",
+        "Any time": "随时都行",
+        "No key yet? Skip this and add one when you need it.": "现在没有 key 也没关系，用到时再加。",
+        "Import .env": "导入 .env",
+        "The import command needs the command-line tool from step 1.": "导入命令需要第 1 步的命令行工具。",
         "Protected storage on this Mac is ready.": "这台 Mac 的本地安全存储已准备好。",
         "The key list has not loaded yet.": "key 列表还没有读取出来。",
         "No keys here yet. Add one, or sync from your other Mac.": "这里还没有 key。可以添加一把，或从你的另一台 Mac 同步。",

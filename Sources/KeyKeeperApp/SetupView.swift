@@ -61,11 +61,15 @@ struct SetupView: View {
         .onAppear(perform: refresh)
     }
 
+    /// Two steps, AI tools first.
+    ///
+    /// 【曾经的 bug】2026-11-08 yyt：引导太长、信息太密；而且「保存第一把 key」排在第 2 步，可刚下载的人
+    /// 手上通常没有 key 要存，就卡在那一步。现在先接入 AI 工具，存 key 写明随时都行；「这台 Mac 的安全
+    /// 存储已准备好」这一步只说了没问题，去掉。
     private var guide: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.lg) {
-            thisMac
-            firstKey
             agentSection
+            keySection
         }
         .padding(DS.Spacing.lg)
     }
@@ -95,55 +99,29 @@ struct SetupView: View {
     /// One exit, always visible. Skipping and finishing are the same thing: nothing here is required.
     private var footer: some View {
         HStack(spacing: DS.Spacing.sm) {
-            Text(Self.reopenHint)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: DS.Spacing.sm)
             Button(L("Get Started")) { finishSetup() }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
+                .help(Self.reopenHint)
         }
     }
 
-    // MARK: - 1 · This Mac
+    // MARK: - 2 · A key, any time
 
-    private var thisMac: some View {
-        section(number: 1, title: L("This Mac")) {
-            HStack(alignment: .top, spacing: DS.Spacing.sm) {
-                Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L("Protected storage on this Mac is ready.")).font(.callout)
-                    Text(keyCountText).font(.caption).foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-
-    private var keyCountText: String {
-        switch keyCount {
-        case nil: return L("The key list has not loaded yet.")
-        case 0: return L("No keys here yet. Add one, or sync from your other Mac.")
-        case 1: return L("1 key saved.")
-        case let count?: return L("\(count) keys saved.")
-        }
-    }
-
-    // MARK: - 2 · First key
-
-    private var firstKey: some View {
-        section(number: 2, title: L("Save your first key")) {
+    private var keySection: some View {
+        section(number: 2, title: L("Save a key"), badge: L("Any time")) {
             VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-                choice(symbol: "plus.circle", title: L("Add a key"),
-                       detail: L("Pick a service from the templates, or fill it in yourself."), action: onAddKey)
-                choice(symbol: "square.and.arrow.down", title: L("Import keys you already have"),
-                       detail: L("From a project’s .env file or a service-account JSON file."),
-                       expanded: showImport) { withAnimation { showImport.toggle() } }
+                Text(L("No key yet? Skip this and add one when you need it."))
+                    .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: DS.Spacing.md) {
+                    Button(L("Add a key"), action: onAddKey).controlSize(.small)
+                    Button(L("Import .env")) { withAnimation { showImport.toggle() } }
+                        .buttonStyle(.plain).font(.caption).foregroundColor(.accentColor)
+                    Button(L("Sync from your other Mac"), action: onOpenSettings)
+                        .buttonStyle(.plain).font(.caption).foregroundColor(.accentColor)
+                }
                 if showImport { importDetails }
-                choice(symbol: "icloud", title: L("Sync from your other Mac"),
-                       detail: L("Uses your iCloud account. Turn on iCloud sync in Settings on both Macs."),
-                       action: onOpenSettings)
             }
         }
     }
@@ -156,7 +134,7 @@ struct SetupView: View {
             Text(L("Service-account JSON file: choose Add a key, then import the file there."))
                 .font(.caption).fixedSize(horizontal: false, vertical: true)
             if !cliState.isUsable {
-                Text(L("The import command needs the command-line tool from step 3."))
+                Text(L("The import command needs the command-line tool from step 1."))
                     .font(.caption2).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -164,22 +142,20 @@ struct SetupView: View {
         .surface(.inset, radius: DS.Radius.sm)
     }
 
-    // MARK: - 3 · Agent (optional)
+    // MARK: - 1 · AI tools
 
     private var agentSection: some View {
-        section(number: 3, title: L("Connect an AI tool"), badge: L("Optional")) {
+        section(number: 1, title: L("Connect an AI tool")) {
             VStack(alignment: .leading, spacing: DS.Spacing.md) {
-                Text(L("After you install the plugin, your agent knows how to ask KeyKeeper for a key. You still approve its use on this Mac. Using only the app? Skip this."))
+                Text(L("Install the plugin and your agent asks KeyKeeper for keys. You approve each use on this Mac."))
                     .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-                cliRow
-                VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-                    Text(L("Which tools do you use?")).font(.caption.weight(.semibold))
-                    HStack(spacing: DS.Spacing.sm) {
-                        ForEach(AgentPluginSetup.Host.allCases) { host in
-                            hostToggle(host)
-                        }
+                HStack(spacing: DS.Spacing.sm) {
+                    ForEach(AgentPluginSetup.Host.allCases) { host in
+                        hostToggle(host)
                     }
                 }
+                // Only when something needs doing; "it works" is not worth a row here.
+                if cliState.needsAttention { cliRow }
                 ForEach(AgentPluginSetup.Host.allCases.filter(hosts.contains)) { host in
                     VStack(alignment: .leading, spacing: DS.Spacing.sm) {
                         Text(host.title).font(.callout.weight(.semibold))
@@ -192,9 +168,6 @@ struct SetupView: View {
                     .padding(DS.Spacing.md)
                     .surface(.inset, radius: DS.Radius.sm)
                 }
-                Button(L("Open usage permissions")) { onOpenAccess() }
-                    .buttonStyle(.plain).font(.caption).foregroundColor(.accentColor)
-                    .help(L("See and revoke what you approved."))
             }
         }
     }
