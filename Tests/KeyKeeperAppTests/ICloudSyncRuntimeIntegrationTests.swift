@@ -243,6 +243,40 @@ final class ICloudSyncRuntimeIntegrationTests: XCTestCase {
         offRelaunched.stopScheduling()
     }
 
+    /// 【曾经的 bug】2026-11-09 Codex 验收 9b84544 B1：重试读回记录要等一下；就在这一下里人关掉了同步
+    /// 并且已经存上，旧的「已开启」回来后照样开启，又打开了同步。A turn-off that lands while the
+    /// retry waits on the record wins: nothing is re-enabled and no new connection to iCloud is made.
+    func test曾经的Bug重试等记录时关掉同步不会被旧结果重新打开() async throws {
+        let f = try fixture()
+        await f.runtime.start()
+        f.runtime.perform(.enable)
+        await eventually { f.runtime.state.phase == .ready }
+        f.runtime.stopScheduling()
+
+        let cloud = f.cloud
+        let driver = HeldStatusDriver(inner: CloudSyncCoordinator(local: f.local, stateStore: f.stateStore, makeTransport: {
+            cloud.constructed(); return cloud
+        }))
+        let runtime = ICloudSyncRuntime(engine: driver, center: NotificationCenter(), retryDelays: [])
+        await runtime.start()
+        await eventually { runtime.state.phase == .ready }
+        let created = f.cloud.factoryCount, uploads = f.cloud.uploadCount
+
+        await driver.holdNextStatus()
+        runtime.perform(.retry)
+        await eventually { await driver.gate.entered }
+        runtime.perform(.disable)
+        await eventually { (try? f.stateStore.load()?.enabled) == false }
+        await driver.gate.release()
+        await eventually { runtime.state.phase == .off }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertEqual(try f.stateStore.load()?.enabled, false, "The turn-off stays saved")
+        XCTAssertFalse(runtime.state.enabled)
+        XCTAssertEqual(f.cloud.factoryCount, created, "No new connection to iCloud after turning off")
+        XCTAssertEqual(f.cloud.uploadCount, uploads)
+        runtime.stopScheduling()
+    }
+
     /// The same data and iCloud, a new coordinator and runtime: what the next launch of the app sees.
     private func relaunch(_ f: RuntimeFixture, retryDelays: [UInt64]) -> (ICloudSyncRuntime, CloudSyncCoordinator) {
         let cloud = f.cloud
@@ -319,6 +353,31 @@ private actor RuntimeFetchGate {
     private var continuation: CheckedContinuation<Void, Never>?
     func wait() async { entered = true; await withCheckedContinuation { continuation = $0 } }
     func release() { continuation?.resume(); continuation = nil }
+}
+/// The real coordinator, with one status read held after it was taken: the moment a turn-off
+/// can land between reading the record and acting on it.
+private actor HeldStatusDriver: ICloudSyncDriving {
+    let inner: CloudSyncCoordinator
+    let gate = RuntimeFetchGate()
+    private var holdNext = false
+    init(inner: CloudSyncCoordinator) { self.inner = inner }
+    func holdNextStatus() { holdNext = true }
+    var status: CloudSyncStatus {
+        get async {
+            let taken = await inner.status
+            if holdNext { holdNext = false; await gate.wait() }
+            return taken
+        }
+    }
+    func load() async { await inner.load() }
+    func enable() async { await inner.enable() }
+    func disable() async { await inner.disable() }
+    func syncNow() async { await inner.syncNow() }
+    func accountChanged() async { await inner.accountChanged() }
+    func retryPendingUpload() async { await inner.retryPendingUpload() }
+    func resolve(reviewID: UUID, choices: [String: CloudSyncChoice]) async {
+        await inner.resolve(reviewID: reviewID, choices: choices)
+    }
 }
 private final class RuntimeCloud: CloudSyncTransport, @unchecked Sendable {
     private let lock = NSLock()
