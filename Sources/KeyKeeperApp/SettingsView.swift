@@ -39,15 +39,26 @@ struct SettingsView: View {
     var onShowSetup: () -> Void
 
     var body: some View {
-        SettingsPage(
+        LanguageScoped(content: SettingsPage(
             updateController: updateController,
             cloudState: cloudSync.state,
             cloudAction: cloudSync.perform,
             services: .production,
             onShowServiceGrants: onShowServiceGrants,
             onShowSetup: onShowSetup
-        )
+        ))
     }
+}
+
+/// Draws its content again from scratch when the interface language changes.
+///
+/// 【曾经的 bug】2026-11-08 主力 Mac 验收 follow-up：在设置页切换语言后，部分子标题还停在原来的语言。
+/// `L()` reads the preference when a body runs, and a subview whose inputs did not change is
+/// not run again. A new identity makes every subview run again in the new language.
+struct LanguageScoped<Content: View>: View {
+    @AppStorage(AppL10n.preferenceName) private var interfaceLanguage = "system"
+    let content: Content
+    var body: some View { content.id(interfaceLanguage) }
 }
 
 /// Four groups, like System Settings: General, iCloud sync, Security and approvals, Developer.

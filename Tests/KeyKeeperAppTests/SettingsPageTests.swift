@@ -55,6 +55,60 @@ import KeyKeeperTestSupport
         XCTAssertEqual(try enabled.reviewerSettings(), stored, "默认地址、模型只显示，不写回")
     }
 
+    /// 【曾经的 bug】2026-11-08 主力 Mac 验收 follow-up：在设置页切换界面语言后，部分子标题还停在原来的语言，
+    /// 离开设置再进来才对。文案是在 body 里按当时的偏好取的，输入没变的子视图不会重画。
+    /// 这里比的是像素：当场切到中文的页面，和一打开就是中文的页面，应该一模一样。
+    func test曾经的Bug切换界面语言后整页立刻换成新语言() throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let key = AppL10n.preferenceName
+        let original = defaults.object(forKey: key)
+        defer { if let original { defaults.set(original, forKey: key) } else { defaults.removeObject(forKey: key) } }
+
+        func page() -> some View {
+            let approvals = ApprovalStore.inMemory(FakeKeychain())
+            let services = SettingsServices(
+                approvals: approvals, reviewer: ReviewerService(store: approvals),
+                loginItemAvailable: { true }, loginItemEnabled: { false }, setLoginItem: { _ in },
+                probeCLI: { .missing }, installCLI: { nil }, showDataFolder: {},
+                agentPlugins: AgentPluginSetup(root: nil))
+            return LanguageScoped(content: SettingsPage(
+                updateController: UpdateController(driver: PreviewUpdateDriver()),
+                cloudState: .init(phase: .paused, enabled: true, issue: .networkUnavailable),
+                cloudAction: { _ in }, services: services, onShowServiceGrants: {}, onShowSetup: {}))
+                .frame(width: 640, height: 1400)
+        }
+        func pixels(_ view: NSView) throws -> Data {
+            view.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        }
+        func show(_ view: NSView) -> NSWindow {
+            let window = NSWindow(contentRect: NSRect(x: -5000, y: -5000, width: 640, height: 1400),
+                                  styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            view.appearance = NSAppearance(named: .aqua)
+            window.contentView = view
+            window.layoutIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+            return window
+        }
+
+        defaults.set("en", forKey: key)
+        let switched = NSHostingView(rootView: page())
+        let first = show(switched)
+        defer { first.close() }
+        defaults.set("zh-Hans", forKey: key)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+
+        let fresh = NSHostingView(rootView: page())
+        let second = show(fresh)
+        defer { second.close() }
+
+        XCTAssertEqual(try pixels(switched), try pixels(fresh), "当场切换后的中文页面和新开的中文页面不一样：有文字还停在英文")
+    }
+
     /// 设置页每一句界面文案都有中文。
     func test设置页文案都有中文() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
