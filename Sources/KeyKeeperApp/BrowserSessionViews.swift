@@ -84,15 +84,25 @@ struct BrowserSessionManagerView: View {
                                             .textSelection(.enabled)
                                     }
                                     Spacer()
+                                    // One action on the row; the rest in ⋯, like the other pages.
+                                    // 【曾经的 bug】2026-11-08 渲染发现：每张卡三个按钮（其中一个红底的删除），下面
+                                    // 还露着一行 `keykeeper browser open <ID>`。
                                     Button(L("Open isolated window")) { send(.open, id: item.id) }
-                                    Button(L("Stop window")) { send(.stop, id: item.id) }
-                                    Button(L("Remove snapshot…")) { send(.delete, id: item.id) }
-                                        .foregroundColor(.red)
+                                    Menu {
+                                        Button(L("Copy command for agents")) {
+                                            PlainPasteboard.copy("keykeeper browser open \(item.id)")
+                                        }
+                                        Button(L("Stop window")) { send(.stop, id: item.id) }
+                                        Divider()
+                                        Button(L("Remove snapshot…"), role: .destructive) { send(.delete, id: item.id) }
+                                    } label: {
+                                        Image(systemName: "ellipsis.circle").foregroundColor(.secondary)
+                                    }
+                                    .menuStyle(.borderlessButton)
+                                    .menuIndicator(.hidden)
+                                    .fixedSize()
+                                    .help(L("More"))
                                 }
-                                Text("keykeeper browser open \(item.id)")
-                                    .font(.caption.monospaced())
-                                    .foregroundColor(.secondary)
-                                    .textSelection(.enabled)
                                 // Anyone given more than "once" is listed here, with the way to take it back:
                                 // an approval nobody can see or revoke is not one anybody really gave.
                                 ForEach(controller.approvals(for: item.id)) { approval in

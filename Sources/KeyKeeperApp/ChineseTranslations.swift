@@ -121,6 +121,8 @@ extension AppL10n {
         "Open the intended website in Chrome, then use the KeyKeeper extension to request an import. Keep your original browser login.": "在 Chrome 打开要使用的网站，再从 KeyKeeper 扩展请求导入。请保留原浏览器登录。",
         "Open isolated window": "打开独立窗口",
         "Stop window": "停止窗口",
+        "Copy command for agents": "复制给 Agent 的命令",
+        "More": "更多",
         "Remove snapshot…": "删除快照…",
         "Stopping or removing a snapshot does not log out Chrome or revoke the website's server-side session.": "停止窗口或删除快照，不会退出 Chrome 登录，也不会作废网站服务器的会话。",
         "KeyKeeper — Website session": "KeyKeeper — 网站登录态",
