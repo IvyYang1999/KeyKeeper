@@ -13,5 +13,7 @@ final class DesignRuleTests: XCTestCase {
             if source.contains(".roundedBorder") { offenders.append(file) }
         }
         XCTAssertEqual(offenders, [], "这些文件又用了描边输入框，改用 .dsInput()")
+        // The provider picker's search box stays the native NSSearchField: it handles the arrow
+        // keys, and without its own bezel the magnifier sits on top of the placeholder (tried 2026-11-08).
     }
 }

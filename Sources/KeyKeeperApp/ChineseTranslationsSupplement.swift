@@ -125,6 +125,7 @@ extension AppL10n {
         "Who can use them": "谁在使用",
         "Access log": "访问记录",
         "Search {0} keys": "搜索 {0} 把 key",
+        "Search 1 key": "搜索 1 把 key",
         "Copy prompt for your agent": "复制给 Agent 的提示词",
         "Service-account JSON": "服务账号 JSON",
         "Choose a key on the left": "在左边选一把 key",

@@ -293,7 +293,7 @@ extension AppL10n {
         "Try again": "重试",
         "No credentials stored": "暂无凭据",
         "Continue editing draft": "继续编辑草稿",
-        "No keys yet": "还没有密钥",
+        "No keys yet": "还没有 key",
         "Values are encrypted by the macOS Keychain. AI tools see only the names.": "密钥值由 macOS 钥匙串加密保存。AI 工具只能看到名称。",
         "Draft: {0}": "草稿：{0}",
         "Delete…": "删除…",

@@ -126,3 +126,10 @@ struct MaskedValueField: View {
         }
     }
 }
+
+/// "Search 6 keys", and "Search 1 key" rather than "Search 1 keys".
+enum KeySearchPlaceholder {
+    static func text(count: Int) -> String {
+        count == 1 ? L("Search 1 key") : L("Search \(count) keys")
+    }
+}

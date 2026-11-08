@@ -72,4 +72,12 @@ final class MaskedValueFieldTests: XCTestCase {
                                                   hints: ["consumer-key": "a1Kk", "consumer-secret": "b2Ll"]),
                        "consumer-key, consumer-secret", "两个秘密时不知道该显示哪个，不加")
     }
+
+    /// 【曾经的 bug】2026-11-08 渲染发现：只有一把 key 时英文搜索框写「Search 1 keys」。
+    func test曾经的Bug一把key时搜索框用单数() {
+        XCTAssertEqual(AppL10n.render("Search 1 key", language: "en"), "Search 1 key")
+        XCTAssertEqual(KeySearchPlaceholder.text(count: 6), L("Search \(6) keys"))
+        XCTAssertEqual(KeySearchPlaceholder.text(count: 1), L("Search 1 key"))
+        XCTAssertEqual(AppL10n.render("Search 1 key", language: "zh-Hans"), "搜索 1 把 key")
+    }
 }

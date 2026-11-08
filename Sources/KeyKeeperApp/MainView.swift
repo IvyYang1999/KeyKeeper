@@ -167,16 +167,19 @@ struct MainView: View {
                 PopoverIconButton(symbol: "macwindow", help: L("Open KeyKeeper")) { openMainWindow(nil, nil) }
             }
 
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundColor(.secondary)
-                TextField(L("Search \(viewModel.credentials.count) keys"), text: $viewModel.searchText)
-                    .textFieldStyle(.plain)
-                    .focused($searchFocused)
+            // No search box for zero keys: "Search 0 keys" above "No keys yet".
+            if !viewModel.credentials.isEmpty || viewModel.loadFailure != nil {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+                    TextField(KeySearchPlaceholder.text(count: viewModel.credentials.count), text: $viewModel.searchText)
+                        .textFieldStyle(.plain)
+                        .focused($searchFocused)
+                }
+                .font(.system(size: 14))
+                .padding(.horizontal, 12)
+                .frame(height: 32)
+                .surface(.inset, radius: 16)
             }
-            .font(.system(size: 14))
-            .padding(.horizontal, 12)
-            .frame(height: 32)
-            .surface(.inset, radius: 16)
 
             if !approvals.items.isEmpty {
                 waitingSection
@@ -454,7 +457,9 @@ struct MissedApprovalNotice: View {
             }
         }
         .padding(12)
-        .surface(.attention, radius: 14)
+        // Over and done: an ordinary card with an orange clock. The orange card is kept for a
+        // request that is waiting for you right now, so that one stands out. (盘点第三节第 4 条)
+        .surface(.card, radius: 14)
     }
 
 }

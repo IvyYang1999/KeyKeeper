@@ -291,23 +291,33 @@ private struct KeysPage: View {
         }
     }
 
+    /// Nothing stored yet (and nothing failed to load): no search box for zero keys, and the
+    /// right side offers the first one instead of "Choose a key on the left".
+    private var hasNoKeys: Bool { listVM.credentials.isEmpty && listVM.loadFailure == nil }
+
+    private func startAdding() {
+        addVM.reset()
+        router.isAdding = true
+        router.selectedCredentialId = nil
+    }
+
     private var list: some View {
         VStack(spacing: 10) {
             HStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass").foregroundColor(.secondary)
-                    TextField(L("Search \(listVM.credentials.count) keys"), text: $listVM.searchText)
-                        .textFieldStyle(.plain)
+                if hasNoKeys {
+                    Spacer()
+                } else {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+                        TextField(KeySearchPlaceholder.text(count: listVM.credentials.count), text: $listVM.searchText)
+                            .textFieldStyle(.plain)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 32)
+                    .surface(.inset, radius: 9)
                 }
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .surface(.inset, radius: 9)
 
-                Button {
-                    addVM.reset()
-                    router.isAdding = true
-                    router.selectedCredentialId = nil
-                } label: {
+                Button(action: startAdding) {
                     Image(systemName: "plus").frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)
@@ -325,8 +335,6 @@ private struct KeysPage: View {
                                             retry: listVM.load)
             }
             if listVM.credentials.isEmpty {
-                Spacer()
-                if listVM.loadFailure == nil { Text(L("No keys yet")).foregroundColor(.secondary) }
                 Spacer()
             } else {
                 ScrollView {
@@ -473,7 +481,15 @@ private struct KeysPage: View {
             VStack(spacing: 10) {
                 Spacer()
                 Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 72, height: 72).opacity(0.9)
-                Text(L("Choose a key on the left")).foregroundColor(.secondary)
+                if hasNoKeys {
+                    // 【曾经的 bug】2026-11-08 渲染发现：一把 key 都没有时，左边写「还没有密钥」，右边写
+                    // 「在左边选一把 key」，左边并没有能选的东西。
+                    Text(L("No keys yet")).foregroundColor(.secondary)
+                    Button(L("Add a key"), action: startAdding)
+                        .buttonStyle(.borderedProminent)
+                } else {
+                    Text(L("Choose a key on the left")).foregroundColor(.secondary)
+                }
                 Spacer()
             }
             .frame(maxWidth: .infinity)

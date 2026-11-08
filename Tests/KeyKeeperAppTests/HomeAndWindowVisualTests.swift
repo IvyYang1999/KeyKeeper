@@ -78,6 +78,65 @@ import KeyKeeperTestSupport
         }
     }
 
+    /// Waiting and missed approvals, the empty states and the provider picker.
+    func test等批准错过授权空状态与服务商选择器() throws {
+        guard let output = ProcessInfo.processInfo.environment["KEYKEEPER_PANEL_PREVIEW"] else {
+            throw XCTSkip("Opt-in synthetic states render")
+        }
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let original = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        defer { defaults.setVolatileDomain(original, forName: UserDefaults.argumentDomain) }
+        for (language, dark) in [("zh-Hans", false), ("en", true)] {
+            defaults.setVolatileDomain([AppL10n.preferenceName: language, "setupComplete": true, "lastSeenMetadataChange": "",
+                                        "dismissedMissedApprovalIDs": [String]()], forName: UserDefaults.argumentDomain)
+            let suffix = "\(language)-\(dark ? "dark" : "light")"
+            for withKeys in [true, false] {
+                let directory = URL(fileURLWithPath: output).appendingPathComponent("fixture-" + UUID().uuidString)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+                defer { try? FileManager.default.removeItem(at: directory) }
+                let store = MetaStore(directory: directory, integrityIO: FakeKeychainIO())
+                let session = KeychainCredentialService(store: KeychainBlobStore(io: FakeKeychainIO()))
+                let approvals = ApprovalStore.inMemory()
+                var credentials: [String: Credential] = [:]
+                if withKeys {
+                    credentials["openai"] = Credential(label: "OpenAI 个人项目", notes: "", links: [], fields: ["api-key": .init(secret: true)],
+                                                       security: .standard, created: "2026-11-01", updated: "2026-11-06", provider: "openai")
+                    try session.save(credentialId: "openai", fieldName: "api-key", value: "sk-synthetic-0000-a1Kk", security: .standard)
+                    try approvals.recordAudit(.init(timestamp: Date().addingTimeInterval(-600), credentialId: "openai", fieldName: "api-key",
+                        subjectFingerprint: "app:com.openai.codex", subjectDisplayName: "Codex", mode: .enforced,
+                        decision: "missed_approval", requestID: "req-missed"))
+                }
+                try store.save(MetaFile(credentials: credentials))
+                let id = UUID()
+                if withKeys {
+                    ApprovalCenter.shared.add(.init(id: id, symbol: "key.fill", title: L("\("Claude Code") wants to use \("OpenAI 个人项目")"),
+                        detail: "api-key", expiresAt: nil, confirmTitle: L("Allow"), destructive: false, opensWindow: true,
+                        confirm: {}, deny: {}))
+                }
+                defer { ApprovalCenter.shared.remove(id: id) }
+                let server = IPCServer(session: session, metaStore: store, approvals: approvals)
+                let home = MainView(session: session, ipcServer: server,
+                    listModel: CredentialListViewModel(session: session, store: store),
+                    addModel: AddCredentialViewModel(session: session, store: store, approvals: approvals),
+                    services: PopoverHomeServices(latestChange: { nil }, probeCLI: { .current(installed: "synthetic") },
+                                                  refreshMissed: { $0.refreshMissed(store: approvals) }))
+                try render(home, name: "home-\(withKeys ? "waiting" : "empty")-\(suffix)", size: NSSize(width: DS.Popover.width, height: 560),
+                           dark: dark, language: language, layout: .popover, output: output)
+                if !withKeys {
+                    let router = MainWindowRouter()
+                    let window = MainWindowView(router: router, updateController: UpdateController(driver: PreviewUpdateDriver()),
+                        session: session, browserSessions: nil, importFile: nil, onShowSetup: {},
+                        listModel: CredentialListViewModel(session: session, store: store), metaStore: store, approvals: approvals)
+                    try render(window, name: "window-empty-\(suffix)", size: NSSize(width: 1120, height: 600),
+                               dark: dark, language: language, layout: .embedded, output: output)
+                }
+            }
+            try render(ProviderPickerView(selectedID: "openai") { _ in }, name: "provider-picker-\(suffix)",
+                       size: NSSize(width: 420, height: 560), dark: dark, language: language, layout: .embedded, output: output)
+        }
+    }
+
     private func render<V: View>(_ page: V, name: String, size: NSSize, dark: Bool, language: String,
                                  layout: PanelLayout, output: String) throws {
         let root = page
