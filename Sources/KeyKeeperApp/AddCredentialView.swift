@@ -61,7 +61,7 @@ struct AddCredentialView: View {
             } else if let file = vm.sourceFile {
                 fileRow(file)
             } else {
-                KeyFieldsEditor(fields: $vm.fields)
+                KeyFieldsEditor(fields: $vm.fields, errors: vm.fieldErrors)
             }
             moreOptions
 

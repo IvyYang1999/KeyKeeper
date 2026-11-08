@@ -1,3 +1,5 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import KeyKeeperApp
 import KeyKeeperCore
@@ -144,6 +146,37 @@ final class CredentialEditorNamingTests: XCTestCase {
 
         XCTAssertNotNil(vm.fieldErrors[orphan])
         XCTAssertNil(try store.load().credentials["x"], "一个都不写")
+    }
+
+    /// 【曾经的 bug】2026-11-08 主力 Mac 验收 follow-up：添加页拒绝保存时说「见标红的那几行」，
+    /// 可哪一行都没标，因为添加页没把行错误交给密钥列表。
+    func test曾经的Bug添加页拒绝保存时错误标在那一行上() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let vm = AddCredentialViewModel(session: KeychainCredentialService(store: KeychainBlobStore(io: FakeKeychainIO())),
+                                        store: MetaStore(directory: dir), approvals: .inMemory())
+        vm.label = "X"; vm.autoGenerateId()
+        vm.fields = [FieldEntry(name: "api-key", value: "sk-synthetic-0008"), FieldEntry(value: "sk-synthetic-0009")]
+        XCTAssertFalse(vm.save())
+
+        XCTAssertNotNil(vm.errorMessage)
+        let rowErrors = vm.fieldErrors
+        XCTAssertEqual(rowErrors.count, 1)
+
+        // Same page, same summary line; only the row error differs. A shown row error takes a line.
+        _ = NSApplication.shared
+        func height() -> CGFloat {
+            let view = NSHostingView(rootView: AddCredentialView(
+                vm: vm, onSave: {}, onCancel: {}, onOpenExisting: { _ in }, onImportFile: nil
+            ).environment(\.panelLayout, .popover))
+            view.layoutSubtreeIfNeeded()
+            return view.fittingSize.height
+        }
+        let marked = height()
+        vm.fieldErrors = [:]
+        let unmarked = height()
+        XCTAssertGreaterThan(marked, unmarked + 8, "出错的那一行要显示错误")
     }
 }
 
