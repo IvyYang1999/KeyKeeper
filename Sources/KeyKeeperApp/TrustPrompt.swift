@@ -180,7 +180,7 @@ struct TrustPromptModel: Equatable {
                 providerNotes.append(L("Checked after saving with a read-only request to \(validation.host)."))
             }
             if let expiry = template.expiryNote {
-                providerNotes.append(L("Expires") + ": " + expiry)
+                providerNotes.append(L("Expires") + ": " + ProviderText.localized(expiry))
             }
             rows.append(Row(label: L("Provider"), value: template.name, icon: .provider(template.id),
                             note: providerNotes.isEmpty ? nil : providerNotes.joined(separator: " ")))

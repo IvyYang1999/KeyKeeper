@@ -582,7 +582,7 @@ struct ProviderExpiryPolicyLine: View {
         guard let providerId,
               let template = ProviderCatalog.find(providerId),
               let policy = template.expiryNote else { return nil }
-        return "\(template.name): \(policy)"
+        return "\(template.name): \(ProviderText.localized(policy))"
     }
 
     @ViewBuilder var body: some View {
