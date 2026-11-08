@@ -323,7 +323,9 @@ final class CredentialGUIDataTests: XCTestCase {
         XCTAssertNotNil(bad.errorMessage)
     }
 
-    /// 界面改字段名：新名要合规则；改名后后台授权跟着新名走，不再悄悄失效。
+    /// 界面改字段名：存下的字段名一定合规则。带空格的写法不再被拒绝，而是换成合规写法、原文留作显示名
+    /// （2026-11-07 yyt：被拒之后还得再复制一遍，「完全没法用」）；会被当成系统变量的名字仍然拒绝。
+    /// 改名后后台授权跟着新名走，不再悄悄失效。
     func test编辑改字段名要合规则且后台授权跟着走() throws {
         let session = FakeCredentialSession(values: ["svc.token": "opaque"])
         let credential = makeCredential(fields: ["token": CredentialField(secret: true)])
@@ -331,16 +333,19 @@ final class CredentialGUIDataTests: XCTestCase {
         let approvals = ApprovalStore.inMemory()
         try approvals.add(Approval(subject: .init(fingerprint: "fp", displayName: "cron"), target: .credential(id: "svc", fields: ["token"]), duration: .always))
 
-        let invalid = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store, approvals: approvals)
-        invalid.isEditing = true
-        invalid.fields[0].name = "deploy token"
-        XCTAssertFalse(invalid.saveChanges())
+        let reserved = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store, approvals: approvals)
+        reserved.isEditing = true
+        reserved.fields[0].name = "path"
+        XCTAssertFalse(reserved.saveChanges())
+        XCTAssertNotNil(reserved.fieldErrors[reserved.fields[0].id])
 
         let vm = CredentialDetailViewModel(credentialId: "svc", credential: credential, session: session, store: store, approvals: approvals)
         vm.isEditing = true
-        vm.fields[0].name = "deploy-token"
+        vm.fields[0].name = "deploy token"
         XCTAssertTrue(vm.saveChanges(), vm.errorMessage ?? "")
-        XCTAssertEqual(try store.load().credentials["svc"]?.fields["deploy-token"]?.aliases, ["token"])
+        let field = try XCTUnwrap(store.load().credentials["svc"]?.fields["deploy-token"])
+        XCTAssertEqual(field.aliases, ["token"])
+        XCTAssertEqual(field.displayName, "deploy token")
         XCTAssertEqual(try approvals.approvals(forCredential: "svc").map(\.target), [.credential(id: "svc", fields: ["deploy-token"])])
     }
 

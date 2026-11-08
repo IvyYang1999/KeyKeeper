@@ -14,6 +14,8 @@ final class CredentialDetailViewModel: ObservableObject {
     @Published var injectOnly: Bool
     @Published var isEditing = false
     @Published var errorMessage: String?
+    /// Problems that belong to one key row, keyed by `FieldEntry.id`, shown under that row.
+    @Published var fieldErrors: [UUID: String] = [:]
     /// The group ID being edited. Saving a different one renames the credential; the old
     /// ID keeps working as an alias.
     @Published var groupIdDraft: String
@@ -70,6 +72,84 @@ final class CredentialDetailViewModel: ObservableObject {
                 error: error
             )
         }
+    }
+
+    /// Opens the editor on what is stored now, with a masked look at each saved secret.
+    func beginEditing() {
+        fieldErrors = [:]
+        errorMessage = nil
+        isEditing = true
+        loadStoredPreviews()
+    }
+
+    /// Leaves the editor without saving anything typed.
+    func cancelEditing() {
+        reloadCredential()
+        fieldErrors = [:]
+        isEditing = false
+    }
+
+    /// 【曾经的 bug】2026-11-07 yyt：编辑页里已存的值只写「未修改」，连 sk***Kk 这样的简略样子都没有，
+    /// 分不清哪把是哪把。Reads each stored secret of this one credential once and keeps only
+    /// its mask: the row's value stays empty, so an untouched row is still "unchanged" on save.
+    /// A secret whose value is gone is marked, which is also how a missing value gets typed back.
+    func loadStoredPreviews() {
+        let stored = try? session.storedFieldNames(credentialId: credentialId)
+        for index in fields.indices where fields[index].existingSecret && fields[index].fileFormat == nil
+            && fields[index].value.isEmpty {
+            let name = fields[index].originalName ?? fields[index].name
+            if let stored, !stored.contains(name) {
+                fields[index].storedMissing = true
+                continue
+            }
+            if let value = try? storedValue(for: fields[index]) {
+                fields[index].storedPreview = MaskedFieldPresentation.mask(value)
+            }
+        }
+    }
+
+    /// Every row gets a field name before anything is checked or written. The person writes
+    /// one name; a row without a field name takes it from that wording, and one that cannot
+    /// be used by scripts as typed ("Access Token") becomes the safe form shown under it, the
+    /// wording kept as its display name. Rows that are still wrong are reported where they are.
+    ///
+    /// 【曾经的 bug】2026-11-07 yyt：名字填在显示名里、名称留空，保存后新字段连值一起消失；
+    /// 名称带空格又被拒绝，明明底下已经生成了能用的写法。
+    static func prepareRows(_ rows: [FieldEntry]) -> (rows: [FieldEntry], problems: [UUID: String]) {
+        var prepared: [FieldEntry] = []
+        var problems: [UUID: String] = [:]
+        var seen: [String: String] = [:]
+        for var row in rows {
+            let name = row.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let wording = row.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            row.displayName = wording
+            if name.isEmpty {
+                if !wording.isEmpty {
+                    row.name = AddCredentialViewModel.machineFieldName(wording)
+                } else if row.value.isEmpty, row.originalName == nil, row.fileFormat == nil {
+                    continue   // a blank row the person never filled in
+                } else {
+                    row.name = ""
+                    problems[row.id] = L("Give this key a name.")
+                    prepared.append(row)
+                    continue
+                }
+            } else if name != row.originalName, !CredentialNames.isValidFieldName(name) {
+                if wording.isEmpty { row.displayName = name }
+                row.name = AddCredentialViewModel.machineFieldName(name)
+            } else {
+                row.name = name
+            }
+            if row.displayName == row.name { row.displayName = "" }
+            if row.name != row.originalName, EnvironmentVariableName.isReserved(fieldName: row.name) {
+                problems[row.id] = MetadataEditCopy.message(.reservedFieldName(row.name))
+            } else if let first = seen[row.name] {
+                problems[row.id] = L("Same name as \u{201C}\(first)\u{201D} above. Use another name.")
+            }
+            if seen[row.name] == nil { seen[row.name] = row.title }
+            prepared.append(row)
+        }
+        return (prepared, problems)
     }
 
     /// Stored value for an editor row; used by the edit-mode eye.
@@ -151,6 +231,7 @@ final class CredentialDetailViewModel: ObservableObject {
             fields = Self.fieldEntries(for: storedCredential)
             groupIdDraft = credentialId
             errorMessage = nil
+            fieldErrors = [:]
         } catch {
             errorMessage = L("Reload failed: \(error.localizedDescription)")
         }
@@ -219,6 +300,14 @@ final class CredentialDetailViewModel: ObservableObject {
                         return false
                     }
                 }
+                // Name every row first, so a value is never dropped for want of a field name.
+                let prepared = Self.prepareRows(fields)
+                fields = prepared.rows
+                fieldErrors = prepared.problems
+                if !fieldErrors.isEmpty {
+                    errorMessage = L("Some keys need a fix before saving; see the marked rows.")
+                    return false
+                }
                 // Check names before touching anything, so a bad one never leaves a half-saved edit.
                 let newGroupId = groupIdDraft.trimmingCharacters(in: .whitespacesAndNewlines)
                 if newGroupId != credentialId {
@@ -240,6 +329,9 @@ final class CredentialDetailViewModel: ObservableObject {
                     security: security
                 )
                 if let failure = plan.validationFailures.first {
+                    if let row = fields.first(where: { $0.name == failure.fieldName }) {
+                        fieldErrors[row.id] = failure.reason
+                    }
                     errorMessage = L("\(failure.fieldName): \(failure.reason)")
                     return false
                 }
@@ -341,6 +433,8 @@ final class CredentialDetailViewModel: ObservableObject {
                     renamedGroupId = result.groupId
                 }
                 isEditing = false
+                // Back to what is stored: no typed value stays in memory after the editor closes.
+                fields = Self.fieldEntries(for: credential)
                 errorMessage = strandedFields.isEmpty ? nil : L(
                     "Saved, but the old Keychain copy of \(strandedFields.sorted().joined(separator: ", ")) could not be removed. That value is now stored in two places."
                 )

@@ -248,4 +248,22 @@ final class CredentialEditPlanTests: XCTestCase {
         XCTAssertEqual(plan.keychainDropsAfterCommit, ["token"], "旧名的钥匙串条目只能在 meta 写成之后再删")
         XCTAssertEqual(plan.fieldRenames, ["token": "token-new"])
     }
+
+    /// 【曾经的 bug】2026-11-07：有值却没有字段名的行被当成空行跳过，值丢了也不报错。
+    /// 最后一道防线：这种行一律记为校验失败，调用方据此拒绝整个保存。空名空值的仍算空行。
+    func test曾经的Bug有值没字段名的行算校验失败不悄悄跳过() {
+        let plan = CredentialEditPlan(
+            inputFields: [
+                .init(name: "api-key", value: "opaque-new-value"),
+                .init(name: "", value: "orphan-value"),
+                .init(name: "", value: "")
+            ],
+            existingFields: [:],
+            security: .standard
+        )
+
+        XCTAssertEqual(plan.validationFailures.count, 1)
+        XCTAssertEqual(plan.validationFailures.first?.fieldName, "")
+        XCTAssertFalse(plan.valueWrites.contains { $0.value == "orphan-value" })
+    }
 }

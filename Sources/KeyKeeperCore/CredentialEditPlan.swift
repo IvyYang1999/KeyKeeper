@@ -95,7 +95,16 @@ public struct CredentialEditPlan: Sendable {
             return field
         }
 
-        for field in inputFields where !field.name.isEmpty {
+        for field in inputFields {
+            // 【曾经的 bug】2026-11-07: a row with a value but no field name used to be skipped like a
+            // blank row, so the pasted value vanished without a word. Callers name every row first;
+            // one that still arrives nameless fails the whole plan instead of losing its value.
+            guard !field.name.isEmpty else {
+                if !field.value.isEmpty {
+                    validationFailures.append(.init(fieldName: "", reason: "This value has no field name, so it would not be saved."))
+                }
+                continue
+            }
             let existing = field.originalName.flatMap { existingFields[$0] } ?? existingFields[field.name]
 
             if !field.isSecret {

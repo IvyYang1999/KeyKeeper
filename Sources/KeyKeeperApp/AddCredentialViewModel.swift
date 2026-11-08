@@ -17,6 +17,43 @@ struct FieldEntry: Identifiable {
     /// False for plain metadata (an account id, a region, an email): the value is stored in
     /// meta.json in the clear and injected without asking anyone.
     var isSecret: Bool = true
+    /// Set once the person typed the field name themselves (detail editor's "Change field
+    /// name"); from then on the name they write no longer regenerates it.
+    var machineNameEdited = false
+    /// Masked look at the stored value (detail editor), e.g. "sk***Kk". Never the value itself:
+    /// a row with only a preview is unchanged and is not written back on save.
+    var storedPreview: String?
+    /// The metadata names this secret but the Keychain has no value for it.
+    var storedMissing = false
+    /// The person chose to type a new value over a stored one.
+    var replacing = false
+}
+
+extension FieldEntry {
+    /// The one name a row shows: the wording the person gave it, else the field name.
+    var title: String { displayName.isEmpty ? name : displayName }
+
+    /// Typing a row's name. A new field's machine name follows what is typed, made safe for
+    /// scripts ("Access Token" → access-token), and the wording is kept as its display name.
+    /// An existing field keeps its machine name — scripts and approvals already use it — and
+    /// only the wording changes.
+    ///
+    /// 【曾经的 bug】2026-11-07 yyt：编辑页要人分清「名称」和「显示名」，名字填错格子，
+    /// 新字段要么被拒、要么连值一起丢掉。现在只有一个名字。
+    mutating func setTitle(_ typed: String) {
+        if originalName == nil, !machineNameEdited {
+            let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+            name = trimmed.isEmpty ? "" : AddCredentialViewModel.machineFieldName(trimmed)
+        }
+        displayName = typed == name ? "" : typed
+    }
+
+    /// Set the machine name directly ("Change field name"); the wording stays.
+    mutating func setMachineName(_ typed: String) {
+        name = typed
+        machineNameEdited = true
+        if displayName == name { displayName = "" }
+    }
 }
 
 @MainActor
@@ -31,6 +68,8 @@ class AddCredentialViewModel: ObservableObject {
     /// Values only reach commands through `keykeeper run`; `get` and the SDKs are refused.
     @Published var injectOnly = true
     @Published var errorMessage: String?
+    /// Problems that belong to one key row, keyed by `FieldEntry.id`, shown under that row.
+    @Published var fieldErrors: [UUID: String] = [:]
     /// A service-account JSON chosen instead of typed values. Saved through the confirmed
     /// file import (the App reads it only after approval), never read by this form.
     @Published var sourceFile: URL?
@@ -137,6 +176,7 @@ class AddCredentialViewModel: ObservableObject {
         fields = [FieldEntry(name: Self.defaultFieldName)]
         security = SecurityLevelPresentation.defaultLevel
         errorMessage = nil
+        fieldErrors = [:]
         sourceFile = nil
         clipboardChangeCount = nil
         previousAutoId = ""
@@ -195,10 +235,31 @@ class AddCredentialViewModel: ObservableObject {
         CredentialNames.slug(raw)
     }
 
+    /// Rows the Add form must not save as they are: a value with no name, or two rows whose
+    /// names come out the same once made safe for scripts.
+    static func rowProblems(_ rows: [FieldEntry]) -> [UUID: String] {
+        var problems: [UUID: String] = [:]
+        var seen: [String: String] = [:]
+        for row in rows {
+            let typed = row.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if typed.isEmpty {
+                if !row.value.isEmpty { problems[row.id] = L("Give this key a name.") }
+                continue
+            }
+            let machine = machineFieldName(typed)
+            if let first = seen[machine] {
+                problems[row.id] = L("Same name as \u{201C}\(first)\u{201D} above. Use another name.")
+            } else {
+                seen[machine] = typed
+            }
+        }
+        return problems
+    }
+
     /// The field name a machine uses for what the person typed: kept as is when it is already
     /// a valid name ("api_key", "API_KEY"), otherwise made plain ("API Key " → "api-key").
     /// What they typed is kept as the field's display name.
-    static func machineFieldName(_ typed: String) -> String {
+    nonisolated static func machineFieldName(_ typed: String) -> String {
         let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         if CredentialNames.isValidFieldName(trimmed) { return trimmed }
         let slug = CredentialNames.slug(trimmed)
@@ -310,6 +371,13 @@ class AddCredentialViewModel: ObservableObject {
                         guard let value = try source.readText() else { throw ClipboardSaveError.invalidFile }
                         inputs[i].value = value
                     }
+                }
+                // 【曾经的 bug】2026-11-07: a row with a value and no name was filtered out with the
+                // blank rows, and its value was lost without a word. Name it or refuse the save.
+                fieldErrors = Self.rowProblems(inputs)
+                if !fieldErrors.isEmpty {
+                    errorMessage = L("Some keys need a fix before saving; see the marked rows.")
+                    return false
                 }
                 let named = inputs.filter {
                     !$0.name.trimmingCharacters(in: .whitespaces).isEmpty && (providerID == nil || !$0.value.isEmpty)
