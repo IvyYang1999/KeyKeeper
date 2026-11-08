@@ -63,7 +63,7 @@ class AddCredentialViewModel: ObservableObject {
     @Published var notes = ""
     /// Last day the key works at its provider, YYYY-MM-DD; nil when the person did not record one.
     @Published var expires: String?
-    @Published var fields: [FieldEntry] = [FieldEntry(name: AddCredentialViewModel.defaultFieldName)] {
+    @Published var fields: [FieldEntry] = [FieldEntry()] {
         didSet { if fields.contains(where: { !$0.value.isEmpty }) { startedFilling = true } }
     }
     /// Something was typed into a field since the provider was chosen (it may be empty again).
@@ -97,9 +97,21 @@ class AddCredentialViewModel: ObservableObject {
         refreshExistingIds()
     }
 
-    /// Pre-filled for the first key: an overwhelming majority of credentials have exactly
-    /// one field called this, and asking for it is a decision the beginner cannot make yet.
+    /// What an unnamed first key is called: an overwhelming majority of credentials have
+    /// exactly one field called this, and asking for it is a decision the beginner cannot make
+    /// yet. It is the grey placeholder of the first name box, never text typed for the person.
     static let defaultFieldName = "api-key"
+
+    /// The rows as they will be saved: a first key left unnamed is `defaultFieldName`. Only the
+    /// first; a later row with a value and no name still asks for one.
+    ///
+    /// 【曾经的问题】2026-11-09 yyt：「它把我们自动生成的名称和用户自己填写的名称混在一起了」——
+    /// api-key used to be typed into the box in black, as if the person had written it.
+    static func namingFirst(_ rows: [FieldEntry]) -> [FieldEntry] {
+        guard var first = rows.first, first.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return rows }
+        first.name = defaultFieldName
+        return [first] + rows.dropFirst()
+    }
 
     var isValid: Bool {
         if providerID != nil {
@@ -108,7 +120,7 @@ class AddCredentialViewModel: ObservableObject {
         if sourceFile != nil { return !label.isEmpty && idProblem == nil }
         return !label.isEmpty
             && idProblem == nil
-            && fields.contains { !$0.name.isEmpty && !$0.value.isEmpty }
+            && Self.namingFirst(fields).contains { !$0.name.isEmpty && !$0.value.isEmpty }
     }
 
     /// A pristine form is not a draft — the pre-filled default key name must not by itself
@@ -122,11 +134,25 @@ class AddCredentialViewModel: ObservableObject {
         return !only.name.isEmpty && only.name != Self.defaultFieldName
     }
 
-    /// The gray line under the Name field: what scripts and AI tools will actually type.
-    var idSummary: String {
-        credentialId.isEmpty
-            ? L("The ID is created from the name")
-            : "\(credentialId) \u{00B7} keykeeper run -c \(credentialId)"
+    /// What scripts and AI tools will actually type; nil until there is an ID.
+    var generatedCommand: String? {
+        credentialId.isEmpty ? nil : "keykeeper run -c \(credentialId)"
+    }
+
+    /// The variables the keys become, in row order: derived, so shown with the command and
+    /// not under the boxes the person types in.
+    var generatedVariables: [String] {
+        if let provider {
+            return fields.compactMap { provider.field(named: $0.name) }.flatMap(\.environmentNames)
+        }
+        if sourceFile != nil { return [] }
+        var seen = Set<String>()
+        return Self.namingFirst(fields).compactMap { row in
+            let typed = row.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !typed.isEmpty else { return nil }
+            let variable = EnvironmentVariableName.from(fieldName: Self.machineFieldName(typed))
+            return seen.insert(variable).inserted ? variable : nil
+        }
     }
 
     /// Set when the derived ID is taken. Surfaced as an offer to open that credential
@@ -177,7 +203,7 @@ class AddCredentialViewModel: ObservableObject {
         credentialId = ""
         notes = ""
         expires = nil
-        fields = [FieldEntry(name: Self.defaultFieldName)]
+        fields = [FieldEntry()]
         startedFilling = false
         security = SecurityLevelPresentation.defaultLevel
         errorMessage = nil
@@ -192,14 +218,14 @@ class AddCredentialViewModel: ObservableObject {
     /// and put into the first value box (still masked). The name is the only thing left to type.
     func prefillFromClipboard(_ value: String, changeCount: Int) {
         reset()
-        fields = [FieldEntry(name: Self.defaultFieldName, value: value)]
+        fields = [FieldEntry(value: value)]
         clipboardChangeCount = changeCount
     }
 
     /// "From file": remember the file and suggest a name from it; the contents are not read here.
     func useFile(_ url: URL) {
         sourceFile = url
-        fields = [FieldEntry(name: Self.defaultFieldName)]
+        fields = [FieldEntry()]
         if label.isEmpty {
             label = url.deletingPathExtension().lastPathComponent
         }
@@ -213,7 +239,7 @@ class AddCredentialViewModel: ObservableObject {
         self.label = label ?? ""
         self.notes = notes ?? ""
         self.fields = fieldNames.isEmpty
-            ? [FieldEntry(name: Self.defaultFieldName)]
+            ? [FieldEntry()]
             : fieldNames.map { FieldEntry(name: $0) }
         autoGenerateId()
     }
@@ -291,7 +317,7 @@ class AddCredentialViewModel: ObservableObject {
         fields = next?.fields.map {
             FieldEntry(name: $0.name, fileFormat: $0.fileFormat,
                        displayName: $0.label, isSecret: $0.isSaveableSecret)
-        } ?? [FieldEntry(name: Self.defaultFieldName)]
+        } ?? [FieldEntry()]
         startedFilling = false
         if label.isEmpty || label == oldName {
             label = next?.name ?? ""
@@ -384,7 +410,7 @@ class AddCredentialViewModel: ObservableObject {
                 if let providerProblem { errorMessage = providerProblem; return false }
                 // The Save button is the user's approval to read the files shown in this form.
                 // Validate every file before any Keychain write; no file contents enter UI state.
-                var inputs = fields
+                var inputs = Self.namingFirst(fields)
                 for i in inputs.indices {
                     if let source = providerFileSources[inputs[i].name] {
                         guard let value = try source.readText() else { throw ClipboardSaveError.invalidFile }

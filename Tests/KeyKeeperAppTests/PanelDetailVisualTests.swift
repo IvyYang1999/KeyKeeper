@@ -163,11 +163,18 @@ final class CredentialAvailabilityBadgeTests: XCTestCase {
         for (language, dark) in [("zh-Hans", false), ("en", true)] {
             defaults.setVolatileDomain([AppL10n.preferenceName: language], forName: UserDefaults.argumentDomain)
             let suffix = "\(language)-\(dark ? "dark" : "light")"
-            for provider in [nil, "stripe"] as [String?] {
+            for kind in ["blank", "stripe", "filled"] {
                 let vm = AddCredentialViewModel(session: session, store: store, approvals: .inMemory())
-                if let provider { _ = vm.selectProvider(provider) }
+                if kind == "stripe" { _ = vm.selectProvider(kind) }
+                // The state from the 2026-11-09 screenshot: a name typed, one value pasted with the
+                // first key left unnamed, and an empty second row.
+                if kind == "filled" {
+                    vm.label = "野草云"
+                    vm.autoGenerateId()
+                    vm.fields[0].value = "20-synthetic-0044"
+                    vm.fields.append(FieldEntry())
+                }
                 let page = AddCredentialView(vm: vm, onSave: {}, onCancel: {}, onOpenExisting: { _ in })
-                let kind = provider ?? "blank"
                 try render(page, name: "add-popover-\(kind)-\(suffix)", size: NSSize(width: DS.Popover.width, height: 720),
                            dark: dark, language: language, layout: .popover, output: output)
                 try render(page, name: "add-window-\(kind)-\(suffix)", size: NSSize(width: 760, height: 900),

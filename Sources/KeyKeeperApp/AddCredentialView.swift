@@ -61,8 +61,10 @@ struct AddCredentialView: View {
             } else if let file = vm.sourceFile {
                 fileRow(file)
             } else {
-                KeyFieldsEditor(fields: $vm.fields, errors: vm.fieldErrors)
+                KeyFieldsEditor(fields: $vm.fields, errors: vm.fieldErrors,
+                                firstNamePlaceholder: AddCredentialViewModel.defaultFieldName)
             }
+            generatedSection
             moreOptions
 
             if let error = vm.errorMessage {
@@ -159,18 +161,10 @@ struct AddCredentialView: View {
         }
     }
 
-    /// One line under the name that always occupies the same slot, so the form does not
-    /// jump while typing. It shows the derived ID, or the reason it cannot be used.
+    /// Under the name only what is wrong with the ID it makes, because that is the name's
+    /// doing. The ID itself is shown with the rest of what is generated, in `generatedSection`.
     @ViewBuilder
     private var identityLine: some View {
-        if isEditingId {
-            TextField("stripe", text: Binding(
-                get: { vm.credentialId },
-                set: { vm.userEditedId($0) }
-            ))
-            .dsInput(monospaced: true)
-        }
-
         if let conflict = vm.conflictingId {
             HStack(spacing: DS.Spacing.sm) {
                 Image(systemName: "exclamationmark.circle")
@@ -191,29 +185,81 @@ struct AddCredentialView: View {
                 }
                 Spacer()
             }
-        } else if let problem = vm.idFormatProblem, vm.hasDraft {
+        } else if let problem = vm.idFormatProblem, !vm.label.isEmpty, !isEditingId {
             Text(problem)
                 .font(.caption2)
                 .foregroundColor(.red)
                 .fixedSize(horizontal: false, vertical: true)
-        } else if !isEditingId {
+        }
+    }
+
+    /// Everything KeyKeeper makes from the names above, in one place that is visibly not
+    /// something to fill in: the command scripts and AI tools run, and the variables the keys
+    /// become. The ID is the one part someone may want to change, so only it can be edited.
+    ///
+    /// 【曾经的问题】2026-11-09 yyt：「它把我们自动生成的名称和用户自己填写的名称混在一起了」。
+    /// The ID and command hung under the name box and each key's variable under its name box,
+    /// so the boxes read as half filled in by someone else.
+    private var generatedSection: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+            SectionLabel(text: L("For AI tools"), hint: L("generated from the names above"))
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: DS.Spacing.md, verticalSpacing: 4) {
+                GridRow {
+                    Text(L("Command")).foregroundColor(.secondary)
+                    commandValue
+                }
+                if !vm.generatedVariables.isEmpty {
+                    GridRow {
+                        Text(L("Variables")).foregroundColor(.secondary)
+                        Text(vm.generatedVariables.joined(separator: "  "))
+                            .font(.caption.monospaced())
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .font(.caption)
+            if isEditingId, let problem = vm.idFormatProblem {
+                Text(problem)
+                    .font(.caption2)
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var commandValue: some View {
+        if isEditingId {
+            HStack(spacing: 6) {
+                Text("keykeeper run -c")
+                    .font(.caption.monospaced())
+                    .foregroundColor(.secondary)
+                    .fixedSize()
+                TextField("stripe", text: Binding(
+                    get: { vm.credentialId },
+                    set: { vm.userEditedId($0) }
+                ))
+                .dsInput(monospaced: true)
+            }
+        } else if let command = vm.generatedCommand {
             Button(action: { isEditingId = true }) {
                 HStack(spacing: 4) {
-                    Text(vm.idSummary)
-                        // Monospaced only for the ID and command; the "generated from the name"
-                        // sentence in a code font looked like a broken label.
-                        .font(vm.credentialId.isEmpty ? .caption2 : .caption2.monospaced())
+                    Text(command)
+                        .font(.caption.monospaced())
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Image(systemName: "pencil")
                         .font(.caption2)
-                        .foregroundColor(.secondary.opacity(0.5))
-                    Spacer()
+                        .foregroundColor(.secondary.opacity(0.6))
                 }
             }
             .buttonStyle(.plain)
             .help(L("Edit the ID that scripts and AI tools pass to keykeeper run -c"))
+        } else {
+            Text(L("Appears once you enter a name.")).foregroundColor(.secondary)
         }
     }
 
@@ -311,8 +357,17 @@ struct KeyFieldsEditor: View {
     var onRevealError: ((Error) -> Void)? = nil
     /// Problems shown under a row, keyed by `FieldEntry.id`.
     var errors: [UUID: String] = [:]
+    /// Add form: what an unnamed first key will be called, shown as its grey placeholder, and
+    /// the derived script names stay out of the rows (the form lists them with the command).
+    /// The detail editor leaves this nil: there a row's script name is fixed and worth seeing.
+    var firstNamePlaceholder: String? = nil
 
     @Environment(\.panelLayout) private var layout
+
+    private func namePlaceholder(for id: UUID) -> String {
+        guard let firstNamePlaceholder else { return L("Name") }
+        return id == fields.first?.id ? firstNamePlaceholder : L("Key name")
+    }
 
     /// Eye button behaviour, shared with the detail view. A stored value is fetched the
     /// first time it is revealed; before this, the edit-mode eye only flipped `visible`
@@ -352,6 +407,8 @@ struct KeyFieldsEditor: View {
                     KeyFieldRow(
                         field: $field,
                         showsDisplayName: showsDisplayName,
+                        namePlaceholder: namePlaceholder(for: field.id),
+                        showsScriptName: firstNamePlaceholder == nil,
                         nameWidth: layout == .embedded ? 190 : 136,
                         error: errors[field.id],
                         canRemove: fields.count > 1,
@@ -402,6 +459,8 @@ extension KeyFieldsEditor {
 private struct KeyFieldRow: View {
     @Binding var field: FieldEntry
     let showsDisplayName: Bool
+    let namePlaceholder: String
+    let showsScriptName: Bool
     let nameWidth: CGFloat
     let error: String?
     let canRemove: Bool
@@ -435,15 +494,17 @@ private struct KeyFieldRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    TextField(L("Name"), text: title)
+                    TextField(namePlaceholder, text: title)
                         .textFieldStyle(.plain)
                         .font(.body)
-                    Text(scriptLine)
-                        .font(.caption2.monospaced())
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(L("The name scripts and agents use, and the environment variable it becomes."))
+                    if showsScriptName {
+                        Text(scriptLine)
+                            .font(.caption2.monospaced())
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(L("The name scripts and agents use, and the environment variable it becomes."))
+                    }
                 }
                 .frame(width: nameWidth, alignment: .leading)
 

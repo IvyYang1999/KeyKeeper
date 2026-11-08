@@ -103,10 +103,8 @@ struct AddProviderFields: View {
                     .dsInput()
                     .accessibilityIdentifier("provider-field-" + field.name)
             }
-            Text(field.environmentNames.joined(separator: " · "))
-                .font(.caption2.monospaced()).foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
+            // The variables this becomes are listed with the command under "For AI tools",
+            // with everything else KeyKeeper generates, not under the box to fill in.
         }
         .help(field.help)
     }

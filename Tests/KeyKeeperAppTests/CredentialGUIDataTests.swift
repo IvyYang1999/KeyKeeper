@@ -622,16 +622,18 @@ extension CredentialGUIDataTests {
 }
 
 extension CredentialGUIDataTests {
-    func test新表单预填默认字段名且不算草稿() {
+    /// 2026-11-09 起默认字段名只是第一个名字格的灰色占位字，不再替人填进格子（见 AddFormGeneratedNamesTests）。
+    func test新表单的默认字段名只是占位且不算草稿() {
         let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
-        XCTAssertEqual(vm.fields.map(\.name), [AddCredentialViewModel.defaultFieldName])
-        XCTAssertFalse(vm.hasDraft, "预填的默认字段名不该让列表显示草稿提示")
+        XCTAssertEqual(vm.fields.map(\.name), [""])
+        XCTAssertEqual(AddCredentialViewModel.namingFirst(vm.fields).map(\.name), [AddCredentialViewModel.defaultFieldName])
+        XCTAssertFalse(vm.hasDraft, "空的新表单不该让列表显示草稿提示")
 
         vm.label = "OpenAI"
         XCTAssertTrue(vm.hasDraft)
         vm.reset()
         XCTAssertFalse(vm.hasDraft)
-        XCTAssertEqual(vm.fields.map(\.name), [AddCredentialViewModel.defaultFieldName])
+        XCTAssertEqual(vm.fields.map(\.name), [""])
     }
 
     func test改字段名或填值都算草稿() {
@@ -650,10 +652,10 @@ extension CredentialGUIDataTests {
 
     func testID摘要给出用户真正要敲的命令() {
         let vm = AddCredentialViewModel(session: FakeCredentialSession(), store: store, approvals: .inMemory())
-        XCTAssertEqual(vm.idSummary, "The ID is created from the name")
+        XCTAssertNil(vm.generatedCommand)
         vm.label = "OpenAI"
         vm.autoGenerateId()
-        XCTAssertEqual(vm.idSummary, "openai · keykeeper run -c openai")
+        XCTAssertEqual(vm.generatedCommand, "keykeeper run -c openai")
     }
 
     func test重复ID既是冲突也仍然拦截保存() throws {

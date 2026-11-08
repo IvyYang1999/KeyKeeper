@@ -222,7 +222,8 @@ import KeyKeeperTestSupport
         XCTAssertTrue(vm.selectProvider("openai"))
         XCTAssertTrue(vm.selectProvider(""))
         XCTAssertNil(vm.providerID)
-        XCTAssertEqual(vm.fields.first?.name, AddCredentialViewModel.defaultFieldName)
+        XCTAssertEqual(vm.fields.first?.name, "", "Back to an empty first name; api-key is its placeholder")
+        XCTAssertEqual(AddCredentialViewModel.namingFirst(vm.fields).first?.name, AddCredentialViewModel.defaultFieldName)
         XCTAssertFalse(vm.hasDraft)
     }
 }
