@@ -1,18 +1,28 @@
 import SwiftUI
 import KeyKeeperCore
 
+/// A mark only when a value is missing. Not checked yet, checking, present, or not checkable
+/// without a prompt all look the same: nothing, because there is nothing for you to do.
+///
+/// 【曾经的 bug】2026-11-07 yyt：菜单栏每行右边一个灰色「?」（还没检查值），7 行就是 7 个问号，像帮助按钮；
+/// 详情页还有一整行「尚未检查值 / 重新检测」，把内部状态当成内容。
 struct CredentialAvailabilityBadge: View {
     var availability: CredentialValueAvailability
     var compact = false
-    var body: some View {
-        Group {
-            if compact { Image(systemName: symbol).accessibilityLabel(title) }
-            else { Label(title, systemImage: symbol) }
-        }
+
+    static func isShown(_ availability: CredentialValueAvailability) -> Bool { availability.state == .missing }
+
+    @ViewBuilder var body: some View {
+        if Self.isShown(availability) {
+            Group {
+                if compact { Image(systemName: symbol).accessibilityLabel(title) }
+                else { Label(title, systemImage: symbol) }
+            }
             .font(.caption)
-            .foregroundColor(availability.state == .missing ? .orange : .secondary)
+            .foregroundColor(.orange)
             .fixedSize(horizontal: false, vertical: true)
             .help(explanation)
+        }
     }
     private var explanation: String {
         switch availability.state {

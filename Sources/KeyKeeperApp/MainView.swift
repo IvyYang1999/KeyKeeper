@@ -481,33 +481,39 @@ struct PopoverIconButton: View {
     }
 }
 
-/// "‹ Back" pill in the top-left of a menu bar sub-page, as in the system Passwords extra.
+/// "‹ Back" in the top-left of a menu bar sub-page.
 struct PopoverBackButton: View {
     let action: () -> Void
 
     var body: some View {
-        PopoverPillButton(symbol: "chevron.left", title: L("Back"), action: action)
+        PopoverBarButton(symbol: "chevron.left", title: L("Back"), action: action)
     }
 }
 
-/// Small labelled pill for a menu bar page's top bar ("‹ Back", "✎ Edit").
-struct PopoverPillButton: View {
-    let symbol: String
+/// A word in a menu bar page's top bar ("‹ Back", "Edit"): accent-coloured text, no border,
+/// a light wash on hover, like the links in a system window's title bar.
+///
+/// 【曾经的 bug】2026-11-07 yyt 盘点：「返回」是个带边框的大胶囊，比页面标题还抢眼。
+struct PopoverBarButton: View {
+    var symbol: String?
     let title: String
     let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
-                Text(title).font(.system(size: 14, weight: .semibold))
+            HStack(spacing: 3) {
+                if let symbol { Image(systemName: symbol).font(.system(size: 13, weight: .semibold)) }
+                Text(title).font(.system(size: 13))
             }
-            .padding(.horizontal, 10)
-            .frame(height: 30)
+            .foregroundColor(.accentColor)
+            .padding(.horizontal, 6)
+            .frame(height: 28)
             .contentShape(Rectangle())
-            .surface(.card, radius: 9)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(hovering ? 0.08 : 0)))
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 
@@ -646,7 +652,7 @@ struct PopoverKeyDetail: View {
                 PopoverBackButton(action: onBack)
                 Spacer()
                 if let onEdit {
-                    PopoverPillButton(symbol: "pencil", title: L("Edit"), action: onEdit)
+                    PopoverBarButton(title: L("Edit"), action: onEdit)
                 }
                 PopoverIconButton(symbol: "macwindow", help: L("Open in KeyKeeper"), action: onOpenWindow)
             }
@@ -663,18 +669,15 @@ struct PopoverKeyDetail: View {
                 }
                 .padding(.vertical, 12)
 
-                GlassSeparator()
-                row(L("Group ID")) {
-                    Text(credentialId).font(.callout.monospaced()).foregroundColor(.secondary).textSelection(.enabled)
-                    CopyTextButton(text: credentialId, help: L("Copy group ID"))
+                if CredentialAvailabilityBadge.isShown(valueAvailability) {
+                    GlassSeparator()
+                    HStack {
+                        CredentialAvailabilityBadge(availability: valueAvailability)
+                        Spacer()
+                        Button(L("Check again"), action: onCheckValues).font(.caption)
+                    }
+                    .padding(.vertical, 6)
                 }
-                .help(L("The name scripts and agents pass to keykeeper run -c. It is not a key name."))
-                HStack {
-                    CredentialAvailabilityBadge(availability: valueAvailability)
-                    Spacer()
-                    Button(L("Check again"), action: onCheckValues).font(.caption)
-                }
-                .padding(.vertical, 4)
                 ForEach(Array(vm.fields.enumerated()), id: \.offset) { index, field in
                     GlassSeparator()
                     if field.fileFormat != nil {
@@ -702,6 +705,14 @@ struct PopoverKeyDetail: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 10)
                 }
+                // What scripts pass to keykeeper run -c: needed now and then, so last and quiet.
+                GlassSeparator()
+                row(L("Group ID")) {
+                    Text(credentialId).font(.callout.monospaced()).foregroundColor(.secondary).textSelection(.enabled)
+                    CopyTextButton(text: credentialId, help: L("Copy group ID"))
+                }
+                .foregroundColor(.secondary)
+                .help(L("The name scripts and agents pass to keykeeper run -c. It is not a key name."))
             }
             .padding(.horizontal, 14)
             .surface(.card, radius: 14)

@@ -23,6 +23,7 @@ struct CredentialDetailView: View {
     @State private var pendingPlainConversion: Int?
     @State private var showAdvanced = false
     @Environment(\.panelLayout) private var layout
+    private let approvals: ApprovalStore
 
     init(
         credentialId: String,
@@ -42,6 +43,7 @@ struct CredentialDetailView: View {
         self.valueAvailability = valueAvailability
         self.onCheckValues = onCheckValues
         self.startEditing = startEditing
+        self.approvals = approvals
         _vm = StateObject(wrappedValue: CredentialDetailViewModel(
             credentialId: credentialId,
             credential: credential,
@@ -55,12 +57,14 @@ struct CredentialDetailView: View {
         self.onRenamed = onRenamed
     }
 
+    private var providerSelection: Binding<String> {
+        Binding(get: { vm.providerSelection }, set: { vm.setProvider($0.isEmpty ? nil : $0) })
+    }
+
     private var providerControls: some View {
         HStack(alignment: .center, spacing: 10) {
             Text(L("Provider")).font(.caption).foregroundColor(.secondary)
-            ProviderPickerButton(selection: Binding(get: { vm.providerSelection }, set: {
-                vm.setProvider($0.isEmpty ? nil : $0)
-            }))
+            ProviderPickerButton(selection: providerSelection)
             .controlSize(.small)
             ProviderConsoleLink(providerID: vm.credential.provider, purpose: .manage)
         }
@@ -80,11 +84,43 @@ struct CredentialDetailView: View {
 
     // MARK: Viewing
 
+    private var editButton: some View {
+        Button {
+            vm.beginEditing()
+        } label: {
+            Label(L("Edit"), systemImage: "pencil")
+        }
+        .controlSize(.small)
+    }
+
+    /// Icon, name, provider, Edit. The group ID lives in the agent card, where it is used.
+    ///
+    /// 【曾经的 bug】2026-11-07 yyt 盘点：标题区同时放了大号名字、等宽的组 ID、复制按钮、保护级别和服务商
+    /// 下拉框，信息太多；服务商和组 ID 是「设置这把 key」的事，平时不用看。
+    private var embeddedHeader: some View {
+        HStack(alignment: .center, spacing: 14) {
+            KeyAvatar(credential: vm.credential, size: 46)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(vm.credential.label).font(.system(size: 23, weight: .bold)).lineLimit(2)
+                HStack(spacing: 8) {
+                    ProviderPickerButton(selection: providerSelection, plain: true)
+                    ProviderConsoleLink(providerID: vm.credential.provider, purpose: .manage)
+                    // Only the exception is marked, as in the list.
+                    if vm.credential.security == .strict { SecurityBadge(level: .strict) }
+                }
+            }
+            Spacer(minLength: 12)
+            editButton
+        }
+    }
+
     private var viewer: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    if layout == .popover {
+                if layout == .embedded {
+                    embeddedHeader
+                } else {
+                    HStack {
                         Button(action: onBack) {
                             HStack(spacing: 4) {
                                 Image(systemName: "chevron.left")
@@ -94,38 +130,9 @@ struct CredentialDetailView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundColor(.accentColor)
+                        Spacer()
+                        editButton
                     }
-                    Spacer()
-                    Button {
-                        vm.beginEditing()
-                    } label: {
-                        Label(L("Edit"), systemImage: "pencil")
-                    }
-                    .controlSize(.small)
-                }
-
-                if layout == .embedded {
-                    HStack(alignment: .center, spacing: 14) {
-                        KeyAvatar(credential: vm.credential, size: 46)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(vm.credential.label).font(.system(size: 23, weight: .bold))
-                            HStack(spacing: 6) {
-                                Text(L("Group ID \(credentialId)")).font(.callout.monospaced()).textSelection(.enabled)
-                                    .help(L("The name scripts and agents pass to keykeeper run -c. It is not a key name."))
-                                CopyTextButton(text: credentialId, help: L("Copy group ID"))
-                                Text("·")
-                                Text(SecurityLevelPresentation.badge(vm.credential.security))
-                            }
-                            .font(.callout)
-                            .foregroundColor(.secondary)
-                            if let aliases = vm.credential.aliases, !aliases.isEmpty {
-                                Text(L("Also answers to \(aliases.joined(separator: ", ")) (old IDs keep working)"))
-                                    .font(.caption).foregroundColor(.secondary)
-                            }
-                            providerControls.padding(.top, 2)
-                        }
-                    }
-                } else {
                     VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                         Text(vm.credential.label).font(.headline)
                         HStack(spacing: DS.Spacing.sm) {
@@ -147,7 +154,7 @@ struct CredentialDetailView: View {
                 agentHandoff
 
                 // Who is approved: terminal sessions and background callers in one list
-                AccessSection(credentialId: credentialId, security: vm.credential.security)
+                AccessSection(credentialId: credentialId, security: vm.credential.security, approvals: approvals)
                     .padding(layout == .embedded ? 14 : 0)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .modifier(EmbeddedCard(layout: layout))
@@ -320,10 +327,12 @@ struct CredentialDetailView: View {
     private var keysCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel(text: L("Keys"))
-            HStack {
-                CredentialAvailabilityBadge(availability: valueAvailability)
-                Spacer()
-                Button(L("Check again"), action: onCheckValues).font(.caption)
+            if CredentialAvailabilityBadge.isShown(valueAvailability) {
+                HStack {
+                    CredentialAvailabilityBadge(availability: valueAvailability)
+                    Spacer()
+                    Button(L("Check again"), action: onCheckValues).font(.caption)
+                }
             }
 
             ForEach(Array(vm.fields.enumerated()), id: \.offset) { index, field in
@@ -535,10 +544,28 @@ struct CredentialDetailView: View {
             }
             .font(.caption)
             .foregroundColor(.secondary)
+
+            if layout == .embedded { groupIdLine }
         }
         .padding(layout == .embedded ? 14 : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(EmbeddedCard(layout: layout))
+    }
+
+    /// What scripts and agents pass to keykeeper run -c, with the old IDs that still work.
+    private var groupIdLine: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(L("Group ID")).font(.caption)
+                Text(verbatim: credentialId).font(.caption.monospaced()).textSelection(.enabled)
+                CopyTextButton(text: credentialId, help: L("Copy group ID"))
+            }
+            .help(L("The name scripts and agents pass to keykeeper run -c. It is not a key name."))
+            if let aliases = vm.credential.aliases, !aliases.isEmpty {
+                Text(L("Also answers to \(aliases.joined(separator: ", ")) (old IDs keep working)")).font(.caption2)
+            }
+        }
+        .foregroundColor(.secondary)
     }
 }
 

@@ -151,7 +151,8 @@ struct AccessSection: View {
     @State private var errorMessage: String?
     @State private var expanded: Set<String> = []
 
-    private let approvals = ApprovalStore.shared
+    /// Injected by renders and tests, so they never read the real approvals item.
+    var approvals: ApprovalStore = .shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

@@ -4,6 +4,9 @@ import KeyKeeperCore
 /// Looks like a pop-up button, opens the brand picker. Browsing never writes; only a pick does.
 struct ProviderPickerButton: View {
     @Binding var selection: String
+    /// Text with a small chevron instead of a bordered button: the provider's name under a
+    /// key's title, still a click away from changing.
+    var plain = false
     @State private var isPresented = false
 
     private var provider: ProviderTemplate? { ProviderCatalog.find(selection) }
@@ -23,8 +26,9 @@ struct ProviderPickerButton: View {
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
             }
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.bordered)
+        .modifier(PickerButtonLook(plain: plain))
         .accessibilityLabel(L("Choose provider"))
         .accessibilityValue(provider?.name ?? selection)
         .accessibilityIdentifier("provider-picker")
@@ -35,6 +39,14 @@ struct ProviderPickerButton: View {
                 isPresented = false
             }
         }
+    }
+}
+
+private struct PickerButtonLook: ViewModifier {
+    let plain: Bool
+    func body(content: Content) -> some View {
+        if plain { content.buttonStyle(.plain).font(.callout).foregroundStyle(.secondary) }
+        else { content.buttonStyle(.bordered) }
     }
 }
 
