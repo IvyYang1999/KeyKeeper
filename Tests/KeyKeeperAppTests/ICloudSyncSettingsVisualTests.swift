@@ -48,6 +48,15 @@ final class ICloudSyncSettingsVisualTests: XCTestCase {
             }
             try render(compatibility.padding(12), width: width, dark: dark,
                        name: "missing-" + name, output: output, maximumHeight: 1000)
+            let soon = Date(timeIntervalSince1970: 1_793_600_000)
+            let waiting = VStack(spacing: 12) {
+                ForEach([ICloudSyncPresentation.Issue.accountChanged, .networkUnavailable, .pendingUpload], id: \.self) { issue in
+                    ICloudSyncSettingsCard(state: .init(phase: .paused, enabled: true, issue: issue, nextRetry: soon),
+                                           action: { _ in XCTFail("Rendering must not retry") })
+                }
+            }
+            try render(waiting.padding(12), width: width, dark: dark,
+                       name: "waiting-" + name, output: output, maximumHeight: 1200)
             let guardedReview = ICloudSyncPresentation.ConflictReview(id: UUID(), rows: [
                 .init(id: "synthetic-missing", label: "Synthetic record with unavailable local values",
                       localExists: true, remoteExists: true, canChooseLocal: false, canChooseRemote: true),

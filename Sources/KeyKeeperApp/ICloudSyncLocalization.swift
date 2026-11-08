@@ -39,6 +39,8 @@ extension AppL10n {
         "Protected storage is unavailable. Existing data has been kept; retry after access is restored.": "受保护的存储暂不可用。已有数据已保留，恢复访问后请重试。",
         "iCloud could not be reached. Your local keys are still available.": "暂时无法连接 iCloud。本地密钥仍可使用。",
         "The last upload could not be confirmed. Check its result before trying it again.": "无法确认上次上传的结果。重试前会先检查是否已经完成。",
+        "Will try again automatically at {0}.": "{0} 会自动再试一次。",
+        "Will check again automatically at {0}.": "{0} 会自动再检查一次。",
         "A version changed while you were reviewing it. Review the latest versions before continuing.": "查看期间版本发生了变化。请重新查看最新版本后再继续。",
         "This Mac has data that cannot be moved automatically yet. Originals remain unchanged.": "这台 Mac 上有暂不支持自动迁移的数据。原始数据未改动。",
         "Enable iCloud sync?": "开启 iCloud 同步？",

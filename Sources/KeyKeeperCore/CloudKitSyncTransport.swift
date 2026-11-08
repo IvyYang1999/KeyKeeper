@@ -38,10 +38,10 @@ public final class CloudKitSyncTransport: CloudSyncTransport, @unchecked Sendabl
                 done(error == nil ? .success(value) : .failure(CloudSyncError.unavailable))
             }
         }
-        guard status == .available else { throw CloudSyncError.accountChanged }
+        if let error = Self.accountStatusError(status) { throw error }
         let recordID: CKRecord.ID = try await fence.perform { done in
-            container.fetchUserRecordID { value, _ in
-                done(value.map(Result.success) ?? .failure(CloudSyncError.accountChanged))
+            container.fetchUserRecordID { value, error in
+                done(value.map(Result.success) ?? .failure(Self.userRecordError(error)))
             }
         }
         let binding = CloudSyncBinding(container: CloudSyncNativeIdentity.container,
@@ -50,6 +50,30 @@ public final class CloudKitSyncTransport: CloudSyncTransport, @unchecked Sendabl
         try fence.confirm(binding, permit: permit)
         return binding
     }
+    /// 【曾经的 bug】2026-11-08：iCloud 一时答不上来（刚唤醒、刚登录、断网），也被当成「账号已更改」，
+    /// 而且这个暂停会存下来，重启 App 也不消。Only a missing or restricted account is an account
+    /// problem; "can't tell right now" is the same as no network. Neither yields a binding, so
+    /// nothing is read or written either way: this only decides which pause, and its wording.
+    static func accountStatusError(_ status: CKAccountStatus) -> CloudSyncError? {
+        switch status {
+        case .available: return nil
+        case .couldNotDetermine, .temporarilyUnavailable: return .unavailable
+        case .noAccount, .restricted: return .accountChanged
+        @unknown default: return .accountChanged
+        }
+    }
+
+    /// Network-class failures while asking who the user is are not evidence of a different user.
+    static func userRecordError(_ error: Error?) -> CloudSyncError {
+        switch (error as? CKError)?.code {
+        case .networkUnavailable?, .networkFailure?, .serviceUnavailable?, .requestRateLimited?,
+             .zoneBusy?, .accountTemporarilyUnavailable?:
+            return .unavailable
+        default:
+            return .accountChanged
+        }
+    }
+
     private func verify(_ expected: CloudSyncBinding) async throws {
         guard try await binding() == expected else { throw CloudSyncError.accountChanged }
     }

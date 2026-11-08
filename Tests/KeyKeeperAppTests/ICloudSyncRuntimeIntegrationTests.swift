@@ -141,7 +141,53 @@ final class ICloudSyncRuntimeIntegrationTests: XCTestCase {
         XCTAssertEqual(try approvals.all().count, 1)
     }
 
-    private func fixture(withMissingRecord: Bool = false) throws -> RuntimeFixture {
+    /// 【曾经的 bug】2026-11-08 yyt：同步总要手动点「重试」。一次连不上 iCloud 就停住，现在自己接着试。
+    func test曾经的Bug连不上iCloud之后不用点也会自己同步上() async throws {
+        let f = try fixture(retryDelays: [5_000_000])
+        await f.runtime.start()
+        f.cloud.failNextFetches = 2
+        f.runtime.perform(.enable)
+        await eventually { f.runtime.state.phase == .ready && f.cloud.uploadCount == 1 }
+        XCTAssertEqual(f.cloud.failNextFetches, 0, "Both failures were met and retried past")
+        XCTAssertNil(f.runtime.state.issue)
+        XCTAssertNotNil(try f.stateStore.load()?.baseData)
+        XCTAssertNotNil(try f.stateStore.load()?.lastSuccess)
+        f.runtime.stopScheduling()
+    }
+
+    /// 【曾经的 bug】同上：「账号已更改」的暂停会存下来，重启也不消，只能点。Now the automatic retry
+    /// re-reads the account ID. A different account stays paused and touches nothing in iCloud;
+    /// the same account coming back resumes by itself.
+    func test曾经的Bug换了账号一直停着且不读不写换回同一账号自己恢复() async throws {
+        let f = try fixture(retryDelays: [5_000_000])
+        await f.runtime.start()
+        f.runtime.perform(.enable)
+        await eventually { f.runtime.state.phase == .ready }
+        let uploads = f.cloud.uploadCount, fetches = f.cloud.fetchCount
+        let remote = try XCTUnwrap(f.cloud.remoteSnapshot).encoded()
+        let bound = try XCTUnwrap(f.stateStore.load()?.binding)
+
+        f.cloud.accountID = "synthetic-other-account"
+        f.center.post(name: .CKAccountChanged, object: nil)
+        let checks = f.cloud.bindingCount
+        await eventually { f.cloud.bindingCount >= checks + 3 }
+        XCTAssertEqual(f.runtime.state.issue, .accountChanged)
+        XCTAssertEqual(f.cloud.fetchCount, fetches, "Nothing is read from the other account")
+        XCTAssertEqual(f.cloud.uploadCount, uploads, "Nothing is written to the other account")
+        XCTAssertEqual(try XCTUnwrap(f.cloud.remoteSnapshot).encoded(), remote)
+        XCTAssertEqual(try f.stateStore.load()?.binding, bound)
+        XCTAssertEqual(try f.stateStore.load()?.accountChangePaused, true)
+
+        f.cloud.accountID = "synthetic"
+        await eventually { f.runtime.state.phase == .ready }
+        XCTAssertNil(f.runtime.state.issue)
+        XCTAssertEqual(try f.stateStore.load()?.accountChangePaused, false)
+        XCTAssertEqual(try f.stateStore.load()?.binding, bound)
+        f.runtime.stopScheduling()
+    }
+
+    private func fixture(withMissingRecord: Bool = false,
+                         retryDelays: [UInt64] = ICloudSyncRuntime.defaultRetryDelays) throws -> RuntimeFixture {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("keykeeper-sync-runtime-test-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
@@ -168,9 +214,10 @@ final class ICloudSyncRuntimeIntegrationTests: XCTestCase {
         let coordinator = CloudSyncCoordinator(local: local, stateStore: stateStore, makeTransport: {
             cloud.constructed(); return cloud
         })
-        let runtime = ICloudSyncRuntime(engine: coordinator, center: NotificationCenter())
+        let center = NotificationCenter()
+        let runtime = ICloudSyncRuntime(engine: coordinator, center: center, retryDelays: retryDelays)
         return .init(runtime: runtime, coordinator: coordinator, local: local, meta: meta, values: values,
-                     grants: grants, stateIO: stateIO, stateStore: stateStore, cloud: cloud)
+                     grants: grants, stateIO: stateIO, stateStore: stateStore, cloud: cloud, center: center)
     }
 
     private func eventually(file: StaticString = #filePath, line: UInt = #line,
@@ -194,6 +241,7 @@ private struct RuntimeFixture {
     let stateIO: FakeKeychainIO
     let stateStore: CloudSyncStateStore
     let cloud: RuntimeCloud
+    let center: NotificationCenter
 }
 private final class RuntimeMarker: LocalVaultJournalMarker, @unchecked Sendable {
     var created = false
@@ -209,17 +257,39 @@ private actor RuntimeFetchGate {
 private final class RuntimeCloud: CloudSyncTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var remote: CloudSyncRemote?
-    private var constructions = 0, uploads = 0
+    private var constructions = 0, uploads = 0, fetches = 0, bindings = 0, failures = 0
+    private var account = "synthetic"
     var gate: RuntimeFetchGate?
     var hasOutstandingOperation: Bool { false }
     var factoryCount: Int { lock.withLock { constructions } }
     var uploadCount: Int { lock.withLock { uploads } }
+    var fetchCount: Int { lock.withLock { fetches } }
+    var bindingCount: Int { lock.withLock { bindings } }
+    /// Synthetic "iCloud could not be reached" for the next N fetches.
+    var failNextFetches: Int {
+        get { lock.withLock { failures } }
+        set { lock.withLock { failures = newValue } }
+    }
+    var accountID: String {
+        get { lock.withLock { account } }
+        set { lock.withLock { account = newValue } }
+    }
     var remoteSnapshot: CloudVaultSnapshot? { lock.withLock { remote?.snapshot } }
     func constructed() { lock.withLock { constructions += 1 } }
-    func binding() async throws -> CloudSyncBinding { .init(container: "synthetic", environment: "Production", accountID: "synthetic") }
+    func binding() async throws -> CloudSyncBinding {
+        lock.withLock {
+            bindings += 1
+            return .init(container: "synthetic", environment: "Production", accountID: account)
+        }
+    }
     func fetch(binding: CloudSyncBinding) async throws -> CloudSyncRemote? {
         if let gate { await gate.wait() }
-        return lock.withLock { remote }
+        return try lock.withLock {
+            guard binding.accountID == account else { throw CloudSyncError.accountChanged }
+            if failures > 0 { failures -= 1; throw CloudSyncError.unavailable }
+            fetches += 1
+            return remote
+        }
     }
     func upload(_ pending: CloudSyncPendingUpload, binding: CloudSyncBinding) async throws {
         try lock.withLock {

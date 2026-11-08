@@ -46,7 +46,7 @@ database. Do not put plaintext snapshots in iCloud Drive or a local backup file.
 | Values and metadata together | Exact secret-field set, no secret values inside metadata; bounded codec | Core |
 | No data loss on conflicting edits | Base/local/remote comparison; delete-vs-edit and both arrival orders | Core |
 | No cross-Mac grants | Explicit export schema excludes grants; import invalidates changed-item grants and pending requests | Core + App |
-| No account crossover | Account-bound state, sign-out/change stops writes until explicit confirmation | Transport |
+| No account crossover | Account-bound state; sign-out/change stops reads and writes. Rate-bounded automatic re-checks (30 s, 2 min, 10 min, then every 15 min; also on wake and network return) resume only after the bound account ID is verified again; a different account stays stopped | Transport + App |
 | Safe existing-data migration | Verified encrypted checkpoint and recoverable commit before new state is exposed | Storage |
 | Optional, default off | No transport creation/reads/writes until consent; disable keeps local data | App |
 | Actually works across Macs | Provisioned signed build, synthetic secret + metadata round-trip and per-Mac approval | Distribution + real-device acceptance |
