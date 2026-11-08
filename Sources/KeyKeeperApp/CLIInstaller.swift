@@ -47,6 +47,10 @@ enum CLIInstaller {
 
     /// Returns an error message, or nil on success.
     static func installWithAdminPrivileges() -> String? {
+        // Never repoint the real command at a test build that is deleted after the test.
+        if CLIInstallState.leavesInstalledToolAlone {
+            return "This is a test build. The keykeeper command keeps pointing at the installed KeyKeeper and is not changed from here."
+        }
         let bundleCLI = Bundle.main.bundleURL
             .appendingPathComponent("Contents/MacOS/keykeeper").path
         guard FileManager.default.isExecutableFile(atPath: bundleCLI) else {

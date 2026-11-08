@@ -47,8 +47,16 @@ enum CLIInstallState: Equatable {
         return false
     }
 
+    /// A test build (isolated Keychain) leaves the installed command-line tool alone.
+    ///
+    /// 【曾经的 bug】2026-11-08 主力 Mac 验收截图：测试版的欢迎页写「CLI is out of date」并给「Update」。
+    /// 那只是因为正式 App 和测试版是两个版本；点了会把系统里的 keykeeper 链接改指向测试版，测试版目录
+    /// 一清理，命令行工具就坏了。
+    nonisolated(unsafe) static var leavesInstalledToolAlone = TestInstance.isIsolated
+
     /// Worth a notice on the home screen: something one install click fixes.
     var needsAttention: Bool {
+        if Self.leavesInstalledToolAlone { return false }
         switch self {
         case .missing, .failed, .stale: return true
         case .unverified, .current: return false
@@ -121,6 +129,9 @@ extension CLIInstallState {
     }
 
     var detail: String {
+        if Self.leavesInstalledToolAlone, !isCurrent {
+            return L("This is a test build. The keykeeper command keeps pointing at the installed KeyKeeper and is not changed from here.")
+        }
         switch self {
         case .missing:
             return L("Agents and scripts use the keykeeper command to reach KeyKeeper.")
@@ -138,6 +149,7 @@ extension CLIInstallState {
     }
 
     var actionLabel: String? {
+        if Self.leavesInstalledToolAlone { return nil }
         switch self {
         case .missing: return L("Install")
         case .failed: return L("Reinstall")

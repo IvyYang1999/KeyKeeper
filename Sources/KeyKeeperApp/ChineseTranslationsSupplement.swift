@@ -126,6 +126,7 @@ extension AppL10n {
         "Access log": "访问记录",
         "Search {0} keys": "搜索 {0} 把 key",
         "Search 1 key": "搜索 1 把 key",
+        "This is a test build. The keykeeper command keeps pointing at the installed KeyKeeper and is not changed from here.": "这是测试版。keykeeper 命令仍指向已安装的 KeyKeeper，这里不会改它。",
         "Copy prompt for your agent": "复制给 Agent 的提示词",
         "Service-account JSON": "服务账号 JSON",
         "Choose a key on the left": "在左边选一把 key",
