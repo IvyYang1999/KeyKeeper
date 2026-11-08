@@ -12,6 +12,8 @@ struct MainView: View {
         case home
         case add
         case detail(String)
+        /// The same editor as the main window, opened from a key's menu bar page.
+        case edit(String)
     }
 
     @AppStorage(AppL10n.preferenceName) private var interfaceLanguage = "system"
@@ -97,7 +99,29 @@ struct MainView: View {
                             valueAvailability: viewModel.valueAvailability[item.id] ?? .init(state: .unchecked),
                             onCheckValues: { viewModel.load() },
                             onBack: { page = .home },
-                            onOpenWindow: { openMainWindow(.keys, item.id) }
+                            onOpenWindow: { openMainWindow(.keys, item.id) },
+                            onEdit: { page = .edit(item.id) }
+                        )
+                        .id(item.id)
+                    } else {
+                        home
+                    }
+                case .edit(let id):
+                    // 【曾经的 bug】2026-11-07 yyt：菜单栏里只能看、不能改，要改得开主窗口再找一遍。
+                    if let item = viewModel.credentials.first(where: { $0.id == id }) {
+                        CredentialDetailView(
+                            credentialId: item.id,
+                            credential: item.credential,
+                            session: session,
+                            onBack: { page = .detail(item.id) },
+                            onUpdate: {
+                                viewModel.load()
+                                page = .detail(item.id)
+                                NotificationCenter.default.post(name: .credentialsChanged, object: nil)
+                            },
+                            onDelete: { nil },
+                            onRenamed: { page = .detail($0) },
+                            startEditing: true
                         )
                         .id(item.id)
                     } else {
@@ -462,10 +486,21 @@ struct PopoverBackButton: View {
     let action: () -> Void
 
     var body: some View {
+        PopoverPillButton(symbol: "chevron.left", title: L("Back"), action: action)
+    }
+}
+
+/// Small labelled pill for a menu bar page's top bar ("‹ Back", "✎ Edit").
+struct PopoverPillButton: View {
+    let symbol: String
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: "chevron.left").font(.system(size: 13, weight: .semibold))
-                Text(L("Back")).font(.system(size: 14, weight: .semibold))
+                Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
+                Text(title).font(.system(size: 14, weight: .semibold))
             }
             .padding(.horizontal, 10)
             .frame(height: 30)
@@ -577,8 +612,8 @@ struct PopoverKeyRow: View {
 }
 
 /// One key, the way the system shows one password: a grouped card of label → value rows,
-/// then the one thing to do with it here — hand it to your agent. Editing happens in the
-/// main window.
+/// then the one thing to do with it here — hand it to your agent. Edit opens the shared
+/// editor in place; the main window is for permissions, history and deleting.
 struct PopoverKeyDetail: View {
     let credentialId: String
     var valueAvailability: CredentialValueAvailability
@@ -586,6 +621,8 @@ struct PopoverKeyDetail: View {
     @StateObject private var vm: CredentialDetailViewModel
     var onBack: () -> Void
     var onOpenWindow: () -> Void
+    /// Opens this key in the editor, right here in the menu bar.
+    var onEdit: (() -> Void)?
     @State private var copiedIndex: Int?
     @State private var copiedPrompt = false
     @State private var summaries: [String: ServiceAccountSummary] = [:]
@@ -593,8 +630,9 @@ struct PopoverKeyDetail: View {
     init(credentialId: String, credential: Credential, session: any CredentialSessionManaging,
          valueAvailability: CredentialValueAvailability = .init(state: .unchecked),
          onCheckValues: @escaping () -> Void = {},
-         onBack: @escaping () -> Void, onOpenWindow: @escaping () -> Void) {
+         onBack: @escaping () -> Void, onOpenWindow: @escaping () -> Void, onEdit: (() -> Void)? = nil) {
         self.credentialId = credentialId
+        self.onEdit = onEdit
         self.valueAvailability = valueAvailability
         self.onCheckValues = onCheckValues
         _vm = StateObject(wrappedValue: CredentialDetailViewModel(credentialId: credentialId, credential: credential, session: session, approvals: .shared))
@@ -607,6 +645,9 @@ struct PopoverKeyDetail: View {
             HStack {
                 PopoverBackButton(action: onBack)
                 Spacer()
+                if let onEdit {
+                    PopoverPillButton(symbol: "pencil", title: L("Edit"), action: onEdit)
+                }
                 PopoverIconButton(symbol: "macwindow", help: L("Open in KeyKeeper"), action: onOpenWindow)
             }
 

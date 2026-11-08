@@ -12,14 +12,16 @@ struct CredentialDetailView: View {
     var onDelete: () -> String?
     /// Called with the new group ID after a save renamed the credential.
     var onRenamed: (String) -> Void = { _ in }
+    /// Open straight into the editor (the menu bar's Edit, which has no viewer step).
+    var startEditing = false
 
     @State private var showDeleteConfirmation = false
-    @State private var showDiscardConfirmation = false
     @State private var copiedFieldIndex: Int?
     @State private var copiedPrompt = false
     @State private var summaries: [String: ServiceAccountSummary] = [:]
     /// Index of the field the person is moving out of the Keychain into plain text.
     @State private var pendingPlainConversion: Int?
+    @State private var showAdvanced = false
     @Environment(\.panelLayout) private var layout
 
     init(
@@ -31,16 +33,21 @@ struct CredentialDetailView: View {
         onBack: @escaping () -> Void,
         onUpdate: @escaping () -> Void,
         onDelete: @escaping () -> String?,
-        onRenamed: @escaping (String) -> Void = { _ in }
+        onRenamed: @escaping (String) -> Void = { _ in },
+        startEditing: Bool = false,
+        store: MetaStore = .default,
+        approvals: ApprovalStore = .shared
     ) {
         self.credentialId = credentialId
         self.valueAvailability = valueAvailability
         self.onCheckValues = onCheckValues
+        self.startEditing = startEditing
         _vm = StateObject(wrappedValue: CredentialDetailViewModel(
             credentialId: credentialId,
             credential: credential,
             session: session,
-            approvals: .shared
+            store: store,
+            approvals: approvals
         ))
         self.onBack = onBack
         self.onUpdate = onUpdate
@@ -60,62 +67,44 @@ struct CredentialDetailView: View {
     }
 
     var body: some View {
+        Group {
+            if vm.isEditing {
+                editor
+            } else {
+                viewer
+            }
+        }
+        .panelFrame()
+        .onAppear { if startEditing, !vm.isEditing { vm.beginEditing() } }
+    }
+
+    // MARK: Viewing
+
+    private var viewer: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                // Header
                 HStack {
                     if layout == .popover {
-                    Button(action: {
-                        if vm.isEditing {
-                            showDiscardConfirmation = true
-                        } else {
-                            onBack()
+                        Button(action: onBack) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left")
+                                Text(L("Back"))
+                            }
+                            .font(.caption)
                         }
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                            Text(L("Back"))
-                        }
-                        .font(.caption)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.accentColor)
-                    .confirmationDialog(
-                        L("Discard unsaved changes?"),
-                        isPresented: $showDiscardConfirmation,
-                        titleVisibility: .visible
-                    ) {
-                        Button(L("Discard Changes"), role: .destructive) {
-                            vm.reloadCredential()
-                            vm.isEditing = false
-                            onBack()
-                        }
-                        Button(L("Keep Editing"), role: .cancel) {}
-                    }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.accentColor)
                     }
                     Spacer()
-                    Button(vm.isEditing ? L("Cancel") : L("Edit")) {
-                        if vm.isEditing {
-                            vm.reloadCredential()
-                        }
-                        vm.isEditing.toggle()
+                    Button {
+                        vm.beginEditing()
+                    } label: {
+                        Label(L("Edit"), systemImage: "pencil")
                     }
-                    .font(.caption)
+                    .controlSize(.small)
                 }
 
-                // Name
-                if vm.isEditing {
-                    VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-                        SectionLabel(text: L("Name"))
-                        TextField(L("Name"), text: $vm.credential.label)
-                            .textFieldStyle(.roundedBorder)
-                        SectionLabel(text: L("Group ID"), hint: L("what keykeeper run -c uses; old IDs keep working"))
-                            .padding(.top, 6)
-                        TextField(L("Group ID"), text: $vm.groupIdDraft)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.callout.monospaced())
-                    }
-                } else if layout == .embedded {
+                if layout == .embedded {
                     HStack(alignment: .center, spacing: 14) {
                         KeyAvatar(credential: vm.credential, size: 46)
                         VStack(alignment: .leading, spacing: 3) {
@@ -154,109 +143,173 @@ struct CredentialDetailView: View {
                 }
 
                 // What you stored comes first, then what your agent gets.
-                if vm.isEditing {
-                    KeyFieldsEditor(
-                        fields: $vm.fields,
-                        showsDisplayName: true,
-                        onConvertToPlain: { pendingPlainConversion = $0 },
-                        revealStoredValue: { entry in try vm.storedValue(for: entry) },
-                        onRevealError: { vm.reportRevealFailure($0) }
-                    )
-                    .confirmationDialog(
-                        L("Store this value as plain text?"),
-                        isPresented: Binding(get: { pendingPlainConversion != nil },
-                                             set: { if !$0 { pendingPlainConversion = nil } }),
-                        titleVisibility: .visible
-                    ) {
-                        Button(L("Move it out of the Keychain"), role: .destructive) {
-                            if let index = pendingPlainConversion, vm.loadValueForPlainConversion(at: index) {
-                                vm.fields[index].isSecret = false
-                            }
-                            pendingPlainConversion = nil
-                        }
-                        Button(L("Cancel"), role: .cancel) { pendingPlainConversion = nil }
-                    } message: {
-                        Text(L("The value leaves the macOS Keychain and is written into KeyKeeper's metadata file in the clear, where anything running as you — your agents included — can read it. Good for an account id, an email or a region. Never for a password, token or key."))
-                    }
-                    DescriptionEditor(text: $vm.credential.notes)
-                    ExpiryEditor(expires: $vm.credential.expires)
-                } else {
-                    keysCard
-                    agentHandoff
-                }
+                keysCard
+                agentHandoff
 
-                // Who is approved (view mode): terminal sessions and background callers in one list
-                if !vm.isEditing {
-                    AccessSection(credentialId: credentialId, security: vm.credential.security)
-                        .padding(layout == .embedded ? 14 : 0)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .modifier(EmbeddedCard(layout: layout))
-                }
+                // Who is approved: terminal sessions and background callers in one list
+                AccessSection(credentialId: credentialId, security: vm.credential.security)
+                    .padding(layout == .embedded ? 14 : 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .modifier(EmbeddedCard(layout: layout))
 
-                // Advanced (edit mode only)
-                if vm.isEditing {
-                    AdvancedSecuritySection(security: $vm.security,
-                                            injectOnly: Binding(get: { vm.injectOnly }, set: { vm.setInjectOnly($0) }))
-                }
-
-                // Error
                 if let error = vm.errorMessage {
                     Text(error).font(.caption).foregroundColor(.red)
                 }
 
-                // Save button (edit mode)
-                if vm.isEditing {
-                    HStack {
-                        Spacer()
-                        Button(L("Save")) {
-                            if vm.saveChanges() {
-                                onUpdate()
-                                if let renamed = vm.renamedGroupId { onRenamed(renamed) }
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
+                HStack {
+                    Text(L("Created \(RecentCredentials.dayLabel(for: vm.credential.created))"))
+                    Spacer()
+                    Text(L("Updated \(RecentCredentials.dayLabel(for: vm.credential.updated))"))
                 }
+                .font(.caption2)
+                .foregroundColor(.secondary.opacity(0.4))
 
-                // Metadata
-                if !vm.isEditing {
-                    HStack {
-                        Text(L("Created \(RecentCredentials.dayLabel(for: vm.credential.created))"))
-                        Spacer()
-                        Text(L("Updated \(RecentCredentials.dayLabel(for: vm.credential.updated))"))
-                    }
-                    .font(.caption2)
-                    .foregroundColor(.secondary.opacity(0.4))
+                Divider()
 
-                    Divider()
-
-                    Button {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Label(L("Delete this credential\u{2026}"), systemImage: "trash")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
-                    .buttonStyle(.plain)
-                    .confirmationDialog(
-                        L("Delete \"\(vm.credential.label)\"?"),
-                        isPresented: $showDeleteConfirmation,
-                        titleVisibility: .visible
-                    ) {
-                        Button(L("Delete"), role: .destructive) {
-                            if let problem = onDelete() {
-                                vm.errorMessage = problem
-                            }
+                Button {
+                    showDeleteConfirmation = true
+                } label: {
+                    Label(L("Delete this credential\u{2026}"), systemImage: "trash")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+                .buttonStyle(.plain)
+                .confirmationDialog(
+                    L("Delete \"\(vm.credential.label)\"?"),
+                    isPresented: $showDeleteConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button(L("Delete"), role: .destructive) {
+                        if let problem = onDelete() {
+                            vm.errorMessage = problem
                         }
-                        Button(L("Cancel"), role: .cancel) {}
-                    } message: {
-                        Text(CredentialDeletionCopy.message(credentialId: credentialId))
                     }
+                    Button(L("Cancel"), role: .cancel) {}
+                } message: {
+                    Text(CredentialDeletionCopy.message(credentialId: credentialId))
                 }
             }
             .padding()
         }
-        .panelFrame()
+    }
+
+    // MARK: Editing
+
+    /// The editor: Save and Cancel stay in a bar at the top, the form scrolls under it.
+    ///
+    /// 【曾经的 bug】2026-11-07 yyt：「取消」在右上角、「保存」在最底下要滚才看得到，错误是页底一行红字，
+    /// 看不出是哪一行错了。Now the bar never scrolls away (⌘S saves, Esc cancels) and a problem
+    /// sits under the row it belongs to.
+    private var editor: some View {
+        VStack(spacing: 0) {
+            editBar
+            GlassSeparator()
+            ScrollView {
+                editForm
+                    .padding(.horizontal, layout == .embedded ? 20 : 14)
+                    .padding(.vertical, 16)
+            }
+        }
+    }
+
+    private var editBar: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(L("Editing"))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(vm.credential.label.isEmpty ? credentialId : vm.credential.label)
+                    .font(.headline)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button(L("Cancel")) {
+                vm.cancelEditing()
+                // Opened straight into the editor (menu bar): cancelling goes back where it came from.
+                if startEditing { onBack() }
+            }
+            .keyboardShortcut(.cancelAction)
+            Button(L("Save")) { saveEdits() }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut("s", modifiers: .command)
+        }
+        .padding(.horizontal, layout == .embedded ? 20 : 14)
+        .padding(.vertical, 10)
+    }
+
+    private func saveEdits() {
+        if vm.saveChanges() {
+            onUpdate()
+            if let renamed = vm.renamedGroupId { onRenamed(renamed) }
+        }
+    }
+
+    private var editForm: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            if let error = vm.errorMessage {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
+                        .fill(Color.red.opacity(0.08)))
+            }
+
+            VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                SectionLabel(text: L("Name"))
+                TextField(L("Name"), text: $vm.credential.label)
+                    .dsInput()
+            }
+
+            KeyFieldsEditor(
+                fields: $vm.fields,
+                showsDisplayName: true,
+                onConvertToPlain: { pendingPlainConversion = $0 },
+                revealStoredValue: { entry in try vm.storedValue(for: entry) },
+                onRevealError: { vm.reportRevealFailure($0) },
+                errors: vm.fieldErrors
+            )
+            .confirmationDialog(
+                L("Store this value as plain text?"),
+                isPresented: Binding(get: { pendingPlainConversion != nil },
+                                     set: { if !$0 { pendingPlainConversion = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button(L("Move it out of the Keychain"), role: .destructive) {
+                    if let index = pendingPlainConversion, vm.loadValueForPlainConversion(at: index) {
+                        vm.fields[index].isSecret = false
+                    }
+                    pendingPlainConversion = nil
+                }
+                Button(L("Cancel"), role: .cancel) { pendingPlainConversion = nil }
+            } message: {
+                Text(L("The value leaves the macOS Keychain and is written into KeyKeeper's metadata file in the clear, where anything running as you — your agents included — can read it. Good for an account id, an email or a region. Never for a password, token or key."))
+            }
+
+            DescriptionEditor(text: $vm.credential.notes)
+
+            ExpiryEditor(expires: $vm.credential.expires)
+
+            // Rarely changed, and changing them affects scripts and other callers: folded away.
+            DisclosureGroup(isExpanded: $showAdvanced) {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                        SectionLabel(text: L("Group ID"), hint: L("what keykeeper run -c uses; old IDs keep working"))
+                        TextField(L("Group ID"), text: $vm.groupIdDraft)
+                            .dsInput(monospaced: true)
+                    }
+                    AdvancedSecuritySection(security: $vm.security,
+                                            injectOnly: Binding(get: { vm.injectOnly }, set: { vm.setInjectOnly($0) }))
+                }
+                .padding(.top, 12)
+            } label: {
+                Text(L("Advanced: group ID and who may use these keys"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
+        }
     }
 
     /// Field names with masked values; the eye reveals, the copy button clears itself.
@@ -347,7 +400,7 @@ struct CredentialDetailView: View {
 
             if field.isSecret {
                 Button(action: { vm.toggleFieldVisibility(at: index) }) {
-                    Image(systemName: field.visible ? "eye.fill" : "eye.slash.fill")
+                    Image(systemName: field.visible ? "eye.slash" : "eye")
                         .foregroundColor(.secondary)
                         .frame(width: 18)
                 }

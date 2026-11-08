@@ -37,6 +37,8 @@ struct MaskedValueField: View {
     var placeholder: String = L("Paste or type the value")
     var editable: Bool = true
     var onCopy: (() -> Void)?
+    /// Put the cursor in the field as soon as it appears (replacing a saved value).
+    var focusOnAppear = false
     /// Replaces the plain visible toggle, e.g. to fetch a stored value before revealing it.
     var onToggleVisibility: (() -> Void)?
 
@@ -87,7 +89,8 @@ struct MaskedValueField: View {
                     DispatchQueue.main.async { isFocused = true }
                 }
             }) {
-                Image(systemName: visible ? "eye.fill" : "eye.slash.fill")
+                // The eye says what a click does: show (eye) while hidden, hide (eye.slash) while shown.
+                Image(systemName: visible ? "eye.slash" : "eye")
                     .foregroundColor(.secondary)
                     .frame(width: 18)
             }
@@ -103,6 +106,9 @@ struct MaskedValueField: View {
                 .buttonStyle(.plain)
                 .help(L("Copy value"))
             }
+        }
+        .onAppear {
+            if focusOnAppear { DispatchQueue.main.async { isFocused = true } }
         }
     }
 }

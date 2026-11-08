@@ -130,6 +130,24 @@ extension AppLocalizationTests {
 extension AppLocalizationTests {
     /// 2026-11-05 首装引导：首次启动、欢迎页、命令行状态、插件卡片的每条文案都要有中文，
     /// 并且占位符一一对应。按文件扫 L("…") 字面量，插值模板逐条列出。
+    func test编辑页文案都有中文() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let pattern = try NSRegularExpression(pattern: #"L\("([^"\\]*)"\)"#)
+        for file in ["AddCredentialView", "CredentialDetailView", "CredentialDetailViewModel"] {
+            let source = try String(contentsOf: root.appendingPathComponent("Sources/KeyKeeperApp/\(file).swift"), encoding: .utf8)
+            for match in pattern.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
+                let key = (source as NSString).substring(with: match.range(at: 1))
+                XCTAssertNotEqual(AppL10n.render(key, language: "zh-Hans"), key, "\(file): \(key)")
+            }
+        }
+        for key in ["Change field name\u{2026}", "Store as plain text\u{2026}"] {
+            XCTAssertNotEqual(AppL10n.render(key, language: "zh-Hans"), key)
+        }
+        let duplicate: UILocalizedString = "Same name as \u{201C}\("Access Token")\u{201D} above. Use another name."
+        let chinese = AppL10n.render(duplicate.template, arguments: duplicate.arguments, language: "zh-Hans")
+        XCTAssertEqual(chinese, "和上面的「Access Token」重名，换个名字。")
+    }
+
     func test首装引导文案都有中文() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let pattern = try NSRegularExpression(pattern: #"L\("([^"\\]*)"\)"#)

@@ -153,7 +153,7 @@ struct AddCredentialView: View {
         VStack(alignment: .leading, spacing: DS.Spacing.xs) {
             SectionLabel(text: L("Name"))
             TextField("OpenAI", text: $vm.label)
-                .textFieldStyle(.roundedBorder)
+                .dsInput()
                 .onChange(of: vm.label) { vm.autoGenerateId() }
             identityLine
         }
@@ -168,8 +168,7 @@ struct AddCredentialView: View {
                 get: { vm.credentialId },
                 set: { vm.userEditedId($0) }
             ))
-            .textFieldStyle(.roundedBorder)
-            .font(.callout.monospaced())
+            .dsInput(monospaced: true)
         }
 
         if let conflict = vm.conflictingId {
@@ -288,11 +287,18 @@ struct DescriptionEditor: View {
     }
 }
 
+/// The keys of one credential as a single grouped card, one row per key: its name, its value,
+/// and a ⋯ menu for the rare things. Shared by the Add form and the detail editor.
+///
+/// 【曾经的 bug】2026-11-07 yyt：编辑页一个字段占三行（名称｜值、显示名、→ 环境变量名），已存的值只写
+/// 「未修改」，每行挤着眼睛、锁、减号三个灰图标；名字填错格子还会连值一起丢。Now a row is one line
+/// the person reads as "name — value": they write one name, the script name is derived and shown
+/// small underneath, and a saved value shows its masked look instead of "unchanged".
 struct KeyFieldsEditor: View {
     @Binding var fields: [FieldEntry]
-    /// Detail editor: the name column is the machine name and a separate display name is
-    /// editable. Add form: whatever is typed becomes the display name and a machine name is
-    /// derived from it.
+    /// Detail editor: rows may already exist, the name written is the display wording and the
+    /// field name can be changed from the ⋯ menu. Add form: what is typed is the name, and the
+    /// field name is derived from it when saving.
     var showsDisplayName = false
     /// Called when a field that already holds a stored secret is switched to plain, so the
     /// editor can fetch the value first and ask the person to confirm.
@@ -301,6 +307,10 @@ struct KeyFieldsEditor: View {
     /// already saved; nil on the Add page, where nothing is stored yet.
     var revealStoredValue: ((FieldEntry) throws -> String)? = nil
     var onRevealError: ((Error) -> Void)? = nil
+    /// Problems shown under a row, keyed by `FieldEntry.id`.
+    var errors: [UUID: String] = [:]
+
+    @Environment(\.panelLayout) private var layout
 
     /// Eye button behaviour, shared with the detail view. A stored value is fetched the
     /// first time it is revealed; before this, the edit-mode eye only flipped `visible`
@@ -321,108 +331,287 @@ struct KeyFieldsEditor: View {
         fields[index].visible = true
     }
 
-    /// "→ API_KEY", or "→ api-key · API_KEY" when the typed name gets a plainer machine name.
-    private func namePreview(_ typed: String) -> String {
-        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return " " }
-        let machine = showsDisplayName ? trimmed : AddCredentialViewModel.machineFieldName(trimmed)
-        let variable = EnvironmentVariableName.from(fieldName: machine)
-        return machine == trimmed ? "\u{2192} \(variable)" : "\u{2192} \(machine) \u{00B7} \(variable)"
+    /// The small line under a row's name: the name scripts use and the variable it becomes.
+    /// "→ API_KEY" when the written name is already the script name, else "api-key → API_KEY".
+    static func scriptLine(machineName: String, title: String, isSecret: Bool) -> String {
+        guard !machineName.isEmpty else { return " " }
+        let variable = EnvironmentVariableName.from(fieldName: machineName)
+        let line = machineName == title ? "\u{2192} \(variable)" : "\(machineName) \u{2192} \(variable)"
+        return isSecret ? line : line + " \u{00B7} " + L("plain text")
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
             SectionLabel(text: fields.count > 1 ? L("Keys") : L("Key"), hint: L("stored in macOS Keychain"))
 
-            ForEach(fields.indices, id: \.self) { i in
-                if fields[i].fileFormat != nil {
-                    Label(L("\(fields[i].name) · Service-account JSON (contents hidden)"), systemImage: "doc.badge.gearshape")
-                        .font(.caption).foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                VStack(alignment: .leading, spacing: 2) {
-                    // Name and value share one bordered container so the pair reads as one
-                    // control, and the eye lives inside it rather than floating alongside.
-                    HStack(spacing: 0) {
-                        TextField(L("Name"), text: $fields[i].name)
-                            .textFieldStyle(.plain)
-                            .font(.callout)
-                            .frame(width: 92)
-
-                        Divider()
-                            .frame(height: 16)
-                            .padding(.horizontal, 8)
-
-                        if fields[i].isSecret {
-                            MaskedValueField(
-                                value: $fields[i].value,
-                                visible: $fields[i].visible,
-                                placeholder: fields[i].existingSecret
-                                    ? L("Unchanged")
-                                    : L("Paste or type the value"),
-                                onToggleVisibility: { toggle(i) }
-                            )
-                        } else {
-                            TextField(L("Plain value, e.g. an account id"), text: $fields[i].value)
-                                .textFieldStyle(.plain)
-                                .font(.callout)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-
-                        // File fields are always secret: their contents never leave the Keychain.
-                        if fields[i].fileFormat == nil {
-                            FieldKindMenu(isSecret: $fields[i].isSecret,
-                                          hasStoredSecret: fields[i].existingSecret,
-                                          onWantsPlain: { onConvertToPlain?(i) })
-                        }
-
-                        if fields.count > 1 {
-                            Button(action: { fields.remove(at: i) }) {
-                                Image(systemName: "minus.circle.fill")
-                                    .foregroundColor(.secondary.opacity(0.5))
+            VStack(spacing: 0) {
+                ForEach($fields) { $field in
+                    if field.id != fields.first?.id { GlassSeparator().padding(.leading, 12) }
+                    KeyFieldRow(
+                        field: $field,
+                        showsDisplayName: showsDisplayName,
+                        nameWidth: layout == .embedded ? 190 : 136,
+                        error: errors[field.id],
+                        canRemove: fields.count > 1,
+                        onToggleVisibility: { toggle(field.id) },
+                        onWantsPlain: {
+                            if field.existingSecret, let onConvertToPlain, let index = index(of: field.id) {
+                                onConvertToPlain(index)
+                            } else {
+                                field.isSecret = false
                             }
-                            .buttonStyle(.plain)
-                            .help(L("Remove this key"))
-                            .padding(.leading, 6)
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .surface(.inset, radius: DS.Radius.sm)
-
-                    if showsDisplayName {
-                        TextField(L("Display name (optional, for you and your agent)"), text: $fields[i].displayName)
-                            .textFieldStyle(.plain)
-                            .font(.caption)
-                            .padding(.horizontal, 8)
-                            .frame(height: 24)
-                            .surface(.inset, radius: DS.Radius.sm)
-                    }
-                    // Rendered unconditionally: letting it appear and disappear made the
-                    // whole form jump while the user was still typing the field name.
-                    Text(namePreview(fields[i].name))
-                        .font(.caption2.monospaced())
-                        .foregroundColor(.secondary.opacity(0.7))
-                }
+                        },
+                        onRemove: { remove(field.id) }
+                    )
                 }
             }
+            .surface(.card, radius: DS.Radius.md)
 
             Button(action: { fields.append(FieldEntry()) }) {
                 Label(L("Add another key"), systemImage: "plus.circle")
-                    .font(.caption)
+                    .font(.callout)
             }
             .buttonStyle(.plain)
             .foregroundColor(.accentColor)
+            .padding(.leading, 2)
         }
+    }
+
+    private func index(of id: UUID) -> Int? { fields.firstIndex { $0.id == id } }
+
+    private func remove(_ id: UUID) {
+        guard fields.count > 1, let index = index(of: id) else { return }
+        fields.remove(at: index)
     }
 }
 
 extension KeyFieldsEditor {
-    fileprivate func toggle(_ index: Int) {
+    fileprivate func toggle(_ id: UUID) {
+        guard let index = index(of: id) else { return }
         do {
             try Self.toggleVisibility(of: &fields, at: index, fetch: revealStoredValue)
         } catch {
             onRevealError?(error)
+        }
+    }
+}
+
+/// One key: [name / script name] | [value] [eye] [⋯].
+private struct KeyFieldRow: View {
+    @Binding var field: FieldEntry
+    let showsDisplayName: Bool
+    let nameWidth: CGFloat
+    let error: String?
+    let canRemove: Bool
+    let onToggleVisibility: () -> Void
+    let onWantsPlain: () -> Void
+    let onRemove: () -> Void
+
+    @State private var renaming = false
+    @State private var hovering = false
+    @Environment(\.colorScheme) private var scheme
+
+    /// The one name the person writes. On Add it is the field itself (the script name is
+    /// derived when saving); in the editor it is the wording, see `FieldEntry.setTitle`.
+    private var title: Binding<String> {
+        showsDisplayName
+            ? Binding(get: { field.title }, set: { field.setTitle($0) })
+            : $field.name
+    }
+
+    private var scriptLine: String {
+        if showsDisplayName {
+            return KeyFieldsEditor.scriptLine(machineName: field.name, title: field.title, isSecret: field.isSecret)
+        }
+        let typed = field.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return KeyFieldsEditor.scriptLine(
+            machineName: typed.isEmpty ? "" : AddCredentialViewModel.machineFieldName(typed),
+            title: typed, isSecret: field.isSecret)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    TextField(L("Name"), text: title)
+                        .textFieldStyle(.plain)
+                        .font(.body)
+                    Text(scriptLine)
+                        .font(.caption2.monospaced())
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(L("The name scripts and agents use, and the environment variable it becomes."))
+                }
+                .frame(width: nameWidth, alignment: .leading)
+
+                Rectangle()
+                    .fill(Glass.separator(scheme))
+                    .frame(width: 1, height: 26)
+
+                value
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                menu
+            }
+
+            if renaming {
+                fieldNameEditor
+            }
+            if let error {
+                Label(error, systemImage: "exclamationmark.circle.fill")
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .onHover { hovering = $0 }
+    }
+
+    @ViewBuilder
+    private var value: some View {
+        if field.fileFormat != nil {
+            Label(L("Service-account JSON (contents hidden)"), systemImage: "doc.badge.gearshape")
+                .font(.callout)
+                .foregroundColor(.secondary)
+        } else if !field.isSecret {
+            TextField(L("Plain value, e.g. an account id"), text: $field.value)
+                .textFieldStyle(.plain)
+                .font(.callout.monospaced())
+        } else if field.existingSecret, field.value.isEmpty, !field.replacing {
+            savedValue
+        } else {
+            HStack(spacing: 6) {
+                MaskedValueField(
+                    value: $field.value,
+                    visible: $field.visible,
+                    placeholder: field.existingSecret ? L("Paste the new value") : L("Paste or type the value"),
+                    focusOnAppear: field.replacing,
+                    onToggleVisibility: onToggleVisibility
+                )
+                if field.existingSecret {
+                    Button {
+                        field.value = ""
+                        field.visible = false
+                        field.replacing = false
+                    } label: {
+                        Image(systemName: "arrow.uturn.backward")
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L("Keep the saved value"))
+                }
+            }
+        }
+    }
+
+    /// A stored secret nobody has touched: its masked look, or a clear "missing".
+    /// Clicking it starts typing a replacement; the eye reads the stored value.
+    private var savedValue: some View {
+        HStack(spacing: 8) {
+            // The menu bar is narrow: the short form when the full one does not fit.
+            if field.storedMissing {
+                ViewThatFits(in: .horizontal) {
+                    missingLabel(L("No value stored. Paste it here."))
+                    missingLabel(L("Value missing"))
+                }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        preview
+                        Text(hovering ? L("Replace") : L("Saved"))
+                            .font(.caption2.weight(.medium))
+                            .foregroundColor(hovering ? .accentColor : .secondary)
+                            .fixedSize()
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.primary.opacity(0.06)))
+                    }
+                    preview
+                }
+            }
+            Spacer(minLength: 4)
+            if !field.storedMissing {
+                Button(action: onToggleVisibility) {
+                    Image(systemName: "eye")
+                        .foregroundColor(.secondary)
+                        .frame(width: 18)
+                }
+                .buttonStyle(.plain)
+                .help(L("Show value"))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { field.replacing = true }
+        .help(L("Click to replace this value"))
+    }
+
+    private var preview: some View {
+        Text(field.storedPreview ?? "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}")
+            .font(.callout.monospaced())
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private func missingLabel(_ text: String) -> some View {
+        Label(text, systemImage: "exclamationmark.triangle.fill")
+            .font(.callout)
+            .foregroundColor(.orange)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private var menu: some View {
+        Menu {
+            if showsDisplayName {
+                Button(L("Change field name\u{2026}")) { renaming = true }
+            }
+            if field.fileFormat == nil {
+                if field.isSecret {
+                    Button(L("Store as plain text\u{2026}"), action: onWantsPlain)
+                } else {
+                    Button(L("Store as a secret")) { field.isSecret = true }
+                }
+            }
+            if canRemove {
+                Divider()
+                Button(L("Remove this key"), role: .destructive, action: onRemove)
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .foregroundColor(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(L("More"))
+    }
+
+    /// "Change field name": the script name, for the few who need a specific one.
+    private var fieldNameEditor: some View {
+        HStack(spacing: 8) {
+            Text(L("Field name"))
+                .font(.caption)
+                .foregroundColor(.secondary)
+            TextField("api-key", text: Binding(get: { field.name }, set: { field.setMachineName($0) }))
+                .textFieldStyle(.plain)
+                .font(.caption.monospaced())
+                .padding(.horizontal, 6)
+                .frame(width: 180, height: 22)
+                .surface(.inset, radius: 6)
+            Text(field.originalName == nil
+                 ? L("Scripts use this name.")
+                 : L("Scripts use this name; the old one keeps working."))
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Button(L("Done")) { renaming = false }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundColor(.accentColor)
         }
     }
 }
@@ -473,38 +662,5 @@ struct AdvancedSecuritySection: View {
                     .foregroundColor(security == .strict ? .orange : .green)
             }
         }
-    }
-}
-
-
-/// Picks how one field is stored. Two very different things, so the menu says both what it is
-/// and where the value ends up — "plain" means readable by anything on this Mac.
-struct FieldKindMenu: View {
-    @Binding var isSecret: Bool
-    var hasStoredSecret = false
-    var onWantsPlain: (() -> Void)?
-
-    var body: some View {
-        Menu {
-            Button {
-                isSecret = true
-            } label: {
-                Label(L("Secret · stored in the Keychain"), systemImage: "lock.fill")
-            }
-            Button {
-                // A stored secret needs its value in hand before it can move to plain text.
-                if hasStoredSecret, let onWantsPlain { onWantsPlain() } else { isSecret = false }
-            } label: {
-                Label(L("Plain · readable by anything on this Mac"), systemImage: "doc.plaintext")
-            }
-        } label: {
-            Image(systemName: isSecret ? "lock.fill" : "doc.plaintext")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help(isSecret ? L("Secret · stored in the Keychain") : L("Plain · readable by anything on this Mac"))
     }
 }

@@ -42,24 +42,39 @@ extension View {
     }
 }
 
-// MARK: - Section Label (uppercase field label style)
+// MARK: - Section Label
 
+/// The small heading over a group of fields. Written as is, never upper-cased: in Chinese an
+/// upper-cased "给 AGENT 的备注" or "ICLOUD 同步" only shouted the English half (yyt 2026-11-07).
 struct SectionLabel: View {
     let text: String
     var hint: String? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: DS.Spacing.sm) {
-            Text(text.uppercased())
-                .font(.caption)
-                .fontWeight(.medium)
+            Text(text)
+                .font(.subheadline.weight(.semibold))
                 .foregroundColor(.secondary)
-                .tracking(0.5)
             if let hint {
                 Text(hint)
-                    .font(.caption2)
-                    .foregroundColor(.secondary.opacity(0.6))
+                    .font(.caption)
+                    .foregroundColor(.secondary.opacity(0.75))
             }
         }
+    }
+}
+
+// MARK: - Input
+
+extension View {
+    /// The one text input look: a sunken well, no border. Every form field uses it, so a page
+    /// never mixes white bordered boxes with grey wells.
+    func dsInput(monospaced: Bool = false) -> some View {
+        self
+            .textFieldStyle(.plain)
+            .font(monospaced ? .body.monospaced() : .body)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .surface(.inset, radius: DS.Radius.sm)
     }
 }
