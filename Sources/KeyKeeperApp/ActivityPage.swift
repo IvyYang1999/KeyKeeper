@@ -17,14 +17,17 @@ private enum ActivitySelection {
     @State private var edits: [MetadataChangeRecord] = []
     @State private var editsError: String?
     private let loadEdits: () throws -> [MetadataChangeRecord]
+    /// Layout tests and renders open the page with the first record already selected.
+    private let selectsFirstRecord: Bool
 
     init(credentials: [(id: String, credential: Credential)], access: AccessLogApprovalState? = nil,
          loadEdits: @escaping () throws -> [MetadataChangeRecord] = { try MetadataChangeLog.default.records() },
-         onOpenCredential: ((String) -> Void)? = nil) {
+         onOpenCredential: ((String) -> Void)? = nil, selectsFirstRecord: Bool = false) {
         self.credentials = credentials
         self._access = StateObject(wrappedValue: access ?? AccessLogApprovalState())
         self.loadEdits = loadEdits
         self.onOpenCredential = onOpenCredential
+        self.selectsFirstRecord = selectsFirstRecord
     }
 
     var body: some View {
@@ -66,7 +69,10 @@ private enum ActivitySelection {
             case nil: EmptyView()
             }
         }
-        .onAppear(perform: load)
+        .onAppear {
+            load()
+            if selectsFirstRecord, let first = access.groups.first { selected = .access(first) }
+        }
         .onChange(of: tab) { _, _ in selected = nil; load() }
         .background(AccessLogRefreshObserver(onRefresh: load, canAutoRefresh: {
             tab == .access ? access.errorMessage == nil : editsError == nil

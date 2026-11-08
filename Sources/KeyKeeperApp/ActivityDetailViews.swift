@@ -104,6 +104,9 @@ struct ActivityRequestFacts: View {
 ///
 /// 【曾经的 bug】2026-11-07 yyt：访问记录和使用权限每条三行字，「当前已授权」的绿字几乎每行都有，重复又抢眼；
 /// 调用方和服务商的图标明明有，这两页却只有文字。
+///
+/// 【曾经的 bug】2026-11-08 主力 Mac 验收 A1：选中一条、详情在右边分栏后，列表变窄，结果和时间是固定宽，
+/// 名字却允许零宽，于是两个名字被挤得一个字都不剩。现在一行放不下时改成两行，名字永远有地方。
 struct ActivityLine: View {
     let caller: String
     let keyLabel: String
@@ -113,36 +116,73 @@ struct ActivityLine: View {
     let time: String
     var count = 1
 
+    /// Room each name keeps on one line, its icon included. When the list is narrower than that
+    /// (a record's details open beside it), the record takes two lines instead.
+    static let oneLineNameWidth: CGFloat = 100
+
     var body: some View {
-        HStack(spacing: 14) {
-            HStack(spacing: 8) {
-                CallerMark(callerId: CallerAppIcon.lookupId(forName: caller), size: 20)
-                Text(verbatim: caller).lineLimit(1)
-            }
-            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 8) {
-                keyAvatar
-                Text(verbatim: keyLabel).lineLimit(1)
-            }
-            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 6) {
-                StatusDot(tone: tone)
-                Text(result).lineLimit(1).foregroundStyle(.secondary)
-            }
-            .frame(width: 128, alignment: .leading)
-            HStack(spacing: 4) {
-                if count > 1 {
-                    Text(verbatim: "×\(count)")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Capsule().fill(Color.primary.opacity(0.07)))
-                }
-                Text(time).foregroundStyle(.secondary).lineLimit(1)
-            }
-            .frame(width: 96, alignment: .trailing)
+        ViewThatFits(in: .horizontal) {
+            oneLine
+            twoLines
         }
         .font(.callout)
+    }
+
+    private var oneLine: some View {
+        HStack(spacing: 14) {
+            callerName.frame(minWidth: 0, idealWidth: Self.oneLineNameWidth, maxWidth: .infinity, alignment: .leading)
+            keyName.frame(minWidth: 0, idealWidth: Self.oneLineNameWidth, maxWidth: .infinity, alignment: .leading)
+            resultLabel.frame(width: 128, alignment: .leading)
+            timeLabel.frame(width: 96, alignment: .trailing)
+        }
+    }
+
+    /// Who and when on top, which key and what happened underneath.
+    private var twoLines: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                callerName.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                timeLabel.fixedSize()
+            }
+            HStack(spacing: 10) {
+                keyName.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                resultLabel.fixedSize()
+            }
+        }
+    }
+
+    private var callerName: some View {
+        HStack(spacing: 8) {
+            CallerMark(callerId: CallerAppIcon.lookupId(forName: caller), size: 20)
+            Text(verbatim: caller).lineLimit(1).reportsNameWidth()
+        }
+    }
+
+    private var keyName: some View {
+        HStack(spacing: 8) {
+            keyAvatar
+            Text(verbatim: keyLabel).lineLimit(1).reportsNameWidth()
+        }
+    }
+
+    private var resultLabel: some View {
+        HStack(spacing: 6) {
+            StatusDot(tone: tone)
+            Text(result).lineLimit(1).foregroundStyle(.secondary)
+        }
+    }
+
+    private var timeLabel: some View {
+        HStack(spacing: 4) {
+            if count > 1 {
+                Text(verbatim: "×\(count)")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(Color.primary.opacity(0.07)))
+            }
+            Text(time).foregroundStyle(.secondary).lineLimit(1)
+        }
     }
 
     /// Green for a use that was approved, orange for one that needs a look, grey for "asked".
@@ -152,6 +192,19 @@ struct ActivityLine: View {
         case .readWithoutApproval, .missedApproval: .attention
         case .approvalRequired: status == .approved ? .good : .off
         }
+    }
+}
+
+/// The widths the caller and key names were actually given. Nothing in the app reads this;
+/// the layout tests do, so "the names disappeared" can be measured instead of eyeballed.
+struct ActivityLineNameWidths: PreferenceKey {
+    static let defaultValue: [CGFloat] = []
+    static func reduce(value: inout [CGFloat], nextValue: () -> [CGFloat]) { value += nextValue() }
+}
+
+private extension View {
+    func reportsNameWidth() -> some View {
+        background(GeometryReader { Color.clear.preference(key: ActivityLineNameWidths.self, value: [$0.size.width]) })
     }
 }
 

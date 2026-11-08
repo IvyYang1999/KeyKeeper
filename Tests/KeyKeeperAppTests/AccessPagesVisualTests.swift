@@ -77,11 +77,18 @@ import KeyKeeperTestSupport
             let permissions = ApprovedCallersPage(credentials: credentials, state: PermissionPageState(store: store))
             try render(log, name: "access-log-\(language)-\(dark ? "dark" : "light")", dark: dark, language: language, output: output)
             try render(permissions, name: "permissions-\(language)-\(dark ? "dark" : "light")", dark: dark, language: language, output: output)
+            // A1: a record selected, its details beside the list, at the width where splitting starts.
+            for width in [900.0, 1000, 1100] {
+                let selected = AccessLogPage(credentials: credentials, access: AccessLogApprovalState(store: store),
+                                             loadEdits: { [] }, selectsFirstRecord: true)
+                try render(selected, name: "access-log-selected-\(Int(width))-\(language)-\(dark ? "dark" : "light")",
+                           dark: dark, language: language, output: output, size: NSSize(width: width, height: 620))
+            }
         }
     }
 
-    private func render<V: View>(_ page: V, name: String, dark: Bool, language: String, output: String) throws {
-        let size = NSSize(width: 860, height: 620)
+    private func render<V: View>(_ page: V, name: String, dark: Bool, language: String, output: String,
+                                 size: NSSize = NSSize(width: 860, height: 620)) throws {
         let root = page
             .frame(width: size.width, height: size.height)
             .environment(\.panelLayout, .embedded)
