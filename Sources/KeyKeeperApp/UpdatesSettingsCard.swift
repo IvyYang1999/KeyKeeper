@@ -1,31 +1,33 @@
 import SwiftUI
 
-/// The production card can also render offline with a synthetic update driver.
-struct UpdatesSettingsCard: View {
+/// Rows of the General group. The production rows can also render offline with a synthetic driver.
+struct UpdatesSettingsRows: View {
     @ObservedObject var updateController: UpdateController
+    var version = Self.installedVersion
+
+    /// "0.3.6 (8e51f563afeb)", or just the revision for a development build without a bundle version.
+    static var installedVersion: String {
+        let revision = BuildVersion.identifier.replacingOccurrences(of: "keykeeper ", with: "")
+        if let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+           !short.isEmpty {
+            return "\(short) (\(revision))"
+        }
+        return revision
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            SectionLabel(text: L("Updates"))
-            Toggle(isOn: Binding(
+        SettingsRow(title: L("Download updates in the background"), detail: description) {
+            SettingsSwitch(label: L("Download updates in the background"), isOn: Binding(
                 get: { updateController.automaticallyDownloadsUpdates },
                 set: { updateController.setAutomaticallyDownloadsUpdates($0) }
-            )) {
-                Text(L("Download updates in the background"))
-                    .font(.callout)
-            }
+            ))
             .disabled(!updateController.isAvailable)
-
-            Text(description)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
+        }
+        SettingsDivider()
+        SettingsRow(title: L("Version"), detail: version) {
             Button(L("Check for Updates…")) { updateController.checkForUpdates() }
-                .font(.caption)
                 .disabled(!updateController.canCheckForUpdates)
         }
-        .dsCard(padding: DS.Spacing.md)
     }
 
     private var description: String {

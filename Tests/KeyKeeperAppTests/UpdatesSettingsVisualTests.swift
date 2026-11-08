@@ -31,7 +31,7 @@ final class UpdatesSettingsVisualTests: XCTestCase {
     }
 
     private func render(_ controller: UpdateController, name: String, output: String) throws {
-        let root = UpdatesSettingsCard(updateController: controller)
+        let root = SettingsGroup(title: "General") { UpdatesSettingsRows(updateController: controller, version: "synthetic 0000000") }
             .padding(16).frame(width: 360)
             .background(Color(nsColor: .windowBackgroundColor))
         let view = NSHostingView(rootView: root)
@@ -48,7 +48,7 @@ final class UpdatesSettingsVisualTests: XCTestCase {
 }
 
 @MainActor
-private final class PreviewUpdateDriver: UpdateDriving {
+final class PreviewUpdateDriver: UpdateDriving {
     var canCheckForUpdates = true
     var automaticallyChecksForUpdates = true
     var automaticallyDownloadsUpdates = true { didSet { writes.append(automaticallyDownloadsUpdates) } }

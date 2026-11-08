@@ -30,7 +30,7 @@ import XCTest
             let root = HStack(alignment: .top, spacing: 24) {
                 VStack(alignment: .leading, spacing: 18) { AccessHistoryDetail(group: talkative, currentStatus: .notApproved, label: "feisou-admin", openCredential: {}, approve: {}) }
                 VStack(alignment: .leading, spacing: 18) { AccessHistoryDetail(group: silent, currentStatus: .notApproved, label: "feisou-admin", openCredential: {}) }
-                AgentPluginsCard(setup: AgentPluginSetup(root: plugins)).frame(width: 360)
+                SettingsGroup(title: "Developer") { AgentPluginsRows(setup: AgentPluginSetup(root: plugins)) }.frame(width: 360)
             }
             .padding(20).frame(width: 1180)
             .environment(\.colorScheme, scheme)

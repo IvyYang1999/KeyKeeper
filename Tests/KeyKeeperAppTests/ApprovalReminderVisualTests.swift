@@ -23,7 +23,7 @@ import KeyKeeperCore
             let root = VStack(alignment: .leading, spacing: 20) {
                 MissedApprovalNotice(event: event, credentialLabel: "演示 API", count: 3,
                     loadFailed: false, recordFailed: false, onHistory: {}, onDismiss: { _ in }, onDismissWarning: {})
-                ApprovalRemindersCard()
+                SettingsGroup(title: "Security") { ApprovalRemindersRow() }
             }
             .padding(16).frame(width: 360)
             .environment(\.locale, AppL10n.locale(preference: language))

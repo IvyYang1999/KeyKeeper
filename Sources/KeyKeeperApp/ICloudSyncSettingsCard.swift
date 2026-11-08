@@ -17,39 +17,45 @@ struct ICloudSyncSettingsCard: View {
         }
     }
 
+    @State private var showDetails = false
+
+    /// 【曾经的 bug】2026-11-07 yyt：「iCloud 同步部分也很糟糕，两个按钮居然是那样的排布」——「重试」「关闭同步」
+    /// 竖着叠在左边、宽度不一；「48 条记录缺少 96 个值」这种诊断和状态一样醒目。Now one status line with a dot,
+    /// the reason under it, the buttons side by side on the right, and the diagnostics folded away.
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            SectionLabel(text: L("iCloud sync"))
-            HStack(spacing: DS.Spacing.sm) {
-                if state.phase == .syncing { ProgressView().controlSize(.small) }
-                Text(status).font(.callout.weight(.medium))
-            }
-            Text(L("Sync keys and notes across your Macs. Each Mac approves its own callers."))
-                .font(.caption).foregroundStyle(.secondary)
-            if let issue = state.issue {
-                Text(Self.issueText(issue)).font(.caption).foregroundStyle(.secondary)
-            }
-            if let lastSuccess = state.lastSuccess {
-                Text(L("Last synced: \(lastSuccess.formatted(.dateTime.month(.abbreviated).day().hour().minute().locale(AppL10n.locale)))"))
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            if let records = state.missingCredentialCount, let fields = state.missingFieldCount,
-               records > 0, fields > 0 {
-                VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-                    Text(L("At last sync check: \(records) records have \(fields) missing values."))
-                    Text(L("Records are preserved; available values can sync. Missing values do not replace saved values on another Mac."))
+        SettingsGroup(title: L("iCloud sync")) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: DS.Spacing.lg) {
+                    summary.frame(maxWidth: .infinity, alignment: .leading)
+                    actions.fixedSize()
                 }
-                .font(.caption).foregroundStyle(.secondary)
-                .accessibilityElement(children: .combine)
+                VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                    summary
+                    actions.frame(maxWidth: .infinity, alignment: .trailing)
+                }
             }
-            actions.font(.caption)
-            if state.enabled {
-                Text(L("Turning sync off keeps your data on this Mac and in iCloud."))
-                    .font(.caption2).foregroundStyle(.secondary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            if !detailLines.isEmpty {
+                SettingsDivider()
+                DisclosureGroup(isExpanded: $showDetails) {
+                    VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                        ForEach(detailLines, id: \.self) { Text($0) }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, DS.Spacing.xs)
+                    .accessibilityElement(children: .combine)
+                } label: {
+                    Text(L("Details")).font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
-        .dsCard(padding: DS.Spacing.md)
         .sheet(item: $sheet) { item in
             switch item {
             case .enable: ICloudSyncConfirmation(kind: .enable, action: action)
@@ -63,29 +69,88 @@ struct ICloudSyncSettingsCard: View {
         }
     }
 
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 7) {
+                if state.phase == .syncing {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    StatusDot(tone: tone)
+                }
+                Text(status).fontWeight(.medium)
+            }
+            Text(reason)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let lastSuccess = state.lastSuccess {
+                Text(L("Last synced: \(lastSuccess.formatted(.dateTime.month(.abbreviated).day().hour().minute().locale(AppL10n.locale)))"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Why it is in this state; when nothing is wrong, what sync does.
+    private var reason: String {
+        if let issue = state.issue { return Self.issueText(issue) }
+        return L("Sync keys and notes across your Macs. Each Mac approves its own callers.")
+    }
+
+    private var tone: StatusDot.Tone {
+        switch state.phase {
+        case .off: .off
+        case .ready, .syncing: .good
+        case .paused, .unavailable, .conflict, .migrationRequired: .attention
+        }
+    }
+
+    /// Diagnostics and reassurance: true, but not what the person came here to read.
+    private var detailLines: [String] {
+        var lines: [String] = []
+        if let records = state.missingCredentialCount, let fields = state.missingFieldCount,
+           records > 0, fields > 0 {
+            lines.append(L("At last sync check: \(records) records have \(fields) missing values."))
+            lines.append(L("Records are preserved; available values can sync. Missing values do not replace saved values on another Mac."))
+        }
+        if state.enabled {
+            lines.append(L("Turning sync off keeps your data on this Mac and in iCloud."))
+        }
+        return lines
+    }
+
+    /// Side by side, the way out on the left and the thing to do on the right. It is the blue
+    /// button only when something waits on the person.
     @ViewBuilder private var actions: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+        HStack(spacing: DS.Spacing.sm) {
+            if state.enabled {
+                Button(L("Turn off sync")) { action(.disable) }
+                    .help(L("Turning sync off keeps your data on this Mac and in iCloud."))
+            }
             switch state.phase {
             case .off:
                 Button(L("Enable iCloud Sync…")) { sheet = .enable }
             case .migrationRequired:
                 Button(L("Move to protected storage…")) { sheet = .migrate }
+                    .buttonStyle(.borderedProminent)
                     .disabled(state.issue == .unsupportedMigration)
             case .conflict:
                 if let review = state.review {
                     Button(L("Review \(review.rows.count) conflicts…")) { sheet = .review(review) }
+                        .buttonStyle(.borderedProminent)
                 }
             case .ready:
                 Button(L("Sync now")) { action(.syncNow) }
             case .paused, .unavailable:
                 if state.issue == .pendingUpload {
                     Button(L("Check and retry sync")) { action(.retryPendingUpload) }
+                        .buttonStyle(.borderedProminent)
                 } else {
                     Button(L("Retry")) { action(.retry) }
+                        .buttonStyle(.borderedProminent)
                 }
             case .syncing: EmptyView()
             }
-            if state.enabled { Button(L("Turn off sync")) { action(.disable) } }
         }
     }
 

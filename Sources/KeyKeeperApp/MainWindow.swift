@@ -234,7 +234,6 @@ struct MainWindowView: View {
         case .settings:
             SettingsView(
                 updateController: updateController,
-                onBack: {},
                 onShowServiceGrants: { router.section = .access },
                 onShowSetup: onShowSetup
             )
