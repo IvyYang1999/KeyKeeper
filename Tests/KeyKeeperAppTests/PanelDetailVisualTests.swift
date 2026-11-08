@@ -49,7 +49,10 @@ final class CredentialAvailabilityBadgeTests: XCTestCase {
              .init(state: .missing, missingFields: ["api-key"])),
         ]
         try store.save(MetaFile(credentials: Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.credential) })))
-        try session.save(credentialId: "openai", fieldName: "api-key", value: "sk-synthetic-0000", security: .standard)
+        try session.save(credentialId: "openai", fieldName: "api-key", value: "sk-synthetic-0000-a1Kk", security: .standard)
+        try session.save(credentialId: "stripe-prod", fieldName: "secret-key", value: "rk_test_synthetic_9Zq4", security: .strict)
+        try session.save(credentialId: "github", fieldName: "token", value: "short-tok", security: .standard)
+        let overview = try session.inspectValueOverview()
 
         let defaults = UserDefaults.standard
         let original = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
@@ -60,7 +63,9 @@ final class CredentialAvailabilityBadgeTests: XCTestCase {
 
             let list = VStack(spacing: 0) {
                 ForEach(rows, id: \.id) { row in
-                    PopoverKeyRow(credential: row.credential, subtitle: row.credential.fields.keys.sorted().joined(separator: ", "),
+                    PopoverKeyRow(credential: row.credential,
+                                  subtitle: ValueHintText.listSubtitle(row.credential.fieldSummary, credential: row.credential,
+                                                                       hints: overview.hints[row.id] ?? [:]),
                                   valueAvailability: row.availability) {}
                 }
                 Spacer(minLength: 0)
@@ -72,14 +77,16 @@ final class CredentialAvailabilityBadgeTests: XCTestCase {
             for (index, availability) in [CredentialValueAvailability(state: .unchecked),
                                           .init(state: .missing, missingFields: ["api-key"])].enumerated() {
                 let detail = PopoverKeyDetail(credentialId: "openai", credential: openai, session: session,
-                                              valueAvailability: availability, onBack: {}, onOpenWindow: {}, onEdit: {})
+                                              valueAvailability: availability, valueHints: overview.hints["openai"] ?? [:],
+                                              onBack: {}, onOpenWindow: {}, onEdit: {})
                 try render(detail, name: "panel-detail-\(index == 0 ? "normal" : "missing")-\(suffix)",
                            size: NSSize(width: DS.Popover.width, height: 620), dark: dark, language: language,
                            layout: .popover, output: output)
             }
 
             let window = CredentialDetailView(credentialId: "openai", credential: openai, session: session,
-                                              valueAvailability: .init(state: .unchecked), onBack: {}, onUpdate: {},
+                                              valueAvailability: .init(state: .unchecked),
+                                              valueHints: overview.hints["openai"] ?? [:], onBack: {}, onUpdate: {},
                                               onDelete: { nil }, store: store, approvals: approvals)
             try render(window, name: "window-detail-\(suffix)", size: NSSize(width: 760, height: 980), dark: dark,
                        language: language, layout: .embedded, output: output)

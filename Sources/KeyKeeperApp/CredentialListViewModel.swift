@@ -7,6 +7,8 @@ class CredentialListViewModel: ObservableObject {
     @Published var searchText = ""
     @Published var errorMessage: String?
     @Published private(set) var valueAvailability: [String: CredentialValueAvailability] = [:]
+    /// credential ID → field name → last four characters of a long stored value.
+    @Published private(set) var valueHints: [String: [String: String]] = [:]
     @Published private(set) var isCheckingValues = false
     private var inspectionGeneration = 0
     /// Set when meta.json exists but cannot be read. Distinct from "no credentials yet":
@@ -68,6 +70,7 @@ class CredentialListViewModel: ObservableObject {
     func load() {
         inspectionGeneration += 1
         valueAvailability = [:]
+        valueHints = [:]
         do {
             let (meta, verdict) = try store.loadVerified()
             credentials = Self.sorted(meta.credentials.map { (id: $0.key, credential: $0.value) })
@@ -114,9 +117,10 @@ class CredentialListViewModel: ObservableObject {
             }
             self.valueAvailability = Dictionary(uniqueKeysWithValues: self.credentials.map { item in
                 (item.id, inventory.map {
-                    CredentialValueAvailability.check(item.credential, presentFields: $0[item.id] ?? [])
+                    CredentialValueAvailability.check(item.credential, presentFields: $0.names[item.id] ?? [])
                 } ?? .init(state: .unavailable))
             })
+            self.valueHints = inventory?.hints ?? [:]
         }
     }
 
@@ -167,9 +171,10 @@ class CredentialListViewModel: ObservableObject {
     }
 }
 
-/// Production session owns a locked store. The task returns names only, never values.
+/// Production session owns a locked store. The task returns names and the last four characters
+/// of long values, never a value.
 private final class ValueInventoryProbe: @unchecked Sendable {
     let session: any CredentialSessionManaging
     init(session: any CredentialSessionManaging) { self.session = session }
-    func read() -> [String: Set<String>]? { try? session.inspectValueInventory() }
+    func read() -> CredentialValueOverview? { try? session.inspectValueOverview() }
 }

@@ -295,6 +295,17 @@ public final class KeychainBlobStore: @unchecked Sendable {
         }
     }
 
+    /// The same no-prompt read as the inventory; only the last four characters of a long value
+    /// leave this function, never the value.
+    public func inspectValueOverview() throws -> CredentialValueOverview {
+        try withLock {
+            guard let data = try io.readBlobWithoutInteraction() else { return CredentialValueOverview(names: [:]) }
+            let credentials = try decodeBlob(data).credentials
+            return CredentialValueOverview(names: credentials.mapValues { Set($0.keys) },
+                                           hints: credentials.mapValues { $0.compactMapValues(ValueHint.suffix(of:)) })
+        }
+    }
+
     /// Called once before a GUI mutation, while metadata still describes the pre-edit values.
     /// Per-field deletion intentionally precedes metadata commits, so don't repeat this
     /// inventory check halfway through a multi-field edit.
@@ -388,6 +399,10 @@ public final class KeychainCredentialService: @unchecked Sendable {
 
     public func inspectValueInventory() throws -> [String: Set<String>] {
         try store.inspectValueInventory()
+    }
+
+    public func inspectValueOverview() throws -> CredentialValueOverview {
+        try store.inspectValueOverview()
     }
 
     public func validateStorage() throws {

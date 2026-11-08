@@ -123,7 +123,7 @@ final class CredentialEditorNamingTests: XCTestCase {
         vm.beginEditing()
 
         let key = try XCTUnwrap(vm.fields.first { $0.name == "consumer-key" })
-        XCTAssertEqual(key.storedPreview, "ck***01")
+        XCTAssertEqual(key.storedPreview, "\u{2022}\u{2022}\u{2022}\u{2022} 0001", "用户 2026-11-08 定：只露后 4 位")
         XCTAssertEqual(key.value, "", "预览不是值：不保存就不会重写")
         let token = try XCTUnwrap(vm.fields.first { $0.name == "access-token" })
         XCTAssertTrue(token.storedMissing)

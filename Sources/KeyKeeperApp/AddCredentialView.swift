@@ -549,7 +549,7 @@ private struct KeyFieldRow: View {
     }
 
     private var preview: some View {
-        Text(field.storedPreview ?? "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}")
+        Text(field.storedPreview ?? ValueHintText.masked(nil))
             .font(.callout.monospaced())
             .lineLimit(1)
             .fixedSize()

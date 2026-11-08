@@ -97,6 +97,7 @@ struct MainView: View {
                             credential: item.credential,
                             session: session,
                             valueAvailability: viewModel.valueAvailability[item.id] ?? .init(state: .unchecked),
+                            valueHints: viewModel.valueHints[item.id] ?? [:],
                             onCheckValues: { viewModel.load() },
                             onBack: { page = .home },
                             onOpenWindow: { openMainWindow(.keys, item.id) },
@@ -317,7 +318,7 @@ struct MainView: View {
         if CredentialKind(credential) == .serviceAccountFile {
             return L("Service-account JSON file")
         }
-        return credential.fieldSummary
+        return ValueHintText.listSubtitle(credential.fieldSummary, credential: credential, hints: viewModel.valueHints[id] ?? [:])
     }
 
     // MARK: Waiting for you
@@ -623,6 +624,8 @@ struct PopoverKeyRow: View {
 struct PopoverKeyDetail: View {
     let credentialId: String
     var valueAvailability: CredentialValueAvailability
+    /// Field name → last four characters of its stored value, when long enough.
+    var valueHints: [String: String]
     var onCheckValues: () -> Void
     @StateObject private var vm: CredentialDetailViewModel
     var onBack: () -> Void
@@ -635,11 +638,13 @@ struct PopoverKeyDetail: View {
 
     init(credentialId: String, credential: Credential, session: any CredentialSessionManaging,
          valueAvailability: CredentialValueAvailability = .init(state: .unchecked),
+         valueHints: [String: String] = [:],
          onCheckValues: @escaping () -> Void = {},
          onBack: @escaping () -> Void, onOpenWindow: @escaping () -> Void, onEdit: (() -> Void)? = nil) {
         self.credentialId = credentialId
         self.onEdit = onEdit
         self.valueAvailability = valueAvailability
+        self.valueHints = valueHints
         self.onCheckValues = onCheckValues
         _vm = StateObject(wrappedValue: CredentialDetailViewModel(credentialId: credentialId, credential: credential, session: session, approvals: .shared))
         self.onBack = onBack
@@ -808,7 +813,7 @@ struct PopoverKeyDetail: View {
             Text(L("Service-account JSON")).font(.callout).foregroundColor(.secondary)
         } else {
             HStack(spacing: 8) {
-                Text(field.visible && !field.value.isEmpty ? field.value : (valueAvailability.missingFields.contains(field.name) ? L("Value missing") : "••••••••••••"))
+                Text(field.visible && !field.value.isEmpty ? field.value : (valueAvailability.missingFields.contains(field.name) ? L("Value missing") : ValueHintText.masked(valueHints[field.name])))
                     .font(.callout.monospaced())
                     .foregroundColor(.secondary)
                     .lineLimit(1)

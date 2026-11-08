@@ -370,7 +370,7 @@ private struct KeysPage: View {
                     Spacer(minLength: 0)
                 }
                 HStack {
-                    Text(subtitle(credential))
+                    Text(subtitle(id, credential))
                         .font(.caption.monospaced())
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -395,11 +395,11 @@ private struct KeysPage: View {
         }
     }
 
-    private func subtitle(_ credential: Credential) -> String {
+    private func subtitle(_ id: String, _ credential: Credential) -> String {
         if CredentialKind(credential) == .serviceAccountFile {
             return L("Service-account JSON file")
         }
-        return credential.fieldSummary
+        return ValueHintText.listSubtitle(credential.fieldSummary, credential: credential, hints: listVM.valueHints[id] ?? [:])
     }
 
     private func label(for id: String?) -> String {
@@ -438,6 +438,7 @@ private struct KeysPage: View {
                 credential: item.credential,
                 session: session,
                 valueAvailability: listVM.valueAvailability[item.id] ?? .init(state: .unchecked),
+                valueHints: listVM.valueHints[item.id] ?? [:],
                 onCheckValues: { listVM.load() },
                 onBack: { router.selectedCredentialId = nil },
                 onUpdate: {

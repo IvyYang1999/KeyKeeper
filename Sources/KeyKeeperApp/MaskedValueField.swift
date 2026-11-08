@@ -1,4 +1,5 @@
 import SwiftUI
+import KeyKeeperCore
 
 /// Pure presentation rules for `MaskedValueField`, kept out of the view so they can be unit tested.
 enum MaskedFieldPresentation {
@@ -17,16 +18,29 @@ enum MaskedFieldPresentation {
         return revealed || valueIsEmpty || isFocused
     }
 
-    /// "sk_live_abc123def456" → "sk***56"
-    static func mask(_ text: String) -> String {
-        guard text.count > 4 else { return "***" }
-        let prefix = String(text.prefix(2))
-        let suffix = String(text.suffix(2))
-        return "\(prefix)***\(suffix)"
+    /// "sk_live_abc123def456" → "•••• f456"; a short value shows dots only.
+    static func mask(_ text: String) -> String { ValueHintText.masked(ValueHint.suffix(of: text)) }
+}
+
+/// How a secret looks wherever it is not revealed: dots, then its last four characters when
+/// it is long enough to have them (用户 2026-11-08 定「显示后 4 位」).
+enum ValueHintText {
+    static let dots = "\u{2022}\u{2022}\u{2022}\u{2022}"
+
+    static func masked(_ hint: String?) -> String {
+        hint.map { "\(dots) \($0)" } ?? dots + dots
+    }
+
+    /// A list row's field names, followed by the one secret's last four characters when the
+    /// key has exactly one secret: two "OpenAI" keys stop looking the same.
+    static func listSubtitle(_ summary: String, credential: Credential, hints: [String: String]) -> String {
+        let secrets = credential.fields.filter { $0.value.secret && $0.value.fileFormat == nil }.map(\.key)
+        guard secrets.count == 1, let hint = hints[secrets[0]] else { return summary }
+        return "\(summary) \u{00B7} \(masked(hint))"
     }
 }
 
-/// Displays a secret value as masked text (first 2 + last 2, middle as ***).
+/// Displays a secret value as masked text (dots and its last four characters).
 /// Provides eye toggle and copy button. Typing happens in a SecureField (dots), so
 /// nothing is ever shown in the clear unless the eye is clicked; the eye is the only
 /// thing that reveals or hides. (An earlier "mask on focus loss" rule raced with the

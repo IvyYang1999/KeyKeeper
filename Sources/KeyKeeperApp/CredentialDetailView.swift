@@ -4,6 +4,8 @@ import KeyKeeperCore
 struct CredentialDetailView: View {
     let credentialId: String
     var valueAvailability: CredentialValueAvailability
+    /// Field name → last four characters of its stored value, when long enough.
+    var valueHints: [String: String]
     var onCheckValues: () -> Void
     @StateObject private var vm: CredentialDetailViewModel
     var onBack: () -> Void
@@ -30,6 +32,7 @@ struct CredentialDetailView: View {
         credential: Credential,
         session: any CredentialSessionManaging,
         valueAvailability: CredentialValueAvailability = .init(state: .unchecked),
+        valueHints: [String: String] = [:],
         onCheckValues: @escaping () -> Void = {},
         onBack: @escaping () -> Void,
         onUpdate: @escaping () -> Void,
@@ -41,6 +44,7 @@ struct CredentialDetailView: View {
     ) {
         self.credentialId = credentialId
         self.valueAvailability = valueAvailability
+        self.valueHints = valueHints
         self.onCheckValues = onCheckValues
         self.startEditing = startEditing
         self.approvals = approvals
@@ -402,7 +406,7 @@ struct CredentialDetailView: View {
             Text(field.isSecret
                  ? (field.visible && !field.value.isEmpty
                     ? field.value
-                    : (valueAvailability.missingFields.contains(field.name) ? L("Value missing") : "••••••••••"))
+                    : (valueAvailability.missingFields.contains(field.name) ? L("Value missing") : ValueHintText.masked(valueHints[field.name])))
                  : (field.value.isEmpty ? L("(empty)") : field.value))
                 .font(.callout.monospaced())
                 .foregroundColor(field.isSecret && !field.visible ? .secondary : .primary)
