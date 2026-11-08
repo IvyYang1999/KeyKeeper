@@ -101,7 +101,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         if let frameAutosaveName { window.setFrameAutosaveName(frameAutosaveName) }
         window.delegate = self
-        let hosting = NSHostingView(rootView: makeContent())
+        // Esc from a focused field reaches the key editor (and does nothing extra elsewhere).
+        let hosting = EscapeRoutingHostingView(rootView: makeContent())
         hosting.sizingOptions = []
         window.contentView = hosting
         if let frameAutosaveName, !window.setFrameUsingName(frameAutosaveName) { window.center() }

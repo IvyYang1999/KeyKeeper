@@ -145,7 +145,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Dragging the popover away turns it into a window that survives clicks elsewhere,
         // which is what you want while pasting several keys.
         popover.delegate = self
-        let popoverContent = NSHostingController(
+        // Routes Esc from a focused field to the key editor instead of closing the popover.
+        let popoverContent = EscapeRoutingHostingController(
             rootView: MainView(session: credentialService, ipcServer: ipcServer,
                 importFile: { [weak self] request, completion in
                     guard let self else { completion(.init(success: false, errorCode: .storageUnavailable)); return }

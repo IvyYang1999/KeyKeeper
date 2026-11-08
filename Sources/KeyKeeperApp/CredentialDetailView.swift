@@ -210,6 +210,7 @@ struct CredentialDetailView: View {
                     .padding(.vertical, 16)
             }
         }
+        .background(CancelsOnEscape(action: cancelEdits))
     }
 
     private var editBar: some View {
@@ -223,18 +224,21 @@ struct CredentialDetailView: View {
                     .lineLimit(1)
             }
             Spacer()
-            Button(L("Cancel")) {
-                vm.cancelEditing()
-                // Opened straight into the editor (menu bar): cancelling goes back where it came from.
-                if startEditing { onBack() }
-            }
-            .keyboardShortcut(.cancelAction)
+            // Esc with no field focused; with a field focused it arrives through CancelsOnEscape.
+            Button(L("Cancel"), action: cancelEdits)
+                .keyboardShortcut(.cancelAction)
             Button(L("Save")) { saveEdits() }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut("s", modifiers: .command)
         }
         .padding(.horizontal, layout == .embedded ? 20 : 14)
         .padding(.vertical, 10)
+    }
+
+    private func cancelEdits() {
+        vm.cancelEditing()
+        // Opened straight into the editor (menu bar): cancelling goes back where it came from.
+        if startEditing { onBack() }
     }
 
     private func saveEdits() {
