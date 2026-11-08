@@ -39,7 +39,7 @@ extension AppL10n {
 
         // Welcome guide
         "Keep API keys on this Mac. AI tools can use them without seeing the values.": "把 API key 存在这台 Mac 上。AI 工具可以使用它们，但看不到值。",
-        "Reopen this guide any time in Settings → Command line.": "之后可以在设置 → 命令行里重新打开引导。",
+        "Reopen this guide any time in Settings → {0} → {1}.": "之后可以在设置 → {0} → {1} 里重新打开引导。",
         "Protected storage on this Mac is ready.": "这台 Mac 的本地安全存储已准备好。",
         "The key list has not loaded yet.": "key 列表还没有读取出来。",
         "No keys here yet. Add one, or sync from your other Mac.": "这里还没有 key。可以添加一把，或从你的另一台 Mac 同步。",

@@ -89,10 +89,13 @@ struct SetupView: View {
         }
     }
 
+    /// Names the settings group and row by their own titles, so a move in Settings moves it too.
+    static var reopenHint: String { L("Reopen this guide any time in Settings → \(L("General")) → \(L("Welcome guide")).") }
+
     /// One exit, always visible. Skipping and finishing are the same thing: nothing here is required.
     private var footer: some View {
         HStack(spacing: DS.Spacing.sm) {
-            Text(L("Reopen this guide any time in Settings → Command line."))
+            Text(Self.reopenHint)
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

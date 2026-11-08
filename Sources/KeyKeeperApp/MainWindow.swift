@@ -130,19 +130,26 @@ struct MainWindowView: View {
 
     @StateObject private var listVM: CredentialListViewModel
     @StateObject private var addVM: AddCredentialViewModel
+    /// Nil in the app (each page uses the real store); renders pass synthetic ones.
+    private let metaStore: MetaStore?
+    private let approvals: ApprovalStore
 
     init(router: MainWindowRouter, updateController: UpdateController, session: any CredentialSessionManaging,
          browserSessions: BrowserSessionController?,
          importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)?,
-         onShowSetup: @escaping () -> Void) {
+         onShowSetup: @escaping () -> Void,
+         listModel: CredentialListViewModel? = nil, metaStore: MetaStore? = nil, approvals: ApprovalStore = .shared) {
         self.router = router
         self.updateController = updateController
         self.session = session
         self.browserSessions = browserSessions
         self.importFile = importFile
         self.onShowSetup = onShowSetup
-        _listVM = StateObject(wrappedValue: CredentialListViewModel(session: session))
-        _addVM = StateObject(wrappedValue: AddCredentialViewModel(session: session, approvals: .shared))
+        self.metaStore = metaStore
+        self.approvals = approvals
+        _listVM = StateObject(wrappedValue: listModel ?? CredentialListViewModel(session: session))
+        _addVM = StateObject(wrappedValue: metaStore.map { AddCredentialViewModel(session: session, store: $0, approvals: approvals) }
+                             ?? AddCredentialViewModel(session: session, approvals: approvals))
     }
 
     var body: some View {
@@ -219,7 +226,8 @@ struct MainWindowView: View {
     private var content: some View {
         switch router.section {
         case .keys:
-            KeysPage(router: router, listVM: listVM, addVM: addVM, session: session, importFile: importFile)
+            KeysPage(router: router, listVM: listVM, addVM: addVM, session: session, importFile: importFile,
+                     metaStore: metaStore, approvals: approvals)
         case .sessions:
             if let browserSessions {
                 BrowserSessionManagerView(controller: browserSessions)
@@ -269,6 +277,8 @@ private struct KeysPage: View {
     @ObservedObject var addVM: AddCredentialViewModel
     let session: any CredentialSessionManaging
     var importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)?
+    var metaStore: MetaStore?
+    var approvals: ApprovalStore
     @State private var pendingDeleteId: String?
 
     var body: some View {
@@ -359,13 +369,8 @@ private struct KeysPage: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(credential.label).font(.callout.weight(.semibold)).lineLimit(1)
-                    if credential.security == .strict {
-                        Text(SecurityLevelPresentation.badge(.strict))
-                            .font(.caption2.weight(.semibold))
-                            .foregroundColor(Color(red: 0.71, green: 0.33, blue: 0.04))
-                            .padding(.horizontal, 7).padding(.vertical, 1)
-                            .background(Color(red: 1, green: 0.77, blue: 0).opacity(0.22), in: Capsule())
-                    }
+                    // The same tag as the key's page header, not a colour of its own.
+                    if credential.security == .strict { SecurityBadge(level: .strict) }
                     ExpiryBadge(expires: credential.expires)
                     Spacer(minLength: 0)
                 }
@@ -457,7 +462,9 @@ private struct KeysPage: View {
                     listVM.load()
                     router.selectedCredentialId = newId
                     NotificationCenter.default.post(name: .credentialsChanged, object: nil)
-                }
+                },
+                store: metaStore ?? .default,
+                approvals: approvals
             )
             .id(item.id)
             .frame(maxWidth: 620, alignment: .leading)

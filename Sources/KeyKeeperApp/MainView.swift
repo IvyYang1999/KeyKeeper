@@ -35,19 +35,24 @@ struct MainView: View {
     private var importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)?
     private var openMainWindow: (MainWindowRouter.Section?, String?) -> Void
     private var reopenPopover: () -> Void
+    private let services: PopoverHomeServices
 
     init(session: any CredentialSessionManaging,
          ipcServer: IPCServer,
          importFile: ((FileImportRequest, @escaping (ClipboardSaveResponse) -> Void) -> Void)? = nil,
          openMainWindow: @escaping (MainWindowRouter.Section?, String?) -> Void = { _, _ in },
-         reopenPopover: @escaping () -> Void = {}) {
+         reopenPopover: @escaping () -> Void = {},
+         listModel: CredentialListViewModel? = nil,
+         addModel: AddCredentialViewModel? = nil,
+         services: PopoverHomeServices = .production) {
         self.session = session
         self.ipcServer = ipcServer
         self.importFile = importFile
         self.openMainWindow = openMainWindow
         self.reopenPopover = reopenPopover
-        _viewModel = StateObject(wrappedValue: CredentialListViewModel(session: session))
-        _addVM = StateObject(wrappedValue: AddCredentialViewModel(session: session, approvals: .shared))
+        self.services = services
+        _viewModel = StateObject(wrappedValue: listModel ?? CredentialListViewModel(session: session))
+        _addVM = StateObject(wrappedValue: addModel ?? AddCredentialViewModel(session: session, approvals: .shared))
     }
 
     var body: some View {
@@ -210,9 +215,9 @@ struct MainView: View {
             viewModel.load()
             addVM.refreshExistingIds()
             searchFocused = true
-            latestChange = (try? MetadataChangeLog.default.records())?.last
-            cliState = CLIInstallState.probe(appVersion: BuildVersion.identifier)
-            approvals.refreshMissed()
+            latestChange = services.latestChange()
+            cliState = services.probeCLI()
+            services.refreshMissed(approvals)
         }
         .onReceive(NotificationCenter.default.publisher(for: .metadataEditedByCaller)) { note in
             latestChange = note.object as? MetadataChangeRecord
@@ -580,6 +585,20 @@ struct KeyAvatar: View {
     }
 }
 
+/// What the menu bar home reads from outside itself when it appears. Renders and tests pass
+/// synthetic ones, so they never read the real change log, CLI install or approvals.
+struct PopoverHomeServices {
+    var latestChange: @MainActor () -> MetadataChangeRecord?
+    var probeCLI: @MainActor () -> CLIInstallState
+    var refreshMissed: @MainActor (ApprovalCenter) -> Void
+
+    static var production: PopoverHomeServices {
+        PopoverHomeServices(latestChange: { (try? MetadataChangeLog.default.records())?.last },
+                            probeCLI: { CLIInstallState.probe(appVersion: BuildVersion.identifier) },
+                            refreshMissed: { $0.refreshMissed() })
+    }
+}
+
 struct PopoverKeyRow: View {
     static let height: CGFloat = 54
     let credential: Credential
@@ -598,6 +617,14 @@ struct PopoverKeyRow: View {
                 }
                 Spacer(minLength: 6)
                 CredentialAvailabilityBadge(availability: valueAvailability, compact: true)
+                // The main window's list says "Expires in 13 days"; here, the same fact as an icon.
+                if let expiry = ExpiryPresentation.badge(credential.expires) {
+                    Image(systemName: "calendar.badge.exclamationmark")
+                        .font(.system(size: 12))
+                        .foregroundColor(expiry.isExpired ? .red : .orange)
+                        .help(expiry.label)
+                        .accessibilityLabel(expiry.label)
+                }
                 if credential.security == .strict {
                     Image(systemName: "hand.raised.fill")
                         .font(.system(size: 11))
