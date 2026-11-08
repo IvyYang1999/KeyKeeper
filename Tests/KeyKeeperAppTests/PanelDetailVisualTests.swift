@@ -93,6 +93,59 @@ final class CredentialAvailabilityBadgeTests: XCTestCase {
         }
     }
 
+    /// Busier keys: approved callers, old IDs, "ask every time", a service-account file.
+    func test数据多的详情页() throws {
+        guard let output = ProcessInfo.processInfo.environment["KEYKEEPER_PANEL_PREVIEW"] else {
+            throw XCTSkip("Opt-in synthetic busy detail render")
+        }
+        _ = NSApplication.shared
+        let directory = URL(fileURLWithPath: output).appendingPathComponent("fixture-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MetaStore(directory: directory, integrityIO: FakeKeychainIO())
+        let session = KeychainCredentialService(store: KeychainBlobStore(io: FakeKeychainIO()))
+        let approvals = ApprovalStore.inMemory()
+        var stripe = Credential(label: "Stripe 生产", notes: "Live payments. Read-only reporting jobs only.", links: [],
+                                fields: ["secret-key": .init(secret: true)], security: .strict,
+                                created: "2026-10-01", updated: "2026-11-06", provider: "stripe")
+        stripe.aliases = ["stripe", "stripe-live"]
+        let google = Credential(label: "GCP 部署机器人", notes: "", links: [],
+                                fields: ["service-account": .init(secret: true, fileFormat: .serviceAccountJSON)], security: .standard,
+                                created: "2026-10-01", updated: "2026-11-06", provider: nil)
+        try store.save(MetaFile(credentials: ["stripe-prod": stripe, "gcp-deploy": google]))
+        try session.save(credentialId: "stripe-prod", fieldName: "secret-key", value: "rk_live_synthetic_0000_9Zq4", security: .strict)
+        try session.save(credentialId: "gcp-deploy", fieldName: "service-account",
+                         value: #"{"type":"service_account","client_email":"deploy-bot@synthetic-project.iam.gserviceaccount.com","project_id":"synthetic-project"}"#,
+                         security: .standard)
+        let now = Date()
+        for (fingerprint, name, duration) in [("app:com.anthropic.claude-code", "Claude Code", ApprovalDuration.always),
+                                             ("app:com.openai.codex", "Codex", .timed(now.addingTimeInterval(3 * 86_400)))] {
+            try approvals.add(Approval(id: "grant-\(name)", subject: ApprovalSubject(fingerprint: fingerprint, displayName: name),
+                target: .credential(id: "stripe-prod", fields: nil), duration: duration,
+                createdAt: now.addingTimeInterval(-86_400), lastUsedAt: now.addingTimeInterval(-600)))
+        }
+        let overview = try session.inspectValueOverview()
+        let defaults = UserDefaults.standard
+        let original = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        defer { defaults.setVolatileDomain(original, forName: UserDefaults.argumentDomain) }
+        for (language, dark) in [("zh-Hans", false), ("en", true)] {
+            defaults.setVolatileDomain([AppL10n.preferenceName: language], forName: UserDefaults.argumentDomain)
+            let suffix = "\(language)-\(dark ? "dark" : "light")"
+            for (id, credential) in [("stripe-prod", stripe), ("gcp-deploy", google)] {
+                let window = CredentialDetailView(credentialId: id, credential: credential, session: session,
+                    valueAvailability: .init(state: .present), valueHints: overview.hints[id] ?? [:],
+                    onBack: {}, onUpdate: {}, onDelete: { nil }, store: store, approvals: approvals)
+                try render(window, name: "busy-window-\(id)-\(suffix)", size: NSSize(width: 760, height: 1200), dark: dark,
+                           language: language, layout: .embedded, output: output)
+                let panel = PopoverKeyDetail(credentialId: id, credential: credential, session: session,
+                    valueAvailability: .init(state: .present), valueHints: overview.hints[id] ?? [:],
+                    onBack: {}, onOpenWindow: {}, onEdit: {}, store: store, approvals: approvals)
+                try render(panel, name: "busy-panel-\(id)-\(suffix)", size: NSSize(width: DS.Popover.width, height: 640), dark: dark,
+                           language: language, layout: .popover, output: output)
+            }
+        }
+    }
+
     func test添加页菜单栏与主窗口中英文() throws {
         guard let output = ProcessInfo.processInfo.environment["KEYKEEPER_PANEL_PREVIEW"] else {
             throw XCTSkip("Opt-in synthetic add page render")

@@ -150,6 +150,7 @@ struct AccessSection: View {
     @State private var entries: [AccessEntry] = []
     @State private var errorMessage: String?
     @State private var expanded: Set<String> = []
+    @State private var pendingRevoke: AccessEntry?
 
     /// Injected by renders and tests, so they never read the real approvals item.
     var approvals: ApprovalStore = .shared
@@ -166,10 +167,15 @@ struct AccessSection: View {
             } else {
                 ForEach(entries) { entry in
                     HStack(alignment: .top) {
-                        Image(systemName: entry.symbolName)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .frame(width: 16)
+                        // The caller's own icon, as on the usage permissions page.
+                        if entry.kind == .backgroundCaller {
+                            CallerMark(callerId: CallerAppIcon.lookupId(forName: entry.who), size: 20)
+                        } else {
+                            Image(systemName: entry.symbolName)
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                                .frame(width: 20, height: 20)
+                        }
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.who)
                                 .font(.callout)
@@ -192,10 +198,6 @@ struct AccessSection: View {
                                 .font(.caption2)
                                 .foregroundColor(.orange)
                         }
-                        Button(L("Revoke")) { revoke(entry) }
-                            .font(.caption)
-                            .foregroundColor(.red)
-                            .buttonStyle(.plain)
                         Button {
                             if expanded.contains(entry.id) { expanded.remove(entry.id) } else { expanded.insert(entry.id) }
                         } label: {
@@ -215,6 +217,12 @@ struct AccessSection: View {
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
+                            // Behind the disclosure and confirmed first, as on the usage permissions page.
+                            Button(L("Revoke") + "\u{2026}", role: .destructive) { pendingRevoke = entry }
+                                .font(.caption)
+                                .buttonStyle(.plain)
+                                .foregroundColor(.red)
+                                .padding(.top, 4)
                         }
                         .padding(.leading, 24)
                         .padding(.bottom, 6)
@@ -228,6 +236,17 @@ struct AccessSection: View {
 
             if let errorMessage {
                 Text(errorMessage).font(.caption).foregroundColor(.red)
+            }
+        }
+        .confirmationDialog(L("Revoke this approval?"), isPresented: Binding(get: { pendingRevoke != nil }, set: { if !$0 { pendingRevoke = nil } }),
+                            titleVisibility: .visible) {
+            if let pendingRevoke {
+                Button(L("Revoke"), role: .destructive) { revoke(pendingRevoke); self.pendingRevoke = nil }
+            }
+            Button(L("Cancel"), role: .cancel) { pendingRevoke = nil }
+        } message: {
+            if let pendingRevoke {
+                Text(L("\(pendingRevoke.who) · \(credentialId) · \(Self.approvalID(pendingRevoke).prefix(8)). Only this approval will be removed. It does not erase copies already received or revoke other approvals."))
             }
         }
         .onAppear(perform: load)
@@ -251,9 +270,13 @@ struct AccessSection: View {
         }
     }
 
+    static func approvalID(_ entry: AccessEntry) -> String { String(entry.id.split(separator: ":", maxSplits: 1)[1]) }
+
+    /// 【曾经的 bug】2026-11-08 渲染发现：详情页「已授权对象」每行常驻一个红色「撤销授权」，点一下就撤，
+    /// 不像使用权限页那样先确认。
     private func revoke(_ entry: AccessEntry) {
         do {
-            try approvals.revoke(id: String(entry.id.split(separator: ":", maxSplits: 1)[1]))
+            try approvals.revoke(id: Self.approvalID(entry))
             load()
         } catch {
             errorMessage = error.localizedDescription

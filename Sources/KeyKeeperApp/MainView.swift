@@ -672,13 +672,15 @@ struct PopoverKeyDetail: View {
          valueAvailability: CredentialValueAvailability = .init(state: .unchecked),
          valueHints: [String: String] = [:],
          onCheckValues: @escaping () -> Void = {},
-         onBack: @escaping () -> Void, onOpenWindow: @escaping () -> Void, onEdit: (() -> Void)? = nil) {
+         onBack: @escaping () -> Void, onOpenWindow: @escaping () -> Void, onEdit: (() -> Void)? = nil,
+         store: MetaStore = .default, approvals: ApprovalStore = .shared) {
         self.credentialId = credentialId
         self.onEdit = onEdit
         self.valueAvailability = valueAvailability
         self.valueHints = valueHints
         self.onCheckValues = onCheckValues
-        _vm = StateObject(wrappedValue: CredentialDetailViewModel(credentialId: credentialId, credential: credential, session: session, approvals: .shared))
+        _vm = StateObject(wrappedValue: CredentialDetailViewModel(credentialId: credentialId, credential: credential, session: session,
+                                                                  store: store, approvals: approvals))
         self.onBack = onBack
         self.onOpenWindow = onOpenWindow
     }
