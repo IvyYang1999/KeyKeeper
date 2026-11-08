@@ -119,9 +119,13 @@ final class ICloudSyncRuntime: ObservableObject {
             switch action {
             case .enable: await engine.enable()
             case .retry:
+                // Carry on with what this Mac's record says once it can be read. Only a turn-off
+                // asked for in this session turns sync off: a record that was unreadable at launch
+                // looked "off" here, and retrying it used to switch the person's sync off.
                 await engine.load()
                 if epoch == actionEpoch {
-                    if wasEnabled { await engine.enable() } else { await engine.disable() }
+                    if stopRequested { await engine.disable() }
+                    else if await engine.status.enabled { await engine.enable() }
                 }
             case .retryPendingUpload:
                 if wasEnabled {

@@ -186,6 +186,72 @@ final class ICloudSyncRuntimeIntegrationTests: XCTestCase {
         f.runtime.stopScheduling()
     }
 
+    /// 【曾经的 bug】2026-11-09：App 启动那一刻读不到「同步已开启」的记录（受保护存储一时没就绪），
+    /// 界面显示暂停，而且当成「没开」；这时点「重试」会读到记录、接着把同步关掉，只能再点一次启用。
+    /// Retry now re-reads the record and carries on with what it says; only a turn-off asked for
+    /// in this session turns it off.
+    func test曾经的Bug启动时读不到同步记录点重试不会把同步关掉() async throws {
+        let f = try fixture()
+        await f.runtime.start()
+        f.runtime.perform(.enable)
+        await eventually { f.runtime.state.phase == .ready }
+        f.runtime.stopScheduling()
+
+        let (relaunched, _) = relaunch(f, retryDelays: [])
+        f.stateIO.failReads = true
+        await relaunched.start()
+        await eventually { relaunched.state.phase == .paused }
+        XCTAssertEqual(relaunched.state.issue, .storageUnavailable)
+        XCTAssertFalse(relaunched.state.enabled, "Unreadable, so not shown as on")
+        f.stateIO.failReads = false
+        relaunched.perform(.retry)
+        await eventually { relaunched.state.phase == .ready }
+        XCTAssertTrue(relaunched.state.enabled)
+        XCTAssertEqual(try f.stateStore.load()?.enabled, true, "Retry did not turn sync off")
+        relaunched.stopScheduling()
+    }
+
+    /// 同上：读不到的那一下过去了，就照记录接着同步，不用人点。It only re-reads this Mac's record;
+    /// with sync off in the record, nothing reaches iCloud.
+    func test曾经的Bug启动时读不到同步记录过一会儿自己接上() async throws {
+        let f = try fixture()
+        await f.runtime.start()
+        f.runtime.perform(.enable)
+        await eventually { f.runtime.state.phase == .ready }
+        f.runtime.stopScheduling()
+        let uploads = f.cloud.uploadCount
+
+        let (relaunched, _) = relaunch(f, retryDelays: [5_000_000])
+        f.stateIO.failReads = true
+        await relaunched.start()
+        await eventually { relaunched.state.phase == .paused && relaunched.state.nextRetry != nil }
+        XCTAssertEqual(relaunched.state.issue, .storageUnavailable)
+        f.stateIO.failReads = false
+        await eventually { relaunched.state.phase == .ready && relaunched.state.enabled }
+        XCTAssertEqual(try f.stateStore.load()?.enabled, true)
+        XCTAssertEqual(f.cloud.uploadCount, uploads, "Nothing changed locally, so nothing is uploaded")
+        relaunched.stopScheduling()
+
+        let off = try fixture(retryDelays: [5_000_000])
+        let (offRelaunched, _) = relaunch(off, retryDelays: [5_000_000])
+        off.stateIO.failReads = true
+        await offRelaunched.start()
+        off.stateIO.failReads = false
+        await eventually { offRelaunched.state.phase == .off }
+        XCTAssertFalse(offRelaunched.state.enabled, "An unreadable record is never taken as an opt-in")
+        XCTAssertEqual(off.cloud.factoryCount, 0, "Sync that was never turned on never reaches iCloud")
+        offRelaunched.stopScheduling()
+    }
+
+    /// The same data and iCloud, a new coordinator and runtime: what the next launch of the app sees.
+    private func relaunch(_ f: RuntimeFixture, retryDelays: [UInt64]) -> (ICloudSyncRuntime, CloudSyncCoordinator) {
+        let cloud = f.cloud
+        let coordinator = CloudSyncCoordinator(local: f.local, stateStore: f.stateStore, makeTransport: {
+            cloud.constructed(); return cloud
+        })
+        return (ICloudSyncRuntime(engine: coordinator, center: NotificationCenter(), retryDelays: retryDelays), coordinator)
+    }
+
     private func fixture(withMissingRecord: Bool = false,
                          retryDelays: [UInt64] = ICloudSyncRuntime.defaultRetryDelays) throws -> RuntimeFixture {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("keykeeper-sync-runtime-test-" + UUID().uuidString)

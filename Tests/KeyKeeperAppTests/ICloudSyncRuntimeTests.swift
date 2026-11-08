@@ -243,7 +243,8 @@ final class ICloudSyncRuntimeTests: XCTestCase {
         for issue: ICloudSyncPresentation.Issue in [.accountChanged, .networkUnavailable, .storageUnavailable,
                                                     .incompleteVault, .pendingUpload, .stale] {
             XCTAssertTrue(retries(.paused, issue), "\(issue)")
-            XCTAssertFalse(retries(.paused, issue, enabled: false), "Never while sync is off: \(issue)")
+            XCTAssertEqual(retries(.paused, issue, enabled: false), issue == .storageUnavailable,
+                "Not shown as on: only a record that could not be read is read again: \(issue)")
         }
         for issue: ICloudSyncPresentation.Issue in [.identityUnavailable, .unsupportedMigration, .unsupportedSnapshotVersion] {
             XCTAssertFalse(retries(.paused, issue), "\(issue)")

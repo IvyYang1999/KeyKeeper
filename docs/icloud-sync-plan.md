@@ -48,7 +48,7 @@ database. Do not put plaintext snapshots in iCloud Drive or a local backup file.
 | No cross-Mac grants | Explicit export schema excludes grants; import invalidates changed-item grants and pending requests | Core + App |
 | No account crossover | Account-bound state; sign-out/change stops reads and writes. Rate-bounded automatic re-checks (30 s, 2 min, 10 min, then every 15 min; also on wake and network return) resume only after the bound account ID is verified again; a different account stays stopped | Transport + App |
 | Safe existing-data migration | Verified encrypted checkpoint and recoverable commit before new state is exposed | Storage |
-| Optional, default off | No transport creation/reads/writes until consent; disable keeps local data | App |
+| Optional, default off | No transport creation/reads/writes until consent; disable keeps local data. A consent record that cannot be read at launch is re-read on the same retry schedule and never taken as consent; retry follows the record and turns sync off only when the person asked for that | App |
 | Actually works across Macs | Provisioned signed build, synthetic secret + metadata round-trip and per-Mac approval | Distribution + real-device acceptance |
 
 Allowed blockers: data loss/corruption, secret leakage, unauthorized/wrong writes,
