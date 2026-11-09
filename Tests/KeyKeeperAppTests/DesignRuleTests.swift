@@ -3,7 +3,8 @@ import XCTest
 /// The design rules from the 2026-11-08 UI review (UI-review-20261108, section 3), checked in
 /// the source so a new screen cannot quietly bring back the old mix.
 final class DesignRuleTests: XCTestCase {
-    /// 盘点第三节第 1 条：全 App 一种输入框（灰色内嵌的 dsInput），不再混用白底描边的 roundedBorder。
+    /// 盘点第三节第 1 条：全 App 一种输入框（dsInput），不再混用系统的 roundedBorder。
+    /// 2026-11-09 起这一种是白底细边、24pt 高（用户：白底在磨玻璃上好看，灰色的有点高）。
     func test全App只用一种输入框() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let folder = root.appendingPathComponent("Sources/KeyKeeperApp")

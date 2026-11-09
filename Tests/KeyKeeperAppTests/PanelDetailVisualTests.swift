@@ -142,6 +142,12 @@ final class CredentialAvailabilityBadgeTests: XCTestCase {
                     onBack: {}, onOpenWindow: {}, onEdit: {}, store: store, approvals: approvals)
                 try render(panel, name: "busy-panel-\(id)-\(suffix)", size: NSSize(width: DS.Popover.width, height: 640), dark: dark,
                            language: language, layout: .popover, output: output)
+                // The editor shares the add page's fields (white boxes since 2026-11-09).
+                let editor = CredentialDetailView(credentialId: id, credential: credential, session: session,
+                    valueAvailability: .init(state: .present), valueHints: overview.hints[id] ?? [:],
+                    onBack: {}, onUpdate: {}, onDelete: { nil }, startEditing: true, store: store, approvals: approvals)
+                try render(editor, name: "busy-edit-popover-\(id)-\(suffix)", size: NSSize(width: DS.Popover.width, height: 720),
+                           dark: dark, language: language, layout: .popover, output: output)
             }
         }
     }

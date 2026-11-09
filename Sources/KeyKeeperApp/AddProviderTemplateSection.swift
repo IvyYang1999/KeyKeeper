@@ -96,7 +96,8 @@ struct AddProviderFields: View {
                 MaskedValueField(value: $vm.fields[index].value, visible: $vm.fields[index].visible,
                                  placeholder: L("Paste or type the value"),
                                  onToggleVisibility: { vm.fields[index].visible.toggle() })
-                    .padding(8).surface(.inset, radius: DS.Radius.sm)
+                    .padding(.horizontal, 8).frame(minHeight: DS.fieldHeight)
+                    .surface(.field, radius: DS.fieldRadius)
                     .accessibilityIdentifier("provider-field-" + field.name)
             } else {
                 TextField(L("Plain value, e.g. an account id"), text: $vm.fields[index].value)

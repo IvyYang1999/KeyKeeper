@@ -12,14 +12,16 @@ import SwiftUI
 // | .base       | window / popover / panel backdrop             | blur + white 50 %          | blur + black 38 %          |
 // | .card       | list rows, content cards, tiles, info cards   | white 30 % + white hairline| white 6 % + white hairline |
 // | .raised     | the selected row, sidebar item, primary tile  | white 92 % + soft shadow   | white 16 % + soft shadow   |
-// | .inset      | search field, command box, value wells        | black 4.5 % (sunken)       | white 6 % (sunken)         |
+// | .inset      | search field, command box, read-only wells    | black 4.5 % (sunken)       | white 6 % (sunken)         |
+// | .field      | a box the person types into on a form         | white 95 % + grey hairline | white 10 % + white hairline|
 // | .attention  | requests waiting for the user                 | orange 10 % over card      | orange 16 % over card      |
 //
 // Selection is shown by lifting (.raised), never by a coloured ring. Separators inside cards
 // use `Glass.separator`. Designed 2026-09-11 after yyt: "several different whites — we need a
-// system that says which white goes where".
+// system that says which white goes where". Form fields were grey wells from 2026-11-08 until
+// yyt on 2026-11-09: white boxes look better on the frosted glass, as in 0.3.6.
 enum Surface {
-    case base, card, raised, inset, attention
+    case base, card, raised, inset, field, attention
 }
 
 enum Glass {
@@ -34,6 +36,7 @@ enum Glass {
         case .card: return dark ? Color.white.opacity(0.06) : Color.white.opacity(0.30)
         case .raised: return dark ? Color.white.opacity(0.16) : Color.white.opacity(0.92)
         case .inset: return dark ? Color.white.opacity(0.06) : Color.black.opacity(0.045)
+        case .field: return dark ? Color.white.opacity(0.10) : Color.white.opacity(0.95)
         case .attention: return Color.orange.opacity(dark ? 0.16 : 0.10)
         }
     }
@@ -42,6 +45,7 @@ enum Glass {
         let dark = scheme == .dark
         switch surface {
         case .card, .raised: return dark ? Color.white.opacity(0.10) : Color.white.opacity(0.55)
+        case .field: return dark ? Color.white.opacity(0.16) : Color.black.opacity(0.12)
         case .attention: return Color.orange.opacity(0.28)
         case .base, .inset: return .clear
         }

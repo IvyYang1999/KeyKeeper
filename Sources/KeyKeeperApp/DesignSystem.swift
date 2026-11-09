@@ -18,6 +18,10 @@ enum DS {
         static let lg: CGFloat = 16
     }
 
+    /// A one-line text field: the native field's height and corner, so it reads as one.
+    static let fieldHeight: CGFloat = 24
+    static let fieldRadius: CGFloat = 6
+
     /// One size for every page, so the popover never jumps or clips when switching pages.
     enum Popover {
         static let width: CGFloat = 380
@@ -67,15 +71,16 @@ struct SectionLabel: View {
 // MARK: - Input
 
 extension View {
-    /// The one text input look: a sunken well, no border. Every form field uses it, so a page
-    /// never mixes white bordered boxes with grey wells.
+    /// The one text input look: a white box with a hairline, as tall as a native field. Every
+    /// form field uses it, so a page never mixes two kinds of box. yyt 2026-11-09: white boxes
+    /// look better on the frosted glass than the grey wells, and those were a bit tall.
     func dsInput(monospaced: Bool = false) -> some View {
         self
             .textFieldStyle(.plain)
             .font(monospaced ? .body.monospaced() : .body)
-            .padding(.horizontal, 10)
-            .frame(height: 30)
-            .surface(.inset, radius: DS.Radius.sm)
+            .padding(.horizontal, 8)
+            .frame(height: DS.fieldHeight)
+            .surface(.field, radius: DS.fieldRadius)
     }
 }
 

@@ -320,7 +320,7 @@ struct DescriptionEditor: View {
                 .frame(minHeight: 52, maxHeight: 88)
                 .scrollContentBackground(.hidden)
                 .padding(6)
-                .surface(.inset, radius: DS.Radius.sm)
+                .surface(.field, radius: DS.fieldRadius)
                 .overlay(alignment: .topLeading) {
                     if text.isEmpty {
                         Text(L("What it is for, limits, which environment\u{2026}"))
@@ -424,7 +424,7 @@ struct KeyFieldsEditor: View {
                     )
                 }
             }
-            .surface(.card, radius: DS.Radius.md)
+            .surface(.field, radius: DS.Radius.sm)
 
             Button(action: { fields.append(FieldEntry()) }) {
                 Label(L("Add another key"), systemImage: "plus.circle")
@@ -510,7 +510,7 @@ private struct KeyFieldRow: View {
 
                 Rectangle()
                     .fill(Glass.separator(scheme))
-                    .frame(width: 1, height: 26)
+                    .frame(width: 1, height: 16)
 
                 value
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -528,8 +528,11 @@ private struct KeyFieldRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        // A one-line row is as tall as a native field (yyt 2026-11-09: "a bit tall");
+        // the editor's rows carry the script name under the name and keep a little more air.
+        .padding(.horizontal, 10)
+        .padding(.vertical, showsScriptName ? 7 : 4)
+        .frame(minHeight: DS.fieldHeight + 4)
         .onHover { hovering = $0 }
     }
 
@@ -663,7 +666,7 @@ private struct KeyFieldRow: View {
                 .font(.caption.monospaced())
                 .padding(.horizontal, 6)
                 .frame(width: 180, height: 22)
-                .surface(.inset, radius: 6)
+                .surface(.field, radius: DS.fieldRadius)
             Text(field.originalName == nil
                  ? L("Scripts use this name.")
                  : L("Scripts use this name; the old one keeps working."))
