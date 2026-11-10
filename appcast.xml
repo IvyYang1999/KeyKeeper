@@ -6,6 +6,38 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>KeyKeeper</title>
         <item>
+            <title>0.3.7</title>
+            <pubDate>Tue, 10 Nov 2026 14:14:27 +0800</pubDate>
+            <link>https://github.com/IvyYang1999/KeyKeeper</link>
+            <sparkle:version>0.3.7</sparkle:version>
+            <sparkle:shortVersionString>0.3.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# KeyKeeper 0.3.7
+
+## 中文
+
+- 可选 iCloud 同步：在你的 Mac 之间同步加密的密钥、名称、字段和备注，每台 Mac 单独批准调用方。默认关闭；历史缺值记录保留，不会用缺值覆盖另一台已有的值。
+- 升级到新的受保护存储。首次从旧公开版升级时，请按引导确认本机迁移；原数据保留，调用方需要重新授权。全新安装使用独立的本机准备流程，同步由你另行开启。
+- 同步暂时暂停后会自动恢复；修复启动时读取状态失败后，重试错误关闭同步，以及关闭后旧请求又重新开启的竞态。
+- 重做欢迎引导、添加与编辑、详情、设置、网站登录态、使用权限和访问记录页面。支持 Codex／Claude Code 插件选择，自动生成的 ID 和环境变量与手填名称分开，授权详情可下钻。
+- 修复 CLI 在 worktree 构建中版本显示 unknown，以及设置页误报已是最新的问题；优化中英文、窄分栏、输入框、过期提示和隐藏值预览。
+
+**升级提示：** 从旧版迁移时可能出现 macOS 钥匙串授权，请核对请求来自 KeyKeeper。iCloud 同步需要同一 Apple 账号；网页登录态和调用方授权不会随云端同步。
+
+## English
+
+- Optional iCloud sync for encrypted keys and metadata across your Macs. Each Mac approves its own callers. Sync is off by default; missing-value records are retained without overwriting values present on another Mac.
+- Protected local storage with an explicit migration flow for older installs. Original data is retained and callers require fresh approval. New installs have a separate local setup flow; enabling sync remains your choice.
+- Automatic recovery after temporary sync interruptions. Fix retry incorrectly disabling sync at startup and a stale request re-enabling sync after it was turned off.
+- Redesigned onboarding, add/edit, details, settings, website sessions, permissions and access history. Choose Codex or Claude Code setup, distinguish generated IDs from names you enter, and inspect authorization details.
+- Correct CLI build versions in Git worktrees and unknown-version install status; improve localization, narrow split views, text fields, expiry indicators and masked value previews.
+
+**Upgrading:** Confirm the local migration when prompted. macOS may ask for Keychain access from KeyKeeper. iCloud sync requires the same Apple account; website sessions and caller approvals remain local.
+]]></description>
+            <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.7/KeyKeeper-0.3.7.dmg" length="11680834" type="application/octet-stream" sparkle:edSignature="0buH0C87OPnk+U8rG+oPzvIHKS33BAQT41Lz962Tx1wfnXrBdg9Xd334sAQErFiHhxbS+b1PddMcKp58diCPAg=="/>
+        </item>
+        <item>
             <title>0.3.6</title>
             <pubDate>Thu, 29 Oct 2026 09:30:24 +0800</pubDate>
             <link>https://github.com/IvyYang1999/KeyKeeper</link>
@@ -83,63 +115,9 @@ License: starting with this release, the app, CLI and core use FSL-1.1-MIT and c
 ]]></description>
             <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.5/KeyKeeper-0.3.5.dmg" length="8832386" type="application/octet-stream" sparkle:edSignature="+T9PNgxG8U6AkmCc7aE7KBvwQSQsrbdl/D2x5ppZH8BB5ah7EnE++ZEBB2jVuacxp/J+B2eYzDxruhXycOnbBA=="/>
         </item>
-        <item>
-            <title>0.3.4</title>
-            <pubDate>Mon, 14 Sep 2026 22:12:56 +0800</pubDate>
-            <link>https://github.com/IvyYang1999/KeyKeeper</link>
-            <sparkle:version>0.3.4</sparkle:version>
-            <sparkle:shortVersionString>0.3.4</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[# KeyKeeper 0.3.4
-
-适用于 Apple Silicon Mac，macOS 14 或更新版本。
-
-**建议升级**：这一版把「谁可以用哪把 key」的记录搬进了钥匙串，并修了一批授权相关的安全问题。
-
-- 「始终允许」现在真的只对你批准的那个程序有效，本机别的程序蹭不到；没签名的 App 按它运行的文件认，不再按它自称的名字认。升级后已有的授权会各再问一次。
-- 授权窗改成三个回答：仅这一次、这次运行期间（程序退出就失效）、以后都不问。Agent 的留言放在正中，其余细节折叠。
-- 新安装默认「后台可用」的 key 也要先见过调用方一次才放行。
-- Agent 通过命令行写入的明文字段（区域、地址这类）要你在 KeyKeeper 里确认后，`run` 才会注入。
-- Agent 新建的凭据默认「只能注入、不能读出」：值只经 `keykeeper run` 进入命令的环境，`get` 和 SDK 拿不到；需要时在凭据页打开「允许读出」。
-- 可选的「独立审查员」：填一个 Anthropic 或 OpenAI 接口的服务和 key，它会在授权窗里给出「是否必要、范围是否最小」的意见。它看不到任何值，也不会替你批准。
-- 授权记录从明文文件搬进 macOS 钥匙串，别的程序改不了；旧文件改名留档，不再读取。
-- 授权窗写清楚这次批准覆盖的范围，认不出的程序只能批准这一次。
-- 在 KeyKeeper 自己的窗口里登录网站，登录态可以像 key 一样按次、按小时或长期交给一个 Agent，随时撤销。
-- 凭据可以记录过期日；Agent 新建凭据时可以建议保护方式和过期日，由你批准。
-- Agent 第一次请求一把 key 必须说明用途，授权窗里能看到；已批准过的不再需要。
-- Agent 新建凭据时要声明用途；之后每次请求，授权窗会并列显示它的要求和 KeyKeeper 的建议。可选开启一个独立审查员（另一个模型）给意见，它看不到任何值，也不会替你批准。
-- 从剪贴板保存：先复制还是先让 Agent 发命令都行，不再要求「请求之后再复制一次」。确认窗会显示开头结尾几个字符、长度和复制时间，认对了再存；不对就再复制，窗口会跟着变。
-- 命令行等待你批准时不再超时失败；元数据被外部改动时会提示并可确认恢复。
-- 修了字段名可能变成 PATH 这类环境变量、注册文件被改后无法修复等问题。
-
----
-
-For Apple Silicon Macs, macOS 14 or later.
-
-**Recommended**: approvals now live in the Keychain, and a batch of authorization fixes.
-
-- "Always allow" now applies only to the program you approved; nothing else on this Mac can ride on it, and an unsigned app is recognised by the file it runs from, not by the name it claims. Existing approvals will ask once more after upgrading.
-- The approval window offers three answers: just this once, while it runs (ends when the program quits), or don't ask again. The agent's message sits in the middle; details are folded away.
-- On a fresh install, "Background OK" keys are only released to callers you have seen once.
-- Plain fields an agent writes over the command line (a region, an address) are injected by `run` only after you confirm them in KeyKeeper.
-- Credentials an agent creates are inject-only: values reach a command's environment through `keykeeper run` and are never returned by `get` or the SDKs. Turn on "Can be read out" on a credential when you need that.
-- Optional independent reviewer: point it at any Anthropic- or OpenAI-style service with a key, and it adds an opinion on necessity and scope to the approval window. It never sees a value and never approves for you.
-- Approval records moved from plain files into the macOS Keychain, where other programs cannot edit them. The old files are kept, renamed, and no longer read.
-- The approval window states exactly what an approval covers; a program KeyKeeper cannot identify can only be approved once.
-- Log in to a website inside KeyKeeper's own window, and hand that login to an agent once, for an hour, or until you revoke it — just like a key.
-- Credentials can record an expiry date; an agent creating one can suggest its protection and expiry, for you to approve.
-- An agent's first request for a key must say what it is for, and the approval window shows it; approved callers need not repeat it.
-- An agent creating a credential declares its use; later requests show the agent's ask next to KeyKeeper's own suggestion. An optional independent reviewer (a second model) can add its opinion — it never sees a value and never approves for you.
-- Clipboard saves no longer require a copy made after the request: copy first or run the command first, either works. The confirmation shows the first and last characters, the length and when it was copied, so you can tell it is the right thing; copy again if not, and the window follows.
-- The command line no longer times out while you read an approval window; metadata changed outside KeyKeeper is flagged and can be confirmed.
-- Fixed field names that could become variables like PATH, and a Chrome registration that could not be repaired after tampering.
-]]></description>
-            <enclosure url="https://github.com/IvyYang1999/KeyKeeper/releases/download/v0.3.4/KeyKeeper-0.3.4.dmg" length="7597070" type="application/octet-stream" sparkle:edSignature="KBUAoZH65qWNsuq8VW9kzzrCO8PvLKyd8NOl8zJvCgzAo4CUE6qirgqdc7HVAS0jCw9vrsK9eRX+4n6mY80xDA=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: pFLssMlm26CIjUQHfqLpsUepRJQe9QLo2w3ozriQ48Umpqrehfov9jpAHY3vRjNcl+xcV0NG5/NKYpyBkHGHCg==
-length: 14379
+edSignature: ekUaD94/pzad/7A2nOLB636oXoXSRt47/bARaWcgiItVG6IIPEDTfq7ZR35W1tEN3UtU5cIpBi0wX9NO84OhBg==
+length: 11643
 -->
