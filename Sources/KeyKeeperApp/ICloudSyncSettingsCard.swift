@@ -83,12 +83,28 @@ struct ICloudSyncSettingsCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let retry = Self.retryText(state) {
+                Text(retry)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let lastSuccess = state.lastSuccess {
                 Text(L("Last synced: \(lastSuccess.formatted(.dateTime.month(.abbreviated).day().hour().minute().locale(AppL10n.locale)))"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// The pause is not the end: say when KeyKeeper tries again, so nobody has to click to find out.
+    /// An unconfirmed upload is only re-checked automatically, so it says "check", not "try".
+    static func retryText(_ state: ICloudSyncPresentation) -> String? {
+        guard let next = state.nextRetry, state.retriesAutomatically else { return nil }
+        let time = next.formatted(.dateTime.hour().minute().locale(AppL10n.locale))
+        return state.issue == .pendingUpload
+            ? L("Will check again automatically at \(time).")
+            : L("Will try again automatically at \(time).")
     }
 
     /// Why it is in this state; when nothing is wrong, what sync does.

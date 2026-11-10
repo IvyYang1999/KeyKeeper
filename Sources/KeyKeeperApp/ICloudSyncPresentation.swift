@@ -33,6 +33,29 @@ struct ICloudSyncPresentation: Equatable {
     var review: ConflictReview? = nil
     var missingCredentialCount: Int? = nil
     var missingFieldCount: Int? = nil
+    /// When KeyKeeper will try again by itself; nil when nothing is scheduled.
+    var nextRetry: Date? = nil
+
+    /// 【曾经的 bug】2026-11-08 yyt：「每次都要我手动在这台电脑上点击重试，然后再在另一台电脑上重试」。
+    /// Every failure used to pause until someone clicked. These are the pauses an automatic retry
+    /// can clear by doing exactly what the Retry button does: reload, re-check the iCloud account
+    /// ID against the bound one, then run a normal cycle. A different account still fails that check
+    /// and stays paused; an unconfirmed upload is only re-checked (read-only), never sent again.
+    ///
+    /// Not enabled and storage unavailable is a launch that could not read whether sync is on.
+    /// Retrying that only re-reads this Mac's record and goes on from what it says: an unreadable
+    /// record is never taken as an opt-in. A turn-off that could not be saved looks the same; the
+    /// runtime never retries that one by itself, because the person asked it to stop.
+    var retriesAutomatically: Bool {
+        guard phase == .paused, let issue else { return false }
+        guard enabled else { return issue == .storageUnavailable }
+        switch issue {
+        case .accountChanged, .networkUnavailable, .storageUnavailable, .incompleteVault, .pendingUpload, .stale:
+            return true
+        case .identityUnavailable, .unsupportedMigration, .unsupportedSnapshotVersion:
+            return false
+        }
+    }
 }
 
 enum ICloudSyncChoice: String, Equatable { case local, remote }

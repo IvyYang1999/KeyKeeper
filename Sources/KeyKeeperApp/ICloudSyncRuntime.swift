@@ -1,6 +1,8 @@
+import AppKit
 import Combine
 import Foundation
 import CloudKit
+import Network
 import KeyKeeperCore
 
 protocol ICloudSyncDriving: Sendable {
@@ -35,10 +37,23 @@ final class ICloudSyncRuntime: ObservableObject {
     private var stopRequested = false
     private var localChangePending = false
     private var productionConfigurationAttempted = false
+    /// 30 s, 2 min, 10 min, then every 15 min for as long as the pause lasts.
+    nonisolated static let defaultRetryDelays: [UInt64] = [30, 120, 600, 900].map { $0 * 1_000_000_000 }
+    private let retryDelays: [UInt64]
+    private var retryTask: Task<Void, Never>?
+    private var retryDue: Date?
+    private var retryAttempt = 0
+    /// Wake and network signals are wired only for the production engine; tests call `systemResumed()`.
+    private var systemSignals = false
+    private var systemObservers: [NSObjectProtocol] = []
+    private var pathMonitor: NWPathMonitor?
+    private var networkSatisfied: Bool?
 
     init(engine: (any ICloudSyncDriving)? = nil, center: NotificationCenter = .default,
-         interval: UInt64 = 120_000_000_000, debounce: UInt64 = 2_000_000_000) {
+         interval: UInt64 = 120_000_000_000, debounce: UInt64 = 2_000_000_000,
+         retryDelays: [UInt64] = ICloudSyncRuntime.defaultRetryDelays) {
         self.engine = engine; self.center = center; self.interval = interval; self.debounce = debounce
+        self.retryDelays = retryDelays
     }
 
     func configureProduction() {
@@ -59,6 +74,7 @@ final class ICloudSyncRuntime: ObservableObject {
             engine = CloudSyncCoordinator(local: local, stateStore: store, makeTransport: {
                 CloudKitSyncTransport(identity: try CloudSyncNativeIdentity.current())
             })
+            systemSignals = true
         } catch {
             state = .init(phase: .unavailable, issue: .storageUnavailable)
         }
@@ -73,6 +89,7 @@ final class ICloudSyncRuntime: ObservableObject {
         guard started, epoch == actionEpoch else { return }
         attachScheduling()
         if state.enabled, state.phase == .ready { perform(.syncNow) }
+        else if state.retriesAutomatically { retryAttempt = 0; cancelAutoRetry(); retryNow() }
     }
 
     func perform(_ action: ICloudSyncAction) {
@@ -84,6 +101,7 @@ final class ICloudSyncRuntime: ObservableObject {
         guard started, let engine, action != .migrate else { return }
         if action == .disable {
             actionEpoch &+= 1; stopRequested = true
+            cancelAutoRetry(); retryAttempt = 0
             delayedChange?.cancel(); delayedChange = nil
             localChangePending = false
             state.enabled = false
@@ -95,14 +113,24 @@ final class ICloudSyncRuntime: ObservableObject {
         let epoch = actionEpoch, id = UUID(), wasEnabled = state.enabled
         activeID = id
         if action == .enable { stopRequested = false; state.enabled = true }
+        cancelAutoRetry()
         state.phase = .syncing
         activeTask = Task {
             switch action {
             case .enable: await engine.enable()
             case .retry:
+                // Carry on with what this Mac's record says once it can be read. Only a turn-off
+                // asked for in this session turns sync off: a record that was unreadable at launch
+                // looked "off" here, and retrying it used to switch the person's sync off.
+                // Reading the record waits; a turn-off that lands meanwhile wins, so check again
+                // after the last wait and before anything that could turn sync back on.
                 await engine.load()
                 if epoch == actionEpoch {
-                    if wasEnabled { await engine.enable() } else { await engine.disable() }
+                    if stopRequested { await engine.disable() }
+                    else {
+                        let recordSaysOn = await engine.status.enabled
+                        if recordSaysOn, epoch == actionEpoch, !stopRequested { await engine.enable() }
+                    }
                 }
             case .retryPendingUpload:
                 if wasEnabled {
@@ -129,6 +157,7 @@ final class ICloudSyncRuntime: ObservableObject {
         guard started, epoch == actionEpoch else { return }
         if stopRequested { next.enabled = false }
         state = next
+        updateAutoRetry()
     }
 
     func stopScheduling() {
@@ -137,8 +166,12 @@ final class ICloudSyncRuntime: ObservableObject {
         localChangePending = false
         timer?.cancel(); timer = nil
         delayedChange?.cancel(); delayedChange = nil
+        cancelAutoRetry()
         observers.forEach(center.removeObserver)
         observers = []
+        systemObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
+        systemObservers = []
+        pathMonitor?.cancel(); pathMonitor = nil; networkSatisfied = nil
     }
 
     private func attachScheduling() {
@@ -160,6 +193,71 @@ final class ICloudSyncRuntime: ObservableObject {
                 if self.state.enabled, self.state.phase == .ready { self.perform(.syncNow) }
             }
         }
+        if systemSignals { attachSystemSignals() }
+    }
+
+    private func attachSystemSignals() {
+        systemObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.systemResumed() }
+        })
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            let satisfied = path.status == .satisfied
+            Task { @MainActor [weak self] in self?.networkChanged(satisfied: satisfied) }
+        }
+        monitor.start(queue: DispatchQueue(label: "KeyKeeper.iCloudSync.network"))
+        pathMonitor = monitor
+    }
+
+    private func networkChanged(satisfied: Bool) {
+        defer { networkSatisfied = satisfied }
+        if satisfied, networkSatisfied == false { systemResumed() }
+    }
+
+    /// Wake from sleep or the network coming back: the moment a paused sync is most likely to work,
+    /// and the moment a running one has most likely missed the other Mac's changes.
+    func systemResumed() {
+        guard started, !stopRequested else { return }
+        if state.retriesAutomatically {
+            retryAttempt = 0
+            cancelAutoRetry()
+            retryNow()
+        } else if state.enabled, state.phase == .ready, activeTask == nil {
+            perform(.syncNow)
+        }
+    }
+
+    /// Schedules the next automatic retry while a pause it can clear lasts; anything else cancels it.
+    private func updateAutoRetry() {
+        guard started, !stopRequested, state.retriesAutomatically, !retryDelays.isEmpty else {
+            cancelAutoRetry()
+            if state.phase == .ready || state.phase == .off { retryAttempt = 0 }
+            return
+        }
+        guard activeTask == nil else { return }
+        if retryTask != nil { state.nextRetry = retryDue; return }
+        let delay = max(retryDelays[min(retryAttempt, retryDelays.count - 1)], 1_000_000)
+        retryAttempt += 1
+        let due = Date().addingTimeInterval(TimeInterval(delay) / 1_000_000_000)
+        retryDue = due
+        state.nextRetry = due
+        retryTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: delay) } catch { return }
+            guard let self, !Task.isCancelled else { return }
+            self.retryTask = nil; self.retryDue = nil
+            self.retryNow()
+        }
+    }
+
+    private func retryNow() {
+        guard started, !stopRequested, state.retriesAutomatically, activeTask == nil else { return }
+        perform(.retry)
+    }
+
+    private func cancelAutoRetry() {
+        retryTask?.cancel(); retryTask = nil; retryDue = nil
+        state.nextRetry = nil
     }
 
     private func scheduleLocalChange() {
@@ -179,6 +277,7 @@ final class ICloudSyncRuntime: ObservableObject {
         guard started, state.enabled, let engine else { return }
         actionEpoch &+= 1
         delayedChange?.cancel(); delayedChange = nil; localChangePending = false
+        retryAttempt = 0
         await engine.accountChanged()
         await refresh()
     }
