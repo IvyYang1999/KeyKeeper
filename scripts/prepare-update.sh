@@ -32,7 +32,12 @@ if git -C "$PROJECT_DIR" rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; th
 fi
 SOURCE_COMMIT="$(git -C "$PROJECT_DIR" rev-parse HEAD)"
 
-"$PROJECT_DIR/scripts/build-app.sh"
+: "${KEYKEEPER_PROVISION_PROFILE:?Set the Developer ID provisioning profile path}"
+: "${KEYKEEPER_SIGN_IDENTITY:?Set the matching Developer ID certificate SHA-1}"
+mkdir -p "$PROJECT_DIR/dist"
+python3 -B "$PROJECT_DIR/scripts/build-identity-candidate.py" \
+    --profile "$KEYKEEPER_PROVISION_PROFILE" --identity "$KEYKEEPER_SIGN_IDENTITY" \
+    --output-parent "$PROJECT_DIR/dist" --release
 
 # One credential carries all three: APPLE_ID and APPLE_TEAM_ID as plain fields, the
 # app-specific password as a secret. `keykeeper run` injects the plain ones without asking.

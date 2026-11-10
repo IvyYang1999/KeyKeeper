@@ -141,7 +141,22 @@ class GitHub:
         return decode_api_response(result.returncode, result.stdout, allow_missing)
 
     def read_release(self, version):
-        return self.api(f"releases/tags/v{version}", allow_missing=True)
+        release = self.api(f"releases/tags/v{version}", allow_missing=True)
+        if release is not None:
+            return release
+        # GitHub can return 404 for a tag lookup while the same draft is visible
+        # in the authenticated release list. Reconcile before creating another.
+        matches = []
+        for page in range(1, 11):
+            releases = self.api(f"releases?per_page=100&page={page}")
+            if not isinstance(releases, list):
+                raise ReleaseError("Release list is uncertain")
+            matches.extend(item for item in releases if item.get("tag_name") == "v" + version)
+            if len(matches) > 1:
+                raise ReleaseError("Multiple releases share this tag; reconcile manually")
+            if len(releases) < 100:
+                return matches[0] if matches else None
+        raise ReleaseError("Release lookup exceeded its bound; do not create a duplicate")
 
     def ensure_draft(self, receipt):
         version = receipt["version"]

@@ -29,6 +29,27 @@ class IdentityCandidateTests(unittest.TestCase):
             },
         }, hashlib.sha1(certificate).hexdigest().upper()
 
+    def test_release_image_contains_only_app_and_applications_link(self):
+        original = build.run
+        calls = []
+        try:
+            build.run = lambda args, *a: calls.append(args)
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); stage = root / "dmg"; stage.mkdir()
+                (stage / "KeyKeeper.app").mkdir()
+                archive = root / "KeyKeeper-0.3.7.dmg"
+                build.create_release_image(stage, archive, "A" * 40)
+                self.assertEqual((stage / "Applications").readlink(), Path("/Applications"))
+                self.assertEqual({p.name for p in stage.iterdir()}, {"KeyKeeper.app", "Applications"})
+                self.assertEqual(calls[0][:2], ["hdiutil", "create"])
+                (stage / "private.txt").write_text("synthetic unexpected input")
+                calls.clear()
+                with self.assertRaises(ValueError):
+                    build.create_release_image(stage, archive, "A" * 40)
+                self.assertEqual(calls, [])
+        finally:
+            build.run = original
+
     def test_profile_rejects_wrong_identity_group_environment_and_expiry(self):
         original = build.run
         try:

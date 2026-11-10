@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.3.7 - 2026-11-10
+
+- Optional encrypted iCloud sync for keys and metadata, with approvals kept local to each Mac. Missing-value records survive and do not overwrite available values on another device.
+- Move production identity to `dev.keykeeper.app` with provisioned protected storage and an explicit, copy-first migration from the legacy app. Existing originals remain available; new installs get their own local setup flow. Sync stays opt-in.
+- Recover automatically after temporary sync pauses; fix startup retry disabling sync and stale recovery re-enabling it after the user turns it off.
+- Redesigned onboarding, add/edit, details, settings, browser sessions, permissions and audit pages, with clearer generated names, caller scopes, localization, expiry and masked-value previews.
+- Fix worktree CLI revision generation and unknown-version install detection. Bundle the validated migration helper and production CloudKit profile in signed releases.
+
 ## 0.3.6 - 2026-10-28
 
 - Update defaults: check every six hours while running, download signed updates in the background, and install on quit. Long-running sessions get a reminder after a day. Explicit saved user preferences are preserved; Settings now distinguishes downloading from installing.

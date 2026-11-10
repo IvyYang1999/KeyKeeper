@@ -39,8 +39,20 @@ Freshness and shape alone are not source attestation.
 
 ## First updater-enabled release
 
-Existing KeyKeeper builds do not contain Sparkle, so this first release must still be
-installed manually. Every later release can update it in place.
+Versions before the first Sparkle release require manual installation. 0.3.7 changes
+the production bundle identity to `dev.keykeeper.app`; keep the filename `KeyKeeper.app`
+and the existing Ed25519 public key. Verify the old-to-new installation seam before
+publishing. Old installs explicitly migrate local storage on first launch; do not
+silently reuse old caller grants or enable cloud sync.
+
+Production preparation requires `KEYKEEPER_PROVISION_PROFILE` (the Developer ID
+profile for `dev.keykeeper.app`, Production CloudKit) and `KEYKEEPER_SIGN_IDENTITY`
+(the matching certificate SHA-1). It uses `build-identity-candidate.py --release`,
+including the legacy-identity migration helper. `build-app.sh` remains the isolated
+legacy-storage test/development builder and must not be used for production uploads.
+Before preparation, remove only the known `dist/dmg` test output after the E2E
+instance has exited. The production builder refuses an existing staging directory
+or archive; reconcile interrupted builds instead of overwriting them.
 
 1. Ask the user to approve the exact next version. Update `VERSION` and
    `CHANGELOG.md`, add `release-notes/<version>.md`, then commit and let the normal

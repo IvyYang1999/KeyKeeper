@@ -107,15 +107,38 @@ def sign(target, identity, extra=None):
     run(["codesign", "--force", "--sign", identity, "--options", "runtime", "--timestamp", *(extra or []), str(target)])
 
 
+def create_release_image(stage, archive, identity):
+    # Only the app and the standard installation link may enter a public archive.
+    if {p.name for p in stage.iterdir()} - {"KeyKeeper.app", "Applications"}:
+        raise ValueError("Unexpected files in release image staging directory")
+    link = stage / "Applications"
+    if not link.is_symlink() and link.exists():
+        raise ValueError("Applications must be an installation symlink")
+    if link.is_symlink():
+        if link.readlink() != Path("/Applications"):
+            raise ValueError("Unexpected installation symlink")
+    else:
+        link.symlink_to("/Applications")
+    if archive.exists():
+        raise ValueError("Archive already exists; reconcile it instead of overwriting")
+    run(["hdiutil", "create", "-volname", "KeyKeeper", "-srcfolder", str(stage),
+         "-format", "UDZO", str(archive)])
+    run(["codesign", "--force", "--sign", identity, "--timestamp", str(archive)])
+    run(["codesign", "--verify", "--verbose=2", str(archive)])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", type=Path, required=True)
     parser.add_argument("--identity", required=True, help="Existing Developer ID certificate SHA-1")
     parser.add_argument("--output-parent", type=Path, required=True)
+    parser.add_argument("--release", action="store_true", help="Build production app and DMG in clean dist/dmg; never installs")
     parser.add_argument("--migration-probes", action="store_true", help="Build isolated signed seam harness apps instead of the product")
     args = parser.parse_args()
     if run(["git", "status", "--porcelain", "--untracked-files=all"], True).stdout.strip():
         raise ValueError("Freeze and commit the candidate before building; working tree must be clean")
+    if args.release and args.migration_probes:
+        raise ValueError("Release cannot contain migration probes")
     parent = base.local_directory(args.output_parent)
     if shutil.disk_usage(parent).free < 10 * 1024**3:
         raise ValueError("At least 10 GiB free space required")
@@ -126,7 +149,13 @@ def main():
     for product in products:
         run(["swift", "build", "--disable-keychain", "-c", "release", "--product", product])
     build = Path(run(["swift", "build", "--disable-keychain", "-c", "release", "--show-bin-path"], True).stdout.decode().strip())
-    output = Path(tempfile.mkdtemp(prefix="keykeeper-identity-candidate-", suffix=".noindex", dir=parent))
+    if args.release:
+        output = parent / "dmg"
+        if output.exists():
+            raise ValueError("Release staging already exists; archive or remove only the known build output first")
+        output.mkdir()
+    else:
+        output = Path(tempfile.mkdtemp(prefix="keykeeper-identity-candidate-", suffix=".noindex", dir=parent))
     entitlements_path = output / "entitlements.plist"
     entitlements_path.write_bytes(plistlib.dumps(entitlements))
     names = [("OldMigrationProbe.app", True), ("NewMigrationProbe.app", False)] if args.migration_probes else [("KeyKeeper.app", False)]
@@ -135,7 +164,17 @@ def main():
                "sourceDiffSHA256": hashlib.sha256(run(["git", "diff", "HEAD", "--binary"], True).stdout).hexdigest(),
                "profileSHA256": hashlib.sha256(profile_bytes).hexdigest(), "certificateSHA1": identity,
                "installed": False, "launched": False, "apps": apps}
-    (output / "build-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+    if args.release:
+        # Entitlements and build metadata stay outside the distributable image.
+        entitlements_path.replace(parent / "release-entitlements.plist")
+        version = (REPO / "VERSION").read_text().strip()
+        archive = parent / f"KeyKeeper-{version}.dmg"
+        create_release_image(output, archive, identity)
+        receipt["archiveSHA256"] = hashlib.sha256(archive.read_bytes()).hexdigest()
+        receipt_path = parent / f"KeyKeeper-{version}.build.json"
+    else:
+        receipt_path = output / "build-receipt.json"
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
     print(f"CANDIDATE_OUTPUT={output}")
 
 

@@ -10,6 +10,22 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
+class DraftLookupTests(unittest.TestCase):
+    def test_missing_tag_endpoint_reconciles_visible_draft(self):
+        client = MODULE.GitHub(pathlib.Path('.'))
+        draft = {"id": 7, "tag_name": "v0.3.7", "draft": True}
+        answers = {"releases/tags/v0.3.7": None, "releases?per_page=100&page=1": [draft]}
+        client.api = lambda endpoint, **_: answers[endpoint]
+        self.assertEqual(client.read_release("0.3.7"), draft)
+
+    def test_duplicate_draft_fails_closed(self):
+        client = MODULE.GitHub(pathlib.Path('.'))
+        draft = {"tag_name": "v0.3.7", "draft": True}
+        client.api = lambda endpoint, **_: None if '/tags/' in endpoint else [draft, draft]
+        with self.assertRaises(MODULE.ReleaseError):
+            client.read_release("0.3.7")
+
+
 class Repo:
     def __init__(self):
         self.tag = None
