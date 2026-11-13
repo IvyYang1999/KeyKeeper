@@ -4,7 +4,7 @@ import Foundation
 /// protocol compatibility never means that an upstream model-vendor key belongs here.
 enum GatewayModelProviderCatalog {
     static let all: [ProviderTemplate] = [
-        atlasCloud, atlasCloudCoding,
+        atlasCloud, atlasCloudCoding, popNow,
         compshareModelVerseCN, compshareModelVerseGlobal, compshareAgentPlan,
         ccsub, micuClaude, micuCodex, rightCodeCodex, cubence, crazyrouter,
         dmxapiCN, dmxapiGlobal, dmxapiSSVIP, aiHubMix, amux, cherryIN,
@@ -39,6 +39,20 @@ enum GatewayModelProviderCatalog {
         gates: ["登录 Atlas Cloud", "购买或选择 Coding Plan", "在 Plan Management 中获取专用 API key", "确认套餐仍有效且配额未耗尽"],
         permission: "仅保存 Coding Plan 专用密钥；官方明确说明它与普通 Atlas Cloud API key 分离。仅用于套餐支持的 coding 工具。",
         sources: ["https://www.atlascloud.ai/docs/coding-plan/api"])
+
+    private static let popNow = ModelProviderTemplate.make(
+        id: "popnow",
+        name: "PopNow · Media API",
+        env: "POPNOW_API_KEY",
+        createURL: "https://popnow.ai/api/console/keys",
+        endpoints: [
+            .init("Media REST API", "https://api.popnow.ai/api/v1"),
+            .init("Remote MCP (API key)", "https://api.popnow.ai/api/v1/mcp"),
+        ],
+        gates: ["登录 PopNow 并打开 API keys 控制台", "为当前项目创建独立 API key，复制完整值后立即安全保存", "设置模型/IP 限制与消费上限，并确认独立 API 余额"],
+        permission: "仅保存 PopNow 自身 API key，用于 REST 或 API-key MCP。按用途限制模型、IP 及日/月/累计消费；OAuth MCP 与 API key 使用不同余额，不能互换。",
+        sources: ["https://popnow.ai/docs/authentication", "https://popnow.ai/docs/mcp"],
+        shownOnce: true, prefixes: ["sk-popnow-"], verified: "2026-10-25")
 
     private static let compshareModelVerseCN = ModelProviderTemplate.make(
         id: "compshare-modelverse-cn",

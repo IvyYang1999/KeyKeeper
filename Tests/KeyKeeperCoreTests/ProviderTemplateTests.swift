@@ -30,7 +30,7 @@ final class ProviderTemplateTests: XCTestCase {
             "neon", "neon-org", "railway", "railway-api", "render", "netlify", "flyio", "aws", "aws-sts", "azure", "cloudflare-account",
             "sentry", "posthog", "posthog-eu", "npm", "pypi", "pypi-test", "dockerhub", "dockerhub-oat", "gitlab",
             "twilio", "sendgrid", "sendgrid-eu", "mailgun", "slack", "slack-oauth-rotating", "feishu", "lark", "telegram",
-            "atlascloud", "atlascloud-coding-plan", "compshare-modelverse-cn", "compshare-modelverse-global", "compshare-agent-plan",
+            "atlascloud", "atlascloud-coding-plan", "popnow", "compshare-modelverse-cn", "compshare-modelverse-global", "compshare-agent-plan",
             "ccsub", "micu-claude", "micu-codex", "rightcode-codex", "cubence", "crazyrouter", "dmxapi-cn", "dmxapi-global", "dmxapi-ssvip", "aihubmix", "amux", "cherryin",
             "aws-bedrock-short-term", "aws-bedrock-long-term", "baidu-qianfan-cn", "baidu-qianfan-global", "baidu-qianfan-token-plan",
             "nvidia-api-catalog", "nvidia-ngc", "modelscope-cn", "modelscope-global", "novita-ai", "longcat", "stepfun-api", "stepfun-step-plan",
