@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/banner.png" alt="KeyKeeper — 让 API key 离开代码库、对话和 Agent 上下文。" width="800">
+  <img src="docs/assets/banner.png" alt="KeyKeeper — 把 API Key 放心交给 Agent。" width="800">
 </p>
 
 <p align="center">
@@ -26,7 +26,7 @@
 
 ---
 
-**让 API key 离开代码库、对话和 Agent 上下文。** KeyKeeper 是一个小小的 macOS 菜单栏应用，外加 `keykeeper` 命令行和两个很薄的 SDK。API key 存在 **macOS 钥匙串**里。Claude Code、Cursor、Copilot、cron 任务和脚本按 key 的**名字**工作；`keykeeper run` 只把值放进真正需要它的那一条命令的环境变量，并把该命令输出里精确匹配的值脱敏。经你批准的命令会拿到真实的值，所以能执行命令的 Agent 如果有意提取，仍然拿得到。界线在哪，见 [KeyKeeper 防什么，不防什么](#keykeeper-防什么不防什么)。
+**把 API Key 放心交给 Agent。** KeyKeeper 是一个小小的 macOS 菜单栏应用，外加 `keykeeper` 命令行和两个很薄的 SDK。API key 存在 **macOS 钥匙串**里。Claude Code、Cursor、Copilot、cron 任务和脚本按 key 的**名字**工作；`keykeeper run` 只把值放进真正需要它的那一条命令的环境变量，并把该命令输出里精确匹配的值脱敏。经你批准的命令会拿到真实的值，所以能执行命令的 Agent 如果有意提取，仍然拿得到。界线在哪，见 [KeyKeeper 防什么，不防什么](#keykeeper-防什么不防什么)。
 
 没有主密码，没有要解锁的保险库，没有会泄漏进 git 或对话的 `.env`。登录 Mac 就是解锁。
 

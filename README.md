@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/banner.png" alt="KeyKeeper — Keep API keys out of your repo, your chat, and your agent's context." width="800">
+  <img src="docs/assets/banner.png" alt="KeyKeeper — Trust agents to manage your API keys. Safely." width="800">
 </p>
 
 <p align="center">
@@ -26,7 +26,7 @@
 
 ---
 
-**Keep API keys out of your repo, your chat, and your agent's context.** KeyKeeper is a small macOS menu bar app, a `keykeeper` CLI and two thin SDKs. API keys live in the **macOS Keychain**. Claude Code, Cursor, Copilot, cron jobs and scripts work with a key's **name**; `keykeeper run` puts the value only into the environment of the one command that needs it and masks exact matches in that command's output. A command you approve receives the real value, so an agent that runs commands can get it if it deliberately tries. [What KeyKeeper protects against, and what it doesn't](#what-keykeeper-protects-against-and-what-it-doesnt) says where the line is.
+**Trust agents to manage your API keys. Safely.** KeyKeeper is a small macOS menu bar app, a `keykeeper` CLI and two thin SDKs. API keys live in the **macOS Keychain**. Claude Code, Cursor, Copilot, cron jobs and scripts work with a key's **name**; `keykeeper run` puts the value only into the environment of the one command that needs it and masks exact matches in that command's output. A command you approve receives the real value, so an agent that runs commands can get it if it deliberately tries. [What KeyKeeper protects against, and what it doesn't](#what-keykeeper-protects-against-and-what-it-doesnt) says where the line is.
 
 There is no master password, no vault to unlock, no `.env` to leak into git or chat. Logging into your Mac is the unlock.
 
