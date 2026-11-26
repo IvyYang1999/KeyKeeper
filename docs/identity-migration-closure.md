@@ -10,8 +10,11 @@ Before constructing business stores, running maintenance, or starting the real I
 
 1. For the production `StorageIdentity.current`, construct `IdentityMigrationCoordinator.production()`.
 2. `status()` is `.required`, `.pending`, or `.ready`; any error leaves services paused.
-3. Required: after user confirmation, call `await IdentityMigrationBridge.read(from: helperURL)`, then
-   `migrate(source:)`. The helper is `Contents/Helpers/KeyKeeperMigrationBridge`. Do not log the source.
+3. Required: after user confirmation, call `await IdentityMigrationBridge.read()`, then
+   `migrate(source:)`. The helper is the XPC service `Contents/XPCServices/KeyKeeperMigrationBridge.xpc`
+   (`dev.keykeeper.app.migration-bridge`). Do not log the source. After old data was copied, the App
+   says once which old Keychain items are left for the person to delete (also in Settings); see
+   "The old copy" below. KeyKeeper never deletes them.
    `unsignedMetadata` requires a separate explicit confirmation before `allowUnsignedMetadata: true`.
 4. Pending: `recover()` uses only the already confirmed protected journal image. No new source capture.
 5. Ready: call `applyPreferences()` before services, including ordinary ready launches. Its durable
@@ -51,14 +54,45 @@ a completed migration performs no additional migration writes. The original sour
 
 ## Helper trust and signed seam harness
 
-The helper has the old `com.keykeeper.app` signature. It checks the same-team new parent, requires stdout
-to be a pipe, rejects a running old App, and holds the old endpoint startup lock and its own socket lease
-through capture. It reads fixed old sources twice and refuses changed snapshots. It never writes vault
-items or metadata. Diagnostics are fixed numeric categories; the parent owns a bounded private pipe and
-terminates its own helper if it exceeds the deadline.
+The helper has the old `com.keykeeper.app` signature and runs as an XPC service inside the new App.
+Each incoming connection requires the new identity's signature (`setCodeSigningRequirement` on the
+connection; a service listener does not support the listener-wide setter), which XPC checks against the
+audit token stamped on each message when it was sent; the App in turn requires the old identity from
+the service. The reply goes back over that verified connection.
+
+Earlier releases started the helper as a child process and read its output from a pipe; it is now an
+XPC service so that the receiver of the old vault is the verified App itself. Its Info.plist sets
+`XPCService.JoinExistingSession = true`: in a new security session the login keychain is unavailable
+and reads fail with errSecInteractionNotAllowed.
+
+The service rejects a running old App and holds the old endpoint startup lock (and, for capture, its
+own socket lease). It reads fixed old sources twice and refuses changed snapshots. It never writes vault
+items or metadata. Diagnostics are fixed numeric categories; the App gives up after a deadline.
+
+## The old copy
+
+After a migration the old Keychain items (values, metadata key, approvals, website sessions,
+browser-import proposals, old sync journal) are a stale duplicate that anything signed as the earlier
+KeyKeeper can still read without a prompt. KeyKeeper does not delete them. The Keychain offers no
+"delete only if unchanged", so an automatic removal could not guarantee it deletes only what was
+copied: a same-content item in another keychain, or a value saved between the last check and the
+deletion, could be lost. The person deletes them in Keychain Access instead.
+
+Right after copying old data, the startup screen lists the old item names still present and offers
+Open Keychain Access and Continue; with none left it goes straight on. Settings shows the same list
+("Copy from before 0.3.7", with Check Again) while any are left, but only after a completed migration
+whose summary shows copied keys or website logins, never after a first install. The check
+(`LegacyItemPresence`) asks the person's keychain search list for one item's attributes per name,
+without the data-protection flag, never for its value, with authentication UI off; nothing is
+changed and no dialog can appear. If the check fails, every name is listed rather than none. The XPC
+service only captures; it has no removal request. The old folder (names, notes, plain fields, no
+secret values) is left where it is.
 
 `KeyKeeperMigrationProbe` is a synthetic-only signed seam harness. Its `seed` mode must be old-signed;
-`verify` must be new-signed and calls the actual packaged helper. It admits only a complete matching triple:
+`verify` and `presence` must be new-signed. `verify` calls the actual packaged XPC service, passing the
+isolated triple in the request (the service resolves it with the same rules); `presence` runs the
+read-only check above against the fixture's item names and must report exactly the seeded item. Seeded
+synthetic items are cleaned up outside the probe. It admits only a complete matching triple:
 
 - `KEYKEEPER_KEYCHAIN_SERVICE=com.keykeeper.test.migration.<UUID>`
 - `KEYKEEPER_DATA_DIR=<physical per-user temporary directory>/keykeeper-migration-<UUID>`

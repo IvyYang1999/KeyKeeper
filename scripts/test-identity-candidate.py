@@ -87,19 +87,32 @@ class IdentityCandidateTests(unittest.TestCase):
                 build.assemble_app(old, binaries, b"synthetic profile", ent, "A" * 40, probe=True, old=True)
                 build.assemble_app(new, binaries, b"synthetic profile", ent, "A" * 40, probe=True)
                 self.assertFalse((old / "Contents/embedded.provisionprofile").exists())
-                self.assertTrue((new / "Contents/Helpers/KeyKeeperMigrationBridge").is_file())
+                service = new / "Contents" / build.MIGRATION_BUNDLE
+                self.assertTrue((service / "Contents/MacOS/KeyKeeperMigrationBridge").is_file())
+                self.assertFalse((new / "Contents/Helpers").exists())
+                self.assertFalse((old / "Contents/XPCServices").exists())
+                info = plistlib.loads((service / "Contents/Info.plist").read_bytes())
+                self.assertEqual(info["CFBundleIdentifier"], build.MIGRATION_SERVICE)
+                self.assertEqual(info["CFBundlePackageType"], "XPC!")
+                self.assertEqual(info["XPCService"], {"ServiceType": "Application", "JoinExistingSession": True})
                 self.assertEqual(plistlib.loads((new / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"], build.APP_ID)
                 helper_sign = [c for c in calls if "--identifier" in c]
                 self.assertEqual(len(helper_sign), 1)
                 self.assertEqual(helper_sign[0][helper_sign[0].index("--identifier") + 1], "com.keykeeper.app")
+                self.assertEqual(helper_sign[0][-1], str(service))
                 self.assertFalse(any(c[-1] == str(old) and "--entitlements" in c for c in calls))
                 # codesign treats a bare requirement argument as a filename. Inline
                 # expressions require '=', unlike SecRequirementCreateWithString.
                 checks = [c for c in calls if "-R" in c]
                 self.assertEqual(len(checks), 1)
                 self.assertTrue(checks[0][checks[0].index("-R") + 1].startswith("=anchor apple generic"))
+                self.assertEqual(checks[0][-1], str(service))
         finally:
             build.run = original
+
+    def test_service_name_matches_the_app(self):
+        source = (build.REPO / "Sources/KeyKeeperCore/IdentityMigrationBridge.swift").read_text()
+        self.assertIn(f'serviceName = "{build.MIGRATION_SERVICE}"', source)
 
 
 if __name__ == "__main__":

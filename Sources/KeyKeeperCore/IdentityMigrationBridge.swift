@@ -1,53 +1,111 @@
 import Foundation
 import Security
+import CryptoKit
 import Darwin
 
-/// Only the signed new App may launch the old-identity read-only helper. Values stay in this
-/// owned private pipe; environment, arguments and diagnostics never carry source contents.
+/// What the old-identity helper offers the new App, over XPC.
+///
+/// Only the new App receives the old vault. The service requires the new App's signature, which
+/// XPC evaluates from the audit token stamped on each message when it was sent, and the reply goes
+/// back over that same connection. Nothing here relies on a process id.
+@objc public protocol IdentityMigrationBridgeService {
+    /// The complete old source, encoded. `fixture` is the isolated test triple as JSON, or nil for
+    /// the real old sources. The reply carries the data and 0, or nil and an error code.
+    func captureLegacySource(fixture: Data?, reply: @escaping (Data?, Int32) -> Void)
+}
+
+/// The new App's side of the bridge.
 public enum IdentityMigrationBridge {
-    public static func read(from helperURL: URL) async throws -> IdentityMigrationSource {
-        try await Task.detached(priority: .userInitiated) { try readSynchronously(from: helperURL) }.value
-    }
-    static func readSynchronously(from helperURL: URL) throws -> IdentityMigrationSource {
-        try IdentityMigrationSignature.current(.current)
-        try IdentityMigrationSignature.file(helperURL, identity: .legacy)
-        let process = Process(), output = Pipe()
-        process.executableURL = helperURL
-        process.arguments = []
-        let fixture = try IdentityMigrationFixture.resolve(environment: ProcessInfo.processInfo.environment)
-        process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"].merging(fixture?.environment ?? [:]) { _, new in new }
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        let ended = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in ended.signal() }
-        try process.run()
-        output.fileHandleForWriting.closeFile()
-        defer {
-            output.fileHandleForReading.closeFile()
-            if process.isRunning {
-                process.terminate()
-                if ended.wait(timeout: .now() + 1) == .timedOut {
-                    _ = Darwin.kill(process.processIdentifier, SIGKILL)
-                    _ = ended.wait(timeout: .now() + 1)
-                }
+    /// The XPC service bundled at `Contents/XPCServices/KeyKeeperMigrationBridge.xpc`.
+    public static let serviceName = "dev.keykeeper.app.migration-bridge"
+    static let deadline: TimeInterval = 60
+
+    /// The full old source, values included. Only called after the person confirmed the copy.
+    public static func read(fixture: IdentityMigrationFixture? = nil) async throws -> IdentityMigrationSource {
+        let payload = try encodeFixture(fixture)
+        let bytes: Data = try await call { service, finish in
+            service.captureLegacySource(fixture: payload) { data, code in
+                if code == 0, let data { finish(.success(data)) } else { finish(.failure(error(code))) }
             }
         }
-        let bytes = try IdentityMigrationPipe.read(output.fileHandleForReading.fileDescriptor, seconds: 30)
-        guard ended.wait(timeout: .now() + 1) == .success, !process.isRunning else { throw IdentityMigrationError.unavailable }
-        guard process.terminationStatus == 0 else {
-            if let error = IdentityMigrationError.fromExit(process.terminationStatus) { throw error }
-            throw IdentityMigrationError.unavailable
-        }
         return try IdentityMigrationSource.decode(bytes)
+    }
+
+    public static func encodeFixture(_ fixture: IdentityMigrationFixture?) throws -> Data? {
+        guard let fixture else { return nil }
+        return try JSONEncoder().encode(fixture.environment)
+    }
+
+    /// The service side: nil means the real old sources; anything else must be the isolated triple.
+    public static func decodeFixture(_ data: Data?) throws -> IdentityMigrationFixture? {
+        guard let data else { return nil }
+        guard data.count <= 4096,
+              let environment = try? JSONDecoder().decode([String: String].self, from: data),
+              let fixture = try IdentityMigrationFixture.resolve(environment: environment) else {
+            throw IdentityMigrationError.identity
+        }
+        return fixture
+    }
+
+    static func error(_ code: Int32) -> IdentityMigrationError {
+        IdentityMigrationError.fromExit(code) ?? .unavailable
+    }
+
+    private static func call<T>(_ body: @escaping (IdentityMigrationBridgeService,
+                                                   @escaping (Result<T, Error>) -> Void) -> Void) async throws -> T {
+        try IdentityMigrationSignature.current(.current)
+        let connection = NSXPCConnection(serviceName: serviceName)
+        connection.remoteObjectInterface = NSXPCInterface(with: IdentityMigrationBridgeService.self)
+        // Only the old-identity helper may answer: a look-alike service gets no request at all.
+        connection.setCodeSigningRequirement(IdentityMigrationSignature.requirementString(.legacy))
+        connection.resume()
+        defer { connection.invalidate() }
+        return try await withCheckedThrowingContinuation { continuation in
+            let once = BridgeOnce()
+            let finish: (Result<T, Error>) -> Void = { result in
+                if once.claim() { continuation.resume(with: result) }
+            }
+            let proxy = connection.remoteObjectProxyWithErrorHandler { failure in
+                let code = (failure as NSError).code
+                finish(.failure(code == NSXPCConnectionCodeSigningRequirementFailure
+                    ? IdentityMigrationError.identity : IdentityMigrationError.unavailable))
+            }
+            guard let service = proxy as? IdentityMigrationBridgeService else {
+                finish(.failure(IdentityMigrationError.unavailable)); return
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + deadline) {
+                finish(.failure(IdentityMigrationError.unavailable))
+            }
+            body(service, finish)
+        }
+    }
+}
+
+private final class BridgeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+    func claim() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !claimed else { return false }
+        claimed = true
+        return true
+    }
+}
+
+extension IdentityMigrationSource {
+    /// What a completed migration records as the source it copied.
+    public func digest() throws -> String {
+        SHA256.hash(data: try encoded()).map { String(format: "%02x", $0) }.joined()
     }
 }
 
 public enum IdentityMigrationSignature {
+    public static func requirementString(_ identity: StorageIdentity) -> String {
+        "anchor apple generic and identifier \"\(identity.rawValue)\" and certificate leaf[subject.OU] = \"\(StorageIdentity.team)\""
+    }
     private static func requirement(_ identity: StorageIdentity) throws -> SecRequirement {
         var requirement: SecRequirement?
-        let value = "anchor apple generic and identifier \"\(identity.rawValue)\" and certificate leaf[subject.OU] = \"\(StorageIdentity.team)\""
-        guard SecRequirementCreateWithString(value as CFString, [], &requirement) == errSecSuccess,
+        guard SecRequirementCreateWithString(requirementString(identity) as CFString, [], &requirement) == errSecSuccess,
               let requirement else { throw IdentityMigrationError.identity }
         return requirement
     }
@@ -55,61 +113,6 @@ public enum IdentityMigrationSignature {
         var code: SecCode?
         guard SecCodeCopySelf([], &code) == errSecSuccess, let code,
               SecCodeCheckValidity(code, [], try requirement(identity)) == errSecSuccess else { throw IdentityMigrationError.identity }
-    }
-    public static func parent() throws {
-        var code: SecCode?
-        let attributes = [kSecGuestAttributePid as String: NSNumber(value: getppid())]
-        guard SecCodeCopyGuestWithAttributes(nil, attributes as CFDictionary, [], &code) == errSecSuccess, let code,
-              SecCodeCheckValidity(code, [], try requirement(.current)) == errSecSuccess else { throw IdentityMigrationError.identity }
-    }
-    public static func file(_ url: URL, identity: StorageIdentity) throws {
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code,
-              SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), try requirement(identity)) == errSecSuccess else {
-            throw IdentityMigrationError.identity
-        }
-    }
-}
-
-public enum IdentityMigrationPipe {
-    public static func read(_ fd: Int32, seconds: UInt64) throws -> Data {
-        let flags = fcntl(fd, F_GETFL)
-        guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) >= 0 else { throw IdentityMigrationError.unavailable }
-        let deadline = DispatchTime.now().uptimeNanoseconds + seconds * 1_000_000_000
-        var bytes = Data(), buffer = [UInt8](repeating: 0, count: 16_384)
-        while DispatchTime.now().uptimeNanoseconds < deadline {
-            var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-            let polled = poll(&descriptor, 1, 50)
-            guard polled >= 0 || errno == EINTR else { throw IdentityMigrationError.unavailable }
-            let amount = Darwin.read(fd, &buffer, buffer.count)
-            if amount == 0 { return bytes }
-            if amount < 0 {
-                guard errno == EINTR || errno == EAGAIN else { throw IdentityMigrationError.unavailable }
-                continue
-            }
-            guard bytes.count + amount <= IdentityMigrationSource.maximumBytes else { throw IdentityMigrationError.malformed }
-            bytes.append(contentsOf: buffer.prefix(amount))
-        }
-        throw IdentityMigrationError.unavailable
-    }
-    public static func write(_ data: Data, fd: Int32, seconds: UInt64) throws {
-        guard data.count <= IdentityMigrationSource.maximumBytes else { throw IdentityMigrationError.malformed }
-        let flags = fcntl(fd, F_GETFL)
-        guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) >= 0 else { throw IdentityMigrationError.unavailable }
-        let deadline = DispatchTime.now().uptimeNanoseconds + seconds * 1_000_000_000
-        var offset = 0
-        while offset < data.count, DispatchTime.now().uptimeNanoseconds < deadline {
-            var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-            let polled = poll(&descriptor, 1, 50)
-            guard polled >= 0 || errno == EINTR else { throw IdentityMigrationError.unavailable }
-            let amount = data.withUnsafeBytes { Darwin.write(fd, $0.baseAddress!.advanced(by: offset), data.count - offset) }
-            if amount < 0 {
-                guard errno == EINTR || errno == EAGAIN else { throw IdentityMigrationError.unavailable }
-                continue
-            }
-            offset += amount
-        }
-        guard offset == data.count else { throw IdentityMigrationError.unavailable }
     }
 }
 

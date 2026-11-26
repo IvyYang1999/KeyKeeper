@@ -3,8 +3,10 @@ import KeyKeeperCore
 import Darwin
 
 // Signed seam harness only. It cannot resolve a production namespace or accept a source path.
-// Seed writes one dedicated synthetic item under an old-identity test App. Verify invokes the
-// actual old helper from a new-identity test App and compares without printing values.
+// Seed writes one dedicated synthetic item under an old-identity test App. Verify asks the actual
+// old-identity XPC service bundled in a new-identity test App and compares without printing
+// values. Presence runs, as the new App, the read-only check Settings uses to say which old items
+// are left: it must name the synthetic item without reading it. Nothing here deletes anything.
 do {
     guard let fixture = try IdentityMigrationFixture.resolve(environment: ProcessInfo.processInfo.environment),
           CommandLine.arguments.count == 2 else { throw IdentityMigrationError.identity }
@@ -25,8 +27,7 @@ do {
         print("PASS seeded synthetic migration source")
     case "verify":
         try IdentityMigrationSignature.current(.current)
-        let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/KeyKeeperMigrationBridge")
-        let source = try await IdentityMigrationBridge.read(from: helper)
+        let source = try await IdentityMigrationBridge.read(fixture: fixture)
         let meta = try JSONDecoder().decode(MetaFile.self, from: source.metadata ?? Data())
         guard meta.credentials.count == 1,
               meta.credentials["migration-fixture"]?.label == "Synthetic migration fixture",
@@ -34,7 +35,14 @@ do {
               source.integrityKey == nil, source.approvals == nil, source.browserSessions == nil, source.proposals == nil else {
             throw IdentityMigrationError.malformed
         }
-        print("PASS signed migration pipe synthetic source preserved grants_not_transferred")
+        print("PASS signed migration xpc synthetic source preserved grants_not_transferred")
+    case "presence":
+        try IdentityMigrationSignature.current(.current)
+        let names = IdentityMigrationLegacyCapture.itemServices(fixture: fixture)
+        guard try LegacyItemPresence.remaining(services: names) == [fixture.service] else {
+            throw IdentityMigrationError.malformed
+        }
+        print("PASS signed migration presence names_synthetic_item")
     default: throw IdentityMigrationError.identity
     }
 } catch {

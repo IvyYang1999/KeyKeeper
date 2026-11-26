@@ -88,11 +88,24 @@ final class ICloudSyncSettingsVisualTests: XCTestCase {
                     status: { .required }, recover: { XCTFail() }, applyPreferences: { XCTFail() },
                     legacyFilesExist: { try result.get() },
                     readSource: { XCTFail("Rendering must not read the source"); throw IdentityMigrationError.unavailable },
-                    migrate: { _, _ in XCTFail() }), onReady: { XCTFail() })
+                    migrate: { _, _ in XCTFail() },
+                    legacyItemsRemaining: { XCTFail(); return [] }), onReady: { XCTFail() })
                 admission.start()
                 try render(IdentityStartupView(admission: admission), width: 460, dark: language == "zh-Hans",
                            name: "startup-\(name)-\(language)", output: output, maximumHeight: 700)
             }
+            // Which old items are left to delete, after a synthetic copy that read back.
+            var copied = false
+            let offer = IdentityStartupAdmission(operations: .init(
+                status: { copied ? .ready : .required }, recover: { XCTFail() }, applyPreferences: {},
+                legacyFilesExist: { true },
+                readSource: { IdentityMigrationSource(metadataHistory: Data("[]".utf8), preferences: Data("{}".utf8)) },
+                migrate: { _, _ in copied = true },
+                legacyItemsRemaining: { IdentityMigrationLegacyCapture.itemServices(fixture: nil) }), onReady: { XCTFail() })
+            offer.start(); await offer.prepare()
+            XCTAssertEqual(offer.stage, .copied)
+            try render(IdentityStartupView(admission: offer), width: 460, dark: language == "zh-Hans",
+                       name: "startup-copied-\(language)", output: output, maximumHeight: 700)
         }
     }
 
