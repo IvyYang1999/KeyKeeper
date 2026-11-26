@@ -113,17 +113,18 @@ sequenceDiagram
 
 ## Why not just .env?
 
-|  | `.env` file | 1Password `op run` | Cloud secret manager | **KeyKeeper** |
-|---|---|---|---|---|
-| Where the value lives | Plain text in the project | Your 1Password vaults (synced via 1Password) | Cloud provider's vault | macOS Keychain (optional encrypted iCloud sync) |
-| What the AI tool sees | The value | Secret references; the command receives the value | Secret names; the SDK or command receives the value | Key names; the approved command receives the value |
-| Unlock | Nothing | 1Password app (Touch ID or account password) or service-account token | Account + network | Your Mac login |
-| Who may ask | Any process that can read the file | Whatever you authorize in the 1Password app, or any process holding a service-account token | Any process with credentials | **Each calling app, terminal or script, approved once** |
-| Output redaction | No | Yes (by default) | No | Yes (exact matches; off with `--tty`) |
-| Offline / cron | Yes | Needs the 1Password app unlocked or a service-account token | Needs network | Yes, after first login |
-| Cost | Free | Paid 1Password plan | Paid | Free; source-available (FSL-1.1-MIT, MIT after 2 years) |
+|  | `.env` file | `envchain` | 1Password `op run` | Cloud secret manager | **KeyKeeper** |
+|---|---|---|---|---|---|
+| Where the value lives | Plain text in the project | macOS login Keychain | Your 1Password vaults (synced via 1Password) | Cloud provider's vault | macOS Keychain (optional encrypted iCloud sync) |
+| What the AI tool sees | The value | Namespace names; the command receives the value | Secret references; the command receives the value | Secret names; the SDK or command receives the value | Key names; the approved command receives the value |
+| Unlock | Nothing | Your Mac login, or the Keychain password every time if you set that | 1Password app (Touch ID or account password) or service-account token | Account + network | Your Mac login |
+| Who may ask | Any process that can read the file | Any program that can run `envchain` | Whatever you authorize in the 1Password app, or any process holding a service-account token | Any process with credentials | **Each calling app, terminal or script, approved once** |
+| Output redaction | No | No | Yes (by default) | No | Yes (exact matches; off with `--tty`) |
+| Offline / cron | Yes | Yes, while the login Keychain is unlocked | Needs the 1Password app unlocked or a service-account token | Needs network | Yes, after first login |
+| Cost | Free | Free, MIT | Paid 1Password plan | Paid | Free; source-available (FSL-1.1-MIT, MIT after 2 years) |
+| Adding a key an agent needs | You paste the value into the file or the chat | You type the value at an `envchain --set` prompt | You add it in 1Password | You add it in the provider's console or CLI | The agent gives you a prefilled `keykeeper://add` link or a one-time local page; you paste the value, the agent never sees it |
 
-The main difference is the fourth row. There is no bearer token to copy around: KeyKeeper recognises the app, terminal or script a request was started from and asks you the first time. That boundary is per caller, not per command — an approval covers everything started inside that app or terminal.
+`envchain` is the closest tool: it also keeps values in the macOS Keychain and injects them into one command, but any program that can run `envchain` gets them, unless the item is set to ask for the Keychain password every time. KeyKeeper differs in the "Who may ask" row: there is no bearer token to copy, because it recognises the app, terminal or script a request was started from and asks you the first time. That boundary is per caller, not per command — an approval covers everything started inside that app or terminal. The other difference is the last row: when an agent needs a key it doesn't have, it gives you a prefilled `keykeeper://add` link or a one-time local page, and you paste the value there without the agent seeing it.
 
 ## Everyday commands
 
@@ -248,7 +249,7 @@ A caller KeyKeeper cannot identify is offered only *Just this once*, and is refu
 
 Two things worth being precise about:
 
-- **"Only the program that asked" is identified by where it came from**, not by a name it gives itself: the first ancestor process with a bundle identifier (so an agent you launched from Terminal is identified as Terminal), otherwise the path of the script or executable. An agent running inside an app is covered by that app's approval.
+- **"Only the program that asked" is identified by where it came from**, not by a name it gives itself: the first ancestor process with a bundle identifier (so an agent you launched from Terminal is identified as Terminal), otherwise the path of the script or executable. An agent running inside an app is covered by that app's approval. KeyKeeper works this out from the running process tree when the request arrives. This tells apart the programs you use, but it does not stop malicious software already running under your macOS account from passing itself off as one of them (see below).
 - **Which fields it covers depends on the credential's mode.** For an *Ask every time* credential, an approval covers every secret field of that credential. For a *Background OK* credential, it covers the fields that request asked for: `keykeeper run` asks for all of the credential's secret fields, `keykeeper get` for one. Split credentials you want to grant separately.
 
 Website sessions use the same three durations and the same per-caller rule, and are stored the same way the login snapshots are — in the Keychain, not in a file. Their windows also end permission on a timer: the window freezes and cannot reach the network until you authorize again.
