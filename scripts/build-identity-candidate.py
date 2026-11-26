@@ -17,6 +17,10 @@ base = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(base)
 run = base.run
 TEAM, APP_ID, CONTAINER = base.TEAM, base.APP_ID, base.CONTAINER
+# Must equal IdentityMigrationBridge.serviceName in Sources/KeyKeeperCore/IdentityMigrationBridge.swift.
+MIGRATION_SERVICE = "dev.keykeeper.app.migration-bridge"
+MIGRATION_BUNDLE = "XPCServices/KeyKeeperMigrationBridge.xpc"
+LEGACY_REQUIREMENT = f'=anchor apple generic and identifier "com.keykeeper.app" and certificate leaf[subject.OU] = "{TEAM}"'
 
 
 def validate_profile(profile_bytes, identity):
@@ -65,11 +69,7 @@ def assemble_app(app, build, profile_bytes, entitlements, identity, probe=False,
     (contents / "PkgInfo").write_bytes(b"APPL????")
     if not old:
         (contents / "embedded.provisionprofile").write_bytes(profile_bytes)
-        helpers = contents / "Helpers"
-        helpers.mkdir()
-        helper = helpers / "KeyKeeperMigrationBridge"
-        shutil.copy2(build / "KeyKeeperMigrationBridge", helper)
-        sign(helper, identity, ["--identifier", "com.keykeeper.app"])
+        assemble_migration_service(contents, build, identity, version)
     if not probe:
         shutil.copy2(build / "keykeeper", contents / "MacOS/keykeeper")
         shutil.copy2(REPO / "Assets/KeyKeeper.icns", resources / "KeyKeeper.icns")
@@ -96,11 +96,36 @@ def assemble_app(app, build, profile_bytes, entitlements, identity, probe=False,
         actual = plistlib.loads(run(["codesign", "-d", "--entitlements", ":-", str(app)], True).stdout)
         if actual.get("keychain-access-groups") != [f"{TEAM}.{APP_ID}"]:
             raise ValueError("App access-group differs from candidate")
-        run(["codesign", "--verify", "--strict", "-R",
-             f'=anchor apple generic and identifier "com.keykeeper.app" and certificate leaf[subject.OU] = "{TEAM}"',
-             str(contents / "Helpers/KeyKeeperMigrationBridge")])
+        run(["codesign", "--verify", "--strict", "-R", LEGACY_REQUIREMENT, str(contents / MIGRATION_BUNDLE)])
     return {"name": app.name, "identifier": info["CFBundleIdentifier"],
             "executableSHA256": hashlib.sha256((contents / "MacOS" / executable).read_bytes()).hexdigest()}
+
+
+def assemble_migration_service(contents, build, identity, version):
+    """The old-identity helper as an XPC service: only the new App can reach it (launchd scopes the
+    service to its bundle, and the service itself requires the new App's signature on every message)."""
+    service = contents / MIGRATION_BUNDLE
+    (service / "Contents/MacOS").mkdir(parents=True)
+    shutil.copy2(build / "KeyKeeperMigrationBridge", service / "Contents/MacOS/KeyKeeperMigrationBridge")
+    info = {
+        "CFBundleIdentifier": MIGRATION_SERVICE,
+        "CFBundleExecutable": "KeyKeeperMigrationBridge",
+        "CFBundleName": "KeyKeeperMigrationBridge",
+        "CFBundlePackageType": "XPC!",
+        "CFBundleInfoDictionaryVersion": "6.0",
+        "CFBundleVersion": version,
+        "CFBundleShortVersionString": version,
+        "LSMinimumSystemVersion": "14.0",
+        # JoinExistingSession: by default an XPC service gets a new security session, where the
+        # user's login keychain is not available and every read fails as "interaction not
+        # allowed" (-25308; main-Mac acceptance of e8aa3a6). Apple documents this key for services
+        # that need the user's keychain.
+        "XPCService": {"ServiceType": "Application", "JoinExistingSession": True},
+    }
+    (service / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
+    # Signed as the earlier KeyKeeper: the old login-Keychain items trust that identity.
+    sign(service, identity, ["--identifier", "com.keykeeper.app"])
+    return service
 
 
 def sign(target, identity, extra=None):

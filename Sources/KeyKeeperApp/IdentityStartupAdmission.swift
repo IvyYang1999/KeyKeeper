@@ -22,6 +22,9 @@ final class IdentityStartupAdmission: ObservableObject {
         let readSource: () async throws -> IdentityMigrationSource
         /// The first write, refused by the coordinator if the source is not the confirmed kind.
         let migrate: (_ source: IdentityMigrationSource, _ expectedLegacyData: Bool) throws -> Void
+        /// The names of the old Keychain items still on this Mac. References only: never a value,
+        /// never a dialog. KeyKeeper does not delete them; the person does, in Keychain Access.
+        let legacyItemsRemaining: () -> [String]
     }
 
     enum Stage: Equatable {
@@ -29,6 +32,9 @@ final class IdentityStartupAdmission: ObservableObject {
         case firstInstall
         case legacyFound
         case preparing
+        /// Old data was copied and reads back. The old Keychain items are still readable, without
+        /// a prompt, by anything signed as the earlier KeyKeeper: say which ones to delete.
+        case copied
         case failed(Failure)
     }
 
@@ -50,6 +56,8 @@ final class IdentityStartupAdmission: ObservableObject {
     /// The confirmed screen no longer matched what was read; nothing was written and the person
     /// is asked again on the screen that matches.
     @Published private(set) var sourceChangedSinceConfirmation = false
+    /// Shown on the `.copied` screen: the old items to delete in Keychain Access.
+    @Published private(set) var remainingLegacyItems: [String] = []
     private(set) var admitted = false
     private var busy = false
     private let operations: Operations
@@ -61,15 +69,18 @@ final class IdentityStartupAdmission: ObservableObject {
 
     static func production(onReady: @escaping () -> Void) -> IdentityStartupAdmission {
         let coordinator = IdentityMigrationCoordinator.production()
-        let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/KeyKeeperMigrationBridge")
         return .init(operations: .init(
             status: { try coordinator.status() },
             recover: { _ = try coordinator.recover() },
             applyPreferences: { try coordinator.applyPreferences() },
             legacyFilesExist: { try IdentityMigrationLegacyCapture.legacyFilesExist() },
-            readSource: { try await IdentityMigrationBridge.read(from: helper) },
+            readSource: { try await IdentityMigrationBridge.read() },
             migrate: { source, expected in
                 _ = try coordinator.migrate(source: source, expectedLegacyData: expected)
+            },
+            legacyItemsRemaining: {
+                // If the check itself fails, name every item rather than none.
+                (try? LegacyItemPresence.remaining()) ?? IdentityMigrationLegacyCapture.itemServices(fixture: nil)
             }), onReady: onReady)
     }
 
@@ -119,8 +130,27 @@ final class IdentityStartupAdmission: ObservableObject {
                 }
                 try operations.migrate(source, expectLegacy)
             }
+            if expectLegacy {
+                // Copied and read back: stop once to say which old items are left to delete.
+                if try operations.status() == .pending { try operations.recover() }
+                guard try operations.status() == .ready else { throw IdentityMigrationError.unavailable }
+                remainingLegacyItems = operations.legacyItemsRemaining()
+                if remainingLegacyItems.isEmpty { admitAfterCopy() } else { stage = .copied }
+                return
+            }
             if try !checkpoint() { throw IdentityMigrationError.unavailable }
         } catch { fail(error, during: .storage) }
+    }
+
+    /// The person read which old items to delete (Settings shows them again) and goes on.
+    func continueAfterCopy() {
+        guard stage == .copied, !admitted, !busy else { return }
+        admitAfterCopy()
+    }
+
+    private func admitAfterCopy() {
+        do { if try !checkpoint() { throw IdentityMigrationError.unavailable } }
+        catch { fail(error, during: .storage) }
     }
 
     /// Returns true once admitted. Only a store that reads back as ready is admitted.
@@ -199,6 +229,12 @@ struct IdentityStartupView: View {
             note(L("Values that were already missing stay marked as missing; copying cannot recover them."))
             note(L("Approvals are not copied. Each agent asks you again the first time it uses a key."))
             note(L("iCloud sync stays off. You can turn it on later in Settings."))
+        case .copied:
+            title(L("Copied. One step is left to you"))
+            paragraph(L("Your keys are now in the new protected storage. The earlier version’s copy is still on this Mac, and programs signed as the earlier KeyKeeper can read it without asking. KeyKeeper doesn’t delete it for you, so nothing that wasn’t copied can be lost."))
+            note(L("Once you’ve checked that your keys are here, open Keychain Access, search for “com.keykeeper”, and delete these items (account “keykeeper”):"))
+            LegacyItemList(names: admission.remainingLegacyItems)
+            note(L("If you use the earlier version after copying, keys you add there aren’t copied. Settings shows these steps again."))
         case .failed(let failure):
             title(Self.failureTitle(failure.kind))
             paragraph(Self.failureBody(failure.kind))
@@ -214,6 +250,14 @@ struct IdentityStartupView: View {
         case .legacyFound:
             Button(L("Copy and Continue")) { Task { await admission.prepare() } }
                 .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+        case .copied:
+            HStack(spacing: DS.Spacing.sm) {
+                if KeychainAccessApp.url != nil {
+                    Button(L("Open Keychain Access")) { KeychainAccessApp.open() }
+                }
+                Button(L("Continue")) { admission.continueAfterCopy() }
+                    .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+            }
         case .failed:
             Button(L("Try Again")) { admission.retry() }.keyboardShortcut(.defaultAction)
         case .checking, .preparing:
@@ -272,5 +316,26 @@ struct LanguageMenu: View {
         .font(.caption)
         .help(L("Language"))
         .accessibilityLabel(L("Language"))
+    }
+}
+
+/// The old Keychain item names, as Keychain Access lists them, one per line and selectable.
+struct LegacyItemList: View {
+    let names: [String]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(names, id: \.self) { Text($0).font(.caption.monospaced()) }
+        }
+        .textSelection(.enabled)
+        .padding(.leading, DS.Spacing.sm)
+    }
+}
+
+/// Keychain Access, where the person deletes the old items themselves.
+enum KeychainAccessApp {
+    static var url: URL? { NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.keychainaccess") }
+    static func open() {
+        guard let url else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
     }
 }

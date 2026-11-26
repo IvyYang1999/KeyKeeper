@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import Security
 
 public enum IdentityMigrationLegacyCapture {
     /// Fixed legacy sources only. No write or create call is reachable from this capture.
@@ -29,12 +30,7 @@ public enum IdentityMigrationLegacyCapture {
                 try validateSourceFileNames(FileManager.default.contentsOfDirectory(atPath: directory.path))
             }
             func item(_ suffix: String) throws -> Data? {
-                let name: String
-                if let fixture {
-                    let tail = suffix.hasPrefix("credentials.") ? String(suffix.dropFirst("credentials.".count)) : suffix
-                    name = suffix == "credentials" ? fixture.service : fixture.service + "." + tail
-                } else { name = StorageIdentity.legacy.servicePrefix + suffix }
-                return try SecItemBlobIO(service: name, identity: .legacy).readBlobWithoutInteraction()
+                try SecItemBlobIO(service: itemService(suffix, fixture: fixture), identity: .legacy).readBlobWithoutInteraction()
             }
             func file(_ name: String) throws -> Data? {
                 try IdentityMigrationFiles.read(directory.appendingPathComponent(name))
@@ -52,6 +48,23 @@ public enum IdentityMigrationLegacyCapture {
                 browserMarker: marker("browser-store.created"), proposalMarker: marker("browser-import-proposals.created"))
         }
     }
+    /// The old Keychain item for one capture suffix ("credentials", "metadata-mac", …).
+    static func itemService(_ suffix: String, fixture: IdentityMigrationFixture?) -> String {
+        guard let fixture else { return StorageIdentity.legacy.servicePrefix + suffix }
+        let tail = suffix.hasPrefix("credentials.") ? String(suffix.dropFirst("credentials.".count)) : suffix
+        return suffix == "credentials" ? fixture.service : fixture.service + "." + tail
+    }
+
+    /// Every old Keychain item that can hold a value, an approval, a cookie or a pasted key: what
+    /// the person is told to delete once the copy is done. The capture reads exactly these, plus
+    /// the old sync journal.
+    public static func itemServices(fixture: IdentityMigrationFixture?) -> [String] {
+        let suffixes = ["credentials", "metadata-mac", "credentials.approvals", "browser-sessions",
+                        "credentials.browser-import-proposals"]
+        let journal = (fixture?.service ?? StorageIdentity.legacy.credentialsService) + ".local-sync-journal"
+        return suffixes.map { itemService($0, fixture: fixture) } + [journal]
+    }
+
     /// Before the person confirms anything: does the old KeyKeeper folder hold anything at all?
     /// File names and the folder's own attributes only. No file is opened and no Keychain item is
     /// queried, so no secret can be read here. An unexpected folder fails instead of meaning "empty".
@@ -87,6 +100,36 @@ public enum IdentityMigrationLegacyCapture {
             // at their original path together with the entire source directory.
             guard name.range(of: #"^(grants|service-grants)\.json\.migrated-[0-9]{4}-[0-9]{2}-[0-9]{2}$"#,
                              options: .regularExpression) != nil else { throw IdentityMigrationError.unavailable }
+        }
+    }
+}
+
+/// Which items from before 0.3.7 are still in the person's keychains.
+///
+/// KeyKeeper does not delete them: the Keychain has no "delete only if unchanged", so a removal
+/// could not guarantee it deletes only what was copied. The person deletes them in Keychain
+/// Access; this tells them which names are left. Attributes only: no value is decrypted, no
+/// item's access list is consulted, nothing is changed, and no dialog can appear.
+public enum LegacyItemPresence {
+    public static func remaining(services: [String] = IdentityMigrationLegacyCapture.itemServices(fixture: nil),
+                                 present: (String) throws -> Bool = isPresent) throws -> [String] {
+        try services.filter(present)
+    }
+
+    /// The person's keychain search list (no data-protection flag), the old item's fixed account.
+    static func query(_ service: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: service, kSecAttrAccount as String: "keykeeper",
+         kSecMatchLimit as String: kSecMatchLimitOne, kSecReturnAttributes as String: true,
+         kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail]
+    }
+
+    public static func isPresent(_ service: String) throws -> Bool {
+        var result: AnyObject?
+        switch SecItemCopyMatching(query(service) as CFDictionary, &result) {
+        case errSecSuccess: return true
+        case errSecItemNotFound: return false
+        default: throw IdentityMigrationError.unavailable
         }
     }
 }

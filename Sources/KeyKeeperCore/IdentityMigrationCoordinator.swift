@@ -49,7 +49,7 @@ public final class IdentityMigrationCoordinator {
         try lock.withLock {
             if let prior = try journal() {
                 if prior.prepared == nil { try verifyReady(prior); return prior.summary }
-                guard prior.sourceDigest == Self.digest(try source.encoded()) else { throw IdentityMigrationError.sourceChanged }
+                guard try prior.sourceDigest == source.digest() else { throw IdentityMigrationError.sourceChanged }
                 return try finish(prior)
             }
             if let expectedLegacyData, source.hasLegacyData != expectedLegacyData {
@@ -57,7 +57,7 @@ public final class IdentityMigrationCoordinator {
             }
             try requireEmpty()
             let prepared = try source.prepared(allowUnsignedMetadata: allowUnsignedMetadata)
-            let journal = Journal(sourceDigest: Self.digest(try source.encoded()), prepared: prepared,
+            let journal = Journal(sourceDigest: try source.digest(), prepared: prepared,
                                   summary: prepared.summary, requiredItems: prepared.items.keys.sorted { $0.rawValue < $1.rawValue })
             let bytes = try IdentityMigrationCodec.encode(journal)
             guard bytes.count <= IdentityMigrationSource.maximumBytes else { throw IdentityMigrationError.malformed }
@@ -75,6 +75,16 @@ public final class IdentityMigrationCoordinator {
             guard let journal = try journal() else { return nil }
             if journal.prepared == nil { try verifyReady(journal); return journal.summary }
             return try finish(journal)
+        }
+    }
+
+    /// What a completed migration copied; nil before it is complete. Settings points to the old
+    /// Keychain items only after old data was actually copied, never after a first install.
+    public func completedSummary() throws -> IdentityMigrationSummary? {
+        try lock.withLock {
+            guard let journal = try journal(), journal.prepared == nil else { return nil }
+            try verifyReady(journal)
+            return journal.summary
         }
     }
 
@@ -163,7 +173,6 @@ public final class IdentityMigrationCoordinator {
 
     static let fileNames: Set<String> = ["meta.json", "metadata-changes.json", "migration-preferences.json",
                                          "browser-store.created", "browser-import-proposals.created"]
-    private static func digest(_ bytes: Data) -> String { SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined() }
 }
 
 /// Fixed new-identity destination; no configurable production source or ACL mutation exists.

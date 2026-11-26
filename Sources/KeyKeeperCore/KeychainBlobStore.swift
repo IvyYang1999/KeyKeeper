@@ -71,7 +71,8 @@ public final class SecItemBlobIO: KeychainBlobIO, @unchecked Sendable {
     }
 
     /// Remove the item entirely. Used by an isolated test instance to leave nothing behind in the
-    /// login Keychain; production never calls it. A missing item is not an error.
+    /// login Keychain; production never calls it (the copy from before 0.3.7 is never deleted by
+    /// KeyKeeper; see `LegacyItemPresence`). A missing item is not an error.
     public func deleteItem() throws {
         let query = Self.matchQuery(service: service, identity: identity)
         let status = SecItemDelete(query as CFDictionary)

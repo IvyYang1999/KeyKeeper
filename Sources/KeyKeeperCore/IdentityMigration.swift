@@ -155,6 +155,8 @@ public struct IdentityMigrationSummary: Codable, Sendable, Equatable {
     public var missingValueCount: Int
     public var browserSessionCount: Int
     public var transferredGrants: Int { 0 }
+    /// Keys or website logins were copied from the earlier version (not a first install).
+    public var copiedLegacyData: Bool { credentialCount + missingValueCount + browserSessionCount > 0 }
 }
 
 public enum IdentityMigrationStatus: Sendable, Equatable { case required, pending, ready }

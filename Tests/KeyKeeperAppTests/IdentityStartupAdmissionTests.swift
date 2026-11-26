@@ -24,7 +24,9 @@ final class IdentityStartupAdmissionTests: XCTestCase {
     /// Production wiring around a real coordinator; only the old folder and the helper are faked.
     private func admission(destination: MemoryDestination, filesExist: @escaping () throws -> Bool,
                            read: @escaping () throws -> IdentityMigrationSource,
-                           reads: UnsafeMutablePointer<Int>, starts: UnsafeMutablePointer<Int>) -> IdentityStartupAdmission {
+                           reads: UnsafeMutablePointer<Int>, starts: UnsafeMutablePointer<Int>,
+                           remaining: @escaping () -> [String] = { ["com.keykeeper.credentials"] })
+        -> IdentityStartupAdmission {
         let coordinator = IdentityMigrationCoordinator(destination: destination)
         return IdentityStartupAdmission(operations: .init(
             status: { try coordinator.status() },
@@ -32,7 +34,8 @@ final class IdentityStartupAdmissionTests: XCTestCase {
             applyPreferences: { try coordinator.applyPreferences(to: self.scratchDefaults()) },
             legacyFilesExist: filesExist,
             readSource: { reads.pointee += 1; return try read() },
-            migrate: { source, expected in _ = try coordinator.migrate(source: source, expectedLegacyData: expected) }),
+            migrate: { source, expected in _ = try coordinator.migrate(source: source, expectedLegacyData: expected) },
+            legacyItemsRemaining: remaining),
             onReady: { starts.pointee += 1 })
     }
 
@@ -65,6 +68,11 @@ final class IdentityStartupAdmissionTests: XCTestCase {
             XCTAssertEqual(reads.pointee, 0)
             await admission.prepare()
             XCTAssertEqual(reads.pointee, 1)
+            if exists {
+                XCTAssertEqual(admission.stage, .copied, "Copied old data first says which old items are left")
+                XCTAssertFalse(admission.admitted); XCTAssertEqual(starts.pointee, 0)
+                admission.continueAfterCopy()
+            }
             XCTAssertTrue(admission.admitted); XCTAssertEqual(starts.pointee, 1)
             admission.start(); await admission.prepare()
             XCTAssertEqual(starts.pointee, 1)
@@ -90,6 +98,7 @@ final class IdentityStartupAdmissionTests: XCTestCase {
             XCTAssertEqual(admission.stage, nextStage)
             XCTAssertTrue(admission.sourceChangedSinceConfirmation)
             await admission.prepare()
+            if nextStage == .legacyFound { admission.continueAfterCopy() }
             XCTAssertTrue(admission.admitted)
             XCTAssertFalse(admission.sourceChangedSinceConfirmation)
             XCTAssertEqual(starts.pointee, 1)
@@ -145,7 +154,9 @@ final class IdentityStartupAdmissionTests: XCTestCase {
             applyPreferences: { events.append("preferences") },
             legacyFilesExist: { XCTFail("An interrupted copy must not look at the source again"); return false },
             readSource: { XCTFail("Must not read another source"); return self.empty },
-            migrate: { _, _ in XCTFail("Must not migrate again") }), onReady: { events.append("services") })
+            migrate: { _, _ in XCTFail("Must not migrate again") },
+            legacyItemsRemaining: { XCTFail("An interrupted copy is not a new copy"); return [] }),
+            onReady: { events.append("services") })
         admission.start()
         XCTAssertEqual(events, ["recover", "preferences", "services"])
     }
@@ -156,11 +167,53 @@ final class IdentityStartupAdmissionTests: XCTestCase {
                 status: { failingPhase }, recover: { throw IdentityMigrationError.unavailable },
                 applyPreferences: { throw IdentityMigrationError.unavailable },
                 legacyFilesExist: { false }, readSource: { self.empty },
-                migrate: { _, _ in throw IdentityMigrationError.unavailable }), onReady: { XCTFail("Not admitted") })
+                migrate: { _, _ in throw IdentityMigrationError.unavailable },
+                legacyItemsRemaining: { [] }), onReady: { XCTFail("Not admitted") })
             admission.start(); await admission.prepare()
             XCTAssertFalse(admission.admitted)
             guard case .failed(let failure) = admission.stage else { return XCTFail("\(failingPhase): \(admission.stage)") }
             XCTAssertEqual(failure.kind, .storage)
         }
+    }
+
+    /// 复制完旧数据后，旧钥匙串条目还能被旧身份签名的程序直接读：停一次，列出还剩哪些名字，
+    /// 由用户自己去「钥匙串访问」删除。KeyKeeper 不删任何东西，用户点继续才进入。
+    func testCopiedOldDataNamesWhatIsLeftAndContinuesOnlyWhenAsked() async {
+        let destination = MemoryDestination(), (reads, starts) = counters()
+        let left = ["com.keykeeper.credentials", "com.keykeeper.browser-sessions"]
+        var looks = 0
+        let admission = admission(destination: destination, filesExist: { true }, read: { self.legacy },
+                                  reads: reads, starts: starts, remaining: { looks += 1; return left })
+        admission.start(); await admission.prepare()
+        XCTAssertEqual(admission.stage, .copied)
+        XCTAssertEqual(admission.remainingLegacyItems, left)
+        XCTAssertEqual(looks, 1)
+        XCTAssertFalse(admission.admitted)
+        XCTAssertEqual(try IdentityMigrationCoordinator(destination: destination).status(), .ready)
+        admission.continueAfterCopy()
+        XCTAssertTrue(admission.admitted); XCTAssertEqual(starts.pointee, 1)
+        admission.continueAfterCopy()
+        XCTAssertEqual(starts.pointee, 1, "Nothing more happens once admitted")
+    }
+
+    /// The old items are already gone (deleted earlier, or never there): no stop, straight in.
+    func testNothingLeftGoesStraightOn() async {
+        let destination = MemoryDestination(), (reads, starts) = counters()
+        let admission = admission(destination: destination, filesExist: { true }, read: { self.legacy },
+                                  reads: reads, starts: starts, remaining: { [] })
+        admission.start(); await admission.prepare()
+        XCTAssertTrue(admission.admitted); XCTAssertEqual(starts.pointee, 1)
+        XCTAssertNotEqual(admission.stage, .copied)
+    }
+
+    /// A first install has no old copy: no stop, no old item names, not even looked for.
+    func testFirstInstallNeverPointsAtOldItems() async {
+        let destination = MemoryDestination(), (reads, starts) = counters()
+        let admission = admission(destination: destination, filesExist: { false }, read: { self.empty },
+                                  reads: reads, starts: starts,
+                                  remaining: { XCTFail("A first install has nothing to delete"); return ["x"] })
+        admission.start(); await admission.prepare()
+        XCTAssertTrue(admission.admitted)
+        XCTAssertNotEqual(admission.stage, .copied)
     }
 }

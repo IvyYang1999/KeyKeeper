@@ -339,7 +339,7 @@ extension AppL10n {
         "Download updates in the background": "在后台下载更新",
         "Check for Updates…": "检查更新…",
         "Data": "数据",
-        "Key values live in the macOS Keychain (covered by your normal macOS backup). This folder holds names, notes and approvals — no secret values.": "密钥值保存在 macOS 钥匙串中（由正常的 macOS 备份覆盖）。此文件夹仅保存名称、备注和授权信息，不含密钥值。",
+        "Key values live in protected storage on this Mac; Time Machine and Migration Assistant don’t carry them to another Mac. This folder holds names, notes and plain fields — no secret values.": "密钥值保存在这台 Mac 的受保护存储里，时间机器和迁移助理不会把它们带到另一台 Mac。这个文件夹里放的是名称、备注和明文字段，没有任何机密值。",
         "Show data folder in Finder": "在访达中显示数据文件夹",
         "CLI not installed": "尚未安装命令行工具",
         "CLI is out of date": "命令行工具需要更新",

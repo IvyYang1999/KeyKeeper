@@ -15,6 +15,8 @@ struct SettingsServices {
     var installCLI: () -> String?
     var showDataFolder: () -> Void
     var agentPlugins: AgentPluginSetup
+    /// The copy from before 0.3.7, once the data has been migrated. Absent in tests and renders.
+    var legacyCopy: LegacyCopyService = .absent
 
     static var production: SettingsServices {
         SettingsServices(
@@ -26,8 +28,32 @@ struct SettingsServices {
             probeCLI: { CLIInstallState.probe(appVersion: BuildVersion.identifier) },
             installCLI: { CLIInstaller.installWithAdminPrivileges().map { AppL10n.text($0) } },
             showDataFolder: { NSWorkspace.shared.activateFileViewerSelecting([KeyKeeperPaths.applicationSupportDirectory]) },
-            agentPlugins: .production()
+            agentPlugins: .production(),
+            legacyCopy: .production
         )
+    }
+}
+
+/// The copy an earlier KeyKeeper left in the person's keychains. After a migration it is only a
+/// stale duplicate, but anything signed as the earlier KeyKeeper can still read it without a
+/// prompt. KeyKeeper never deletes it; the person does, in Keychain Access.
+@MainActor
+struct LegacyCopyService {
+    /// The old item names still there. Item attributes and the new store’s receipt only: never
+    /// an old value. Empty unless old data was actually copied (never after a first install).
+    var remaining: () -> [String]
+
+    static let absent = LegacyCopyService(remaining: { [] })
+
+    static var production: LegacyCopyService {
+        LegacyCopyService(remaining: {
+            guard StorageIdentity.runtime == .current,
+                  (try? IdentityMigrationCoordinator.production().completedSummary())??.copiedLegacyData == true else {
+                return []
+            }
+            // If the check itself fails, name every item rather than none.
+            return (try? LegacyItemPresence.remaining()) ?? IdentityMigrationLegacyCapture.itemServices(fixture: nil)
+        })
     }
 }
 
@@ -91,6 +117,7 @@ struct SettingsPage: View {
     @State private var launchAtLoginError: String?
     @State private var cliState: CLIInstallState = .missing
     @State private var cliError: String?
+    @State private var legacyItems: [String] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -339,8 +366,21 @@ struct SettingsPage: View {
             AgentPluginsRows(setup: services.agentPlugins)
             SettingsDivider()
             SettingsRow(title: L("Data folder"),
-                        detail: L("Key values live in the macOS Keychain (covered by your normal macOS backup). This folder holds names, notes and approvals — no secret values.")) {
+                        detail: L("Key values live in protected storage on this Mac; Time Machine and Migration Assistant don’t carry them to another Mac. This folder holds names, notes and plain fields — no secret values.")) {
                 Button(L("Show in Finder")) { services.showDataFolder() }
+            }
+            if !legacyItems.isEmpty {
+                SettingsDivider()
+                SettingsRow(title: L("Copy from before 0.3.7"),
+                            detail: L("Still on this Mac. Programs signed as the earlier KeyKeeper can read it without asking. Your keys are already in the new storage. To remove it, delete these items in Keychain Access (search for “com.keykeeper”, account “keykeeper”):")) {
+                    VStack(alignment: .trailing, spacing: DS.Spacing.xs) {
+                        if KeychainAccessApp.url != nil {
+                            Button(L("Open Keychain Access")) { KeychainAccessApp.open() }
+                        }
+                        Button(L("Check Again")) { legacyItems = services.legacyCopy.remaining() }
+                    }
+                }
+                LegacyItemList(names: legacyItems)
             }
         }
     }
@@ -363,6 +403,7 @@ struct SettingsPage: View {
         reviewerModel = reviewer.model
         launchAtLogin = services.loginItemEnabled()
         cliState = services.probeCLI()
+        legacyItems = services.legacyCopy.remaining()
         updateController.refresh()
     }
 
