@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.3.8 - 2026-11-26
+
+- Move legacy credential migration into a read-only XPC service. After copying, show legacy Keychain item names and open Keychain Access on request.
+- People upgrading from 0.3.6 or earlier can review the old copy in Settings. Keep any duplicate or item whose migration you cannot confirm.
+
 ## 0.3.7 - 2026-11-10
 
 - Optional encrypted iCloud sync for keys and metadata, with approvals kept local to each Mac. Missing-value records survive and do not overwrite available values on another device.
